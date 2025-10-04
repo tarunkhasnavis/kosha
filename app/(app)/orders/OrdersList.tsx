@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { MainNav } from "@/components/main-nav"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,92 +10,67 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, Filter, RefreshCw, TrendingUp, Clock, CheckCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { OrderCard } from "./components/OrderCard"
+import { approveOrder, rejectOrder, requestOrderInfo } from "@/lib/actions/orders"
+import { createClient } from "@/utils/supabase/client"
 import type { Order, OrderStats } from "@/types/orders"
 
+interface OrdersListProps {
+  initialOrders: Order[]
+  initialStats: OrderStats
+}
 
-export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [stats, setStats] = useState<OrderStats>({
-    waitingReview: 0,
-    uploadSuccessful: 0,
-    totalToday: 0,
-    processingTime: "0 min",
-  })
+export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const router = useRouter()
   const { toast } = useToast()
 
+  // Set initial timestamp only on client
   useEffect(() => {
-    fetchOrders()
+    setLastUpdated(new Date())
   }, [])
 
-  const fetchOrders = async () => {
-    try {
-      setLoading(true)
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // Placeholder data with fixed timestamps
-      const mockOrders: Order[] = [
+  // Set up real-time subscription for automation updates
+  useEffect(() => {
+    const supabase = createClient()
+
+    const channel = supabase
+      .channel('orders-changes')
+      .on(
+        'postgres_changes',
         {
-          id: "1",
-          orderNumber: "ORD-2024-001",
-          companyName: "Acme Restaurant",
-          source: "email",
-          status: "waiting_review",
-          items: [
-            { name: "Organic Tomatoes", quantity: "50 lbs", unit_price: 2.50, total: 125.00 },
-            { name: "Fresh Basil", quantity: "10 bunches", unit_price: 3.00, total: 30.00 }
-          ],
-          orderValue: 155.00,
-          itemCount: 2,
-          receivedDate: "2024-01-14T10:30:00Z"
+          event: '*',
+          schema: 'public',
+          table: 'orders'
         },
-        {
-          id: "2",
-          orderNumber: "ORD-2024-002",
-          companyName: "Bistro Belle",
-          source: "spreadsheet",
-          status: "approved",
-          items: [
-            { name: "Prime Beef", quantity: "100 lbs", unit_price: 8.50, total: 850.00 }
-          ],
-          orderValue: 850.00,
-          itemCount: 1,
-          receivedDate: "2024-01-14T11:45:00Z"
+        () => {
+          // When automation updates DB, refresh the page data
+          setLastUpdated(new Date())
+          router.refresh()
         }
-      ]
-      
-      const mockStats: OrderStats = {
-        waitingReview: 1,
-        uploadSuccessful: 1,
-        totalToday: 2,
-        processingTime: "2 min"
-      }
-      
-      setOrders(mockOrders)
-      setStats(mockStats)
-    } catch (error) {
-      console.error("Failed to fetch orders:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch orders",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
+  }, [router])
+
+  const handleRefresh = () => {
+    setIsRefreshing(true)
+    setLastUpdated(new Date())
+    router.refresh()
+    setTimeout(() => setIsRefreshing(false), 500)
   }
 
   const handleApprove = async (orderId: string) => {
     try {
-      await fetch(`/api/orders/${orderId}/approve`, { method: "POST" })
+      await approveOrder(orderId)
       toast({
         title: "Success",
         description: "Order approved successfully",
       })
-      fetchOrders()
     } catch (error) {
       console.error("Failed to approve order:", error)
       toast({
@@ -108,16 +83,11 @@ export default function OrdersPage() {
 
   const handleReject = async (orderId: string) => {
     try {
-      await fetch(`/api/orders/${orderId}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Manual rejection" }),
-      })
+      await rejectOrder(orderId, "Manual rejection")
       toast({
         title: "Success",
         description: "Order rejected successfully",
       })
-      fetchOrders()
     } catch (error) {
       console.error("Failed to reject order:", error)
       toast({
@@ -129,17 +99,11 @@ export default function OrdersPage() {
   }
 
   const handleRequestInfo = async (orderId: string) => {
-    const order = orders.find((o) => o.id === orderId)
+    const order = initialOrders.find((o) => o.id === orderId)
     if (!order) return
 
     try {
-      await fetch(`/api/orders/${orderId}/request-info`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipientEmail: order.companyName,
-        }),
-      })
+      await requestOrderInfo(orderId, order.company_name)
       toast({
         title: "Success",
         description: "Information request sent successfully",
@@ -154,49 +118,20 @@ export default function OrdersPage() {
     }
   }
 
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = initialOrders.filter((order) => {
     if (!searchTerm) return true
     const searchLower = searchTerm.toLowerCase()
     return (
-      (order.companyName || "").toLowerCase().includes(searchLower) ||
-      (order.orderNumber || "").toLowerCase().includes(searchLower)
+      (order.company_name || "").toLowerCase().includes(searchLower) ||
+      (order.order_number || "").toLowerCase().includes(searchLower)
     )
   })
 
   const waitingOrders = filteredOrders.filter((order) => order.status === "waiting_review")
   const approvedOrders = filteredOrders.filter((order) => order.status === "approved")
 
-  if (loading) {
-    return (
-      <div className="flex h-screen bg-gray-50">
-        <MainNav />
-        <main className="flex-1 overflow-y-auto pl-64">
-          <div className="w-full px-4 sm:px-6 lg:px-8 py-8 max-w-[1920px] mx-auto">
-            <div className="animate-pulse space-y-8">
-              <div className="space-y-2">
-                <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="h-24 bg-gray-200 rounded"></div>
-                ))}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                {[...Array(8)].map((_, i) => (
-                  <div key={i} className="h-64 bg-gray-200 rounded"></div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-screen bg-gray-50">
-      <MainNav />
       <main className="flex-1 overflow-y-auto pl-64">
         <div className="w-full px-4 sm:px-6 lg:px-8 py-8 max-w-[1920px] mx-auto">
           {/* Header */}
@@ -204,6 +139,11 @@ export default function OrdersPage() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
               <p className="text-muted-foreground mt-1">AI-powered order processing and management</p>
+              {lastUpdated && (
+                <p className="text-muted-foreground text-xs mt-1">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
@@ -221,7 +161,7 @@ export default function OrdersPage() {
                 <Clock className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-orange-600">{stats.waitingReview}</div>
+                <div className="text-2xl font-bold text-orange-600">{initialStats.waitingReview}</div>
                 <p className="text-xs text-muted-foreground">Awaiting approval</p>
               </CardContent>
             </Card>
@@ -232,7 +172,7 @@ export default function OrdersPage() {
                 <TrendingUp className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{stats.totalToday}</div>
+                <div className="text-2xl font-bold text-blue-600">{initialStats.totalToday}</div>
                 <p className="text-xs text-muted-foreground">Last 24 hours</p>
               </CardContent>
             </Card>
@@ -254,8 +194,8 @@ export default function OrdersPage() {
                 <Filter className="h-4 w-4 mr-2" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm" onClick={fetchOrders} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
             </div>

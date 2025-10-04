@@ -1,5 +1,3 @@
-"use client"
-
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,8 +48,8 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <h3 className="font-semibold text-lg">{order.orderNumber}</h3>
-            <p className="text-sm text-muted-foreground">{order.companyName}</p>
+            <h3 className="font-semibold text-lg">{order.order_number}</h3>
+            <p className="text-sm text-muted-foreground">{order.company_name}</p>
           </div>
           <Badge className={sourceColors[order.source]} variant="outline">
             <SourceIcon className="h-3 w-3 mr-1" />
@@ -65,39 +63,40 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-muted-foreground">Order Value</p>
-            <p className="font-medium">${order.orderValue.toLocaleString()}</p>
+            <p className="font-medium">${Number(order.order_value)?.toLocaleString() ?? 'N/A'}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Items</p>
-            <p className="font-medium">{order.itemCount} items</p>
+            <p className="font-medium">{order.item_count ?? 0} items</p>
           </div>
         </div>
 
         {/* Sample Items */}
-        <div>
-          <p className="text-sm text-muted-foreground mb-2">Items Preview:</p>
-          <div className="space-y-1">
-            {order.items.slice(0, 2).map((item, index) => (
-              <div key={index} className="text-xs bg-gray-50 p-2 rounded">
-                <span className="font-medium">{item.name}</span>
-                <span className="text-muted-foreground ml-2">
-                  {item.quantity} {item.unit}
-                  {item.price && ` @ $${item.price}`}
-                </span>
-              </div>
-            ))}
-            {order.items.length > 2 && (
-              <p className="text-xs text-muted-foreground">+{order.items.length - 2} more items...</p>
-            )}
+        {order.items && order.items.length > 0 && (
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">Items Preview:</p>
+            <div className="space-y-1">
+              {order.items.slice(0, 2).map((item, index) => (
+                <div key={index} className="text-xs bg-gray-50 p-2 rounded">
+                  <span className="font-medium">{item.name}</span>
+                  <span className="text-muted-foreground ml-2">
+                    {item.quantity} @ ${item.unit_price} = ${item.total}
+                  </span>
+                </div>
+              ))}
+              {order.items.length > 2 && (
+                <p className="text-xs text-muted-foreground">+{order.items.length - 2} more items...</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
 
         {/* Timestamp */}
         <div className="text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <Clock className="h-3 w-3" />
-            <span>Received: {new Date(order.receivedDate).toLocaleString()}</span>
+            <span>Received: {new Date(order.received_date).toLocaleString()}</span>
           </div>
         </div>
 

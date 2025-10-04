@@ -2,19 +2,19 @@
 
 export interface Order {
   id: string
-  orderNumber: string
-  companyName: string
+  order_number: string
+  company_name: string
   source: "email" | "text" | "voicemail" | "spreadsheet" | "pdf"
   status: "waiting_review" | "approved" | "rejected" | "processing"
-  receivedDate: string
-  orderValue: number
-  itemCount: number
-  items: OrderItem[]
+  received_date: string
+  order_value: number
+  item_count: number
+  items?: OrderItem[]
 }
 
 export interface OrderItem {
   name: string
-  quantity: string  // Changed to string to include unit, e.g., "50 lbs"
+  quantity: string
   unit_price: number
   total: number
 }

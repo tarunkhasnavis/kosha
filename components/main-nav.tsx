@@ -11,6 +11,7 @@ import {
   Layers,
   Users,
   ShoppingCart,
+  Building2,
 } from "lucide-react"
 
 const navigation = [
@@ -23,7 +24,11 @@ const navigation = [
   { name: "Suppliers", href: "/suppliers", icon: Users },
 ]
 
-export function MainNav() {
+interface MainNavProps {
+  organizationName?: string
+}
+
+export function MainNav({ organizationName }: MainNavProps) {
   const pathname = usePathname()
 
   return (
@@ -55,6 +60,19 @@ export function MainNav() {
           })}
         </div>
       </div>
+
+      {/* Organization Name - Bottom */}
+      {organizationName && (
+        <div className="border-t border-gray-200 p-4">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50">
+            <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Organization</p>
+              <p className="text-sm font-medium text-gray-900 truncate">{organizationName}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   )
 }
