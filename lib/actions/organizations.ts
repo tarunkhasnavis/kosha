@@ -36,17 +36,22 @@ export async function createOrganization(organizationName: string) {
     .single()
 
   if (orgError) {
+    console.error('Organization creation error:', orgError)
     throw new Error('Failed to create organization: ' + orgError.message)
   }
 
-  // Update user's profile with organization_id as owner
+  console.log('Organization created:', newOrg)
+
+  // Upsert user's profile with organization_id as owner
   const { error: profileError } = await supabase
     .from('profiles')
-    .update({
+    .upsert({
+      id: user.id,
+      email: user.email,
+      full_name: user.user_metadata?.full_name || user.user_metadata?.name,
       organization_id: newOrg.id,
       role: 'owner'
     })
-    .eq('id', user.id)
 
   if (profileError) {
     throw new Error('Failed to update user profile: ' + profileError.message)

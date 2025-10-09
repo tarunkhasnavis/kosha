@@ -30,6 +30,11 @@ export function CreateOrganizationForm() {
       await createOrganization(organizationName)
       // Server Action will redirect to /orders
     } catch (error) {
+      // Next.js redirect() throws a special error - don't show toast for it
+      if (error instanceof Error && error.message.includes('NEXT_REDIRECT')) {
+        return // Let the redirect happen
+      }
+
       console.error('Failed to create organization:', error)
       toast({
         title: 'Error',
@@ -47,7 +52,7 @@ export function CreateOrganizationForm() {
         <Input
           id="orgName"
           type="text"
-          placeholder="Acme Restaurant"
+          placeholder="Ellijay Mushrooms"
           value={organizationName}
           onChange={(e) => setOrganizationName(e.target.value)}
           disabled={isLoading}

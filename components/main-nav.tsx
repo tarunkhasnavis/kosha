@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
+import { Young_Serif } from "next/font/google"
 import {
   LayoutDashboard,
   Package,
@@ -12,7 +14,12 @@ import {
   Users,
   ShoppingCart,
   Building2,
+  LogOut,
 } from "lucide-react"
+import { createClient } from "@/utils/supabase/client"
+import { useRouter } from "next/navigation"
+
+const youngSerif = Young_Serif({ weight: "400", subsets: ["latin"] })
 
 const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
@@ -30,13 +37,22 @@ interface MainNavProps {
 
 export function MainNav({ organizationName }: MainNavProps) {
   const pathname = usePathname()
+  const router = useRouter()
+
+  const handleSignOut = async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   return (
     <nav className="fixed left-0 top-0 z-40 h-screen w-64 bg-white border-r border-gray-200 flex flex-col">
       {/* Logo */}
-      <div className="flex h-16 items-center px-6 border-b border-gray-200">
-        <Package className="h-8 w-8 text-blue-600" />
-        <span className="ml-2 text-xl font-bold text-gray-900">Zoodl</span>
+      <div className="flex h-16 items-center px-3 border-b border-gray-200">
+        <div>
+          <Image src="/logo.png" alt="Kosha Logo" width={32} height={32} className="h-8 w-8" />
+        </div>
+        <span className={`text-xl text-gray-900 ${youngSerif.className}`}>kosha</span>
       </div>
 
       {/* Navigation Links */}
@@ -50,7 +66,7 @@ export function MainNav({ organizationName }: MainNavProps) {
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive ? "bg-blue-100 text-blue-700" : "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
+                  isActive ? "bg-green-50 text-[#48663D]" : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -61,16 +77,23 @@ export function MainNav({ organizationName }: MainNavProps) {
         </div>
       </div>
 
-      {/* Organization Name - Bottom */}
+      {/* Organization Name & Sign Out - Bottom */}
       {organizationName && (
-        <div className="border-t border-gray-200 p-4">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50">
+        <div className="border-t border-gray-200 p-4 space-y-2">
+          <div className="flex items-center gap-3 px-3 py-2">
             <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500 uppercase tracking-wide">Organization</p>
               <p className="text-sm font-medium text-gray-900 truncate">{organizationName}</p>
             </div>
           </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors w-full"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
         </div>
       )}
     </nav>
