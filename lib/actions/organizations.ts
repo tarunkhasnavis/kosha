@@ -11,6 +11,7 @@ import { createClient } from '@/utils/supabase/server'
 import { getUser, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { storeOAuthTokens } from './oauthTokens'
+import { startGmailWatch } from '@/lib/gmail/watch'
 
 /**
  * Create a new organization and assign the current user as owner
@@ -85,6 +86,14 @@ export async function createOrganization(organizationName: string): Promise<{ or
       })
 
       console.log('✅ OAuth tokens stored successfully for organization:', newOrg.id)
+
+      // Start Gmail watch for real-time notifications via Pub/Sub
+      const watchResult = await startGmailWatch(newOrg.id)
+      if (watchResult) {
+        console.log('✅ Gmail watch started for organization:', newOrg.id)
+      } else {
+        console.error('⚠️ Failed to start Gmail watch - emails will not sync in real-time')
+      }
     } catch (error) {
       // CRITICAL: Token storage failed - this will prevent email sync from working
       console.error('❌ CRITICAL: Failed to store OAuth tokens for new organization')

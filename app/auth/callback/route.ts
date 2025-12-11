@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { getUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { storeOAuthTokens } from '@/lib/actions/oauthTokens'
+import { startGmailWatch } from '@/lib/gmail/watch'
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
@@ -61,6 +62,14 @@ export async function GET(request: Request) {
             refreshToken: sessionData.session.provider_refresh_token,
             expiresAt,
           })
+
+          // Start Gmail watch for real-time notifications via Pub/Sub
+          const watchResult = await startGmailWatch(profile.organization_id)
+          if (watchResult) {
+            console.log(`Started Gmail watch for org ${profile.organization_id}`)
+          } else {
+            console.error('Failed to start Gmail watch')
+          }
         } catch (error) {
           console.error('Failed to store OAuth tokens during login:', error)
           // Don't fail the login if token storage fails
