@@ -10,8 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { AddIngredientDialog } from "@/app/recipes/components/add-ingredient-dialog"
-import { AddStepDialog } from "@/app/recipes/components/add-step-dialog"
+import { AddIngredientDialog } from "@/app/(app)/recipes/components/add-ingredient-dialog"
+import { AddStepDialog } from "@/app/(app)/recipes/components/add-step-dialog"
 import { Clock, Users, ChefHat, Edit2, Save, X, Package, Utensils, BookOpen, AlertCircle } from "lucide-react"
 
 interface RecipeIngredient {
