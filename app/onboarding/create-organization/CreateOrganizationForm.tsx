@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createOrganization } from '@/lib/actions/organizations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +12,7 @@ export function CreateOrganizationForm() {
   const [organizationName, setOrganizationName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,18 +29,25 @@ export function CreateOrganizationForm() {
     setIsLoading(true)
 
     try {
-      await createOrganization(organizationName)
-      // Server Action will redirect to /orders
-    } catch (error) {
-      // Next.js redirect() throws a special error - don't show toast for it
-      if (error instanceof Error && error.message.includes('NEXT_REDIRECT')) {
-        return // Let the redirect happen
-      }
+      // Create organization and wait for database transaction to complete
+      const result = await createOrganization(organizationName)
 
+      console.log('Organization created successfully:', result.organizationId)
+
+      // Database transaction is now committed
+      // Force router refresh to clear any cached data
+      router.refresh()
+
+      // Navigate to orders page - organization is guaranteed to exist
+      router.push('/orders')
+
+      // Note: We keep isLoading=true during navigation
+      // The form will unmount when navigation completes
+    } catch (error) {
       console.error('Failed to create organization:', error)
       toast({
         title: 'Error',
-        description: 'Failed to create organization. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to create organization. Please try again.',
         variant: 'destructive',
       })
       setIsLoading(false)

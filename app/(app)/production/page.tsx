@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TemperatureHistory } from "@/app/production/components/temperature-history"
+import { TemperatureHistory } from "@/app/(app)/production/components/temperature-history"
 
 interface ProductionLine {
   id: string

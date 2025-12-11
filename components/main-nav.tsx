@@ -24,11 +24,11 @@ const youngSerif = Young_Serif({ weight: "400", subsets: ["latin"] })
 const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Ingredients", href: "/ingredients", icon: Package },
-  { name: "Recipes", href: "/recipes", icon: ChefHat },
-  { name: "Batches", href: "/batches", icon: Layers },
-  { name: "Production", href: "/production", icon: Factory },
-  { name: "Suppliers", href: "/suppliers", icon: Users },
+  { name: "Ingredients", href: "/", icon: Package },
+  { name: "Recipes", href: "/", icon: ChefHat },
+  { name: "Batches", href: "/", icon: Layers },
+  { name: "Production", href: "/", icon: Factory },
+  { name: "Suppliers", href: "/", icon: Users },
 ]
 
 interface MainNavProps {

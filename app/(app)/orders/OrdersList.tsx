@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Filter, RefreshCw, TrendingUp, Clock, CheckCircle } from "lucide-react"
+import { Search, Filter, RefreshCw, TrendingUp, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { OrderCard } from "./components/OrderCard"
 import { approveOrder, rejectOrder, requestOrderInfo } from "@/lib/actions/orders"
@@ -129,6 +129,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
 
   const waitingOrders = filteredOrders.filter((order) => order.status === "waiting_review")
   const approvedOrders = filteredOrders.filter((order) => order.status === "approved")
+  const clarificationOrders = filteredOrders.filter((order) => order.status === "awaiting_clarification")
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -203,12 +204,19 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
 
           {/* Tabs */}
           <Tabs defaultValue="waiting" className="space-y-6">
-            <TabsList className="grid w-full max-w-xl grid-cols-2">
+            <TabsList className="grid w-full max-w-3xl grid-cols-3">
               <TabsTrigger value="waiting" className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 Pending Review
                 <Badge variant="secondary" className="ml-1">
                   {waitingOrders.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="clarification" className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                Needs Info
+                <Badge variant="secondary" className="ml-1">
+                  {clarificationOrders.length}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger value="approved" className="flex items-center gap-2">
@@ -234,6 +242,32 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
                   {waitingOrders.map((order) => (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onRequestInfo={handleRequestInfo}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="clarification" className="space-y-6">
+              {clarificationOrders.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No incomplete orders</h3>
+                    <p className="text-muted-foreground text-center max-w-md">
+                      Orders needing clarification will appear here when customers send incomplete information.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
+                  {clarificationOrders.map((order) => (
                     <OrderCard
                       key={order.id}
                       order={order}

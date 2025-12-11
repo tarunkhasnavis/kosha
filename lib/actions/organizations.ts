@@ -1,18 +1,29 @@
 'use server'
 
+/**
+ * Organization server actions
+ *
+ * These functions MUTATE data (INSERT/UPDATE/DELETE operations)
+ * For read-only queries, see lib/db/organizations.ts
+ */
+
 import { createClient } from '@/utils/supabase/server'
+import { getUser, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
+import { storeOAuthTokens } from './oauthTokens'
 
-export async function createOrganization(organizationName: string) {
-  const supabase = await createClient()
+/**
+ * Create a new organization and assign the current user as owner
+ * Returns the organization ID on success instead of redirecting
+ */
+export async function createOrganization(organizationName: string): Promise<{ organizationId: string }> {
+  const user = await getUser()
 
-  // Get current user
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-  if (userError || !user) {
+  if (!user) {
     throw new Error('Not authenticated')
   }
+
+  const supabase = await createClient()
 
   // Check if user already has an organization
   const { data: existingProfile } = await supabase
@@ -22,15 +33,16 @@ export async function createOrganization(organizationName: string) {
     .single()
 
   if (existingProfile?.organization_id) {
-    // User already has an organization, redirect to orders
-    redirect('/orders')
+    // User already has an organization, return it
+    return { organizationId: existingProfile.organization_id }
   }
 
-  // Create new organization
+  // Create new organization with Gmail email set to user's email
   const { data: newOrg, error: orgError } = await supabase
     .from('organizations')
     .insert({
-      name: organizationName.trim()
+      name: organizationName.trim(),
+      gmail_email: user.email
     })
     .select()
     .single()
@@ -57,6 +69,47 @@ export async function createOrganization(organizationName: string) {
     throw new Error('Failed to update user profile: ' + profileError.message)
   }
 
+  console.log('✅ Profile updated with organization_id:', newOrg.id)
+
+  // Store OAuth tokens for the new organization
+  const session = await getSession()
+  if (session?.provider_token && session?.provider_refresh_token) {
+    try {
+      const expiresIn = session.expires_in || 3600
+      const expiresAt = new Date(Date.now() + expiresIn * 1000)
+
+      await storeOAuthTokens(newOrg.id, {
+        accessToken: session.provider_token,
+        refreshToken: session.provider_refresh_token,
+        expiresAt,
+      })
+
+      console.log('✅ OAuth tokens stored successfully for organization:', newOrg.id)
+    } catch (error) {
+      // CRITICAL: Token storage failed - this will prevent email sync from working
+      console.error('❌ CRITICAL: Failed to store OAuth tokens for new organization')
+      console.error('Organization:', newOrg.name, '(', newOrg.id, ')')
+      console.error('Error:', error)
+      console.error('ACTION REQUIRED: User needs to log out and log back in to fix this')
+
+      // Fail the organization creation if tokens can't be stored
+      // This prevents silent failures that lose customers
+      throw new Error(
+        'Failed to store authentication tokens. Please ensure TOKEN_ENCRYPTION_KEY is set in .env.local and restart the dev server.'
+      )
+    }
+  } else {
+    // No OAuth tokens in session - this shouldn't happen with Google OAuth
+    console.error('❌ CRITICAL: No OAuth tokens in session after login')
+    console.error('This indicates a problem with the Google OAuth flow')
+    throw new Error('Authentication failed: No OAuth tokens received from Google')
+  }
+
+  // Revalidate routes to ensure profile/org changes propagate
+  revalidatePath('/', 'layout')
   revalidatePath('/orders')
-  redirect('/orders')
+
+  // Return organization ID - client will handle navigation
+  // This ensures the database transaction is fully committed before redirect
+  return { organizationId: newOrg.id }
 }

@@ -1,3 +1,6 @@
+"use client"
+
+import { useState } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,6 +16,8 @@ import {
   CheckCircle,
   XCircle,
   Send,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 
@@ -40,8 +45,13 @@ const sourceColors = {
 }
 
 export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCardProps) {
+  const [isItemsExpanded, setIsItemsExpanded] = useState(false)
   const SourceIcon = sourceIcons[order.source]
   const isWaitingReview = order.status === "waiting_review"
+
+  // Debug: Log order items
+  console.log(`Order ${order.order_number} items:`, order.items)
+  console.log(`Order ${order.order_number} has ${order.items?.length || 0} items`)
 
   return (
     <Card className="hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
@@ -51,10 +61,24 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
             <h3 className="font-semibold text-lg">{order.order_number}</h3>
             <p className="text-sm text-muted-foreground">{order.company_name}</p>
           </div>
-          <Badge className={sourceColors[order.source]} variant="outline">
-            <SourceIcon className="h-3 w-3 mr-1" />
-            {order.source}
-          </Badge>
+          {order.email_url ? (
+            <a
+              href={order.email_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:opacity-80 transition-opacity"
+            >
+              <Badge className={sourceColors[order.source]} variant="outline">
+                <SourceIcon className="h-3 w-3 mr-1" />
+                {order.source}
+              </Badge>
+            </a>
+          ) : (
+            <Badge className={sourceColors[order.source]} variant="outline">
+              <SourceIcon className="h-3 w-3 mr-1" />
+              {order.source}
+            </Badge>
+          )}
         </div>
       </CardHeader>
 
@@ -67,26 +91,36 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
           </div>
           <div>
             <p className="text-muted-foreground">Items</p>
-            <p className="font-medium">{order.item_count ?? 0} items</p>
+            <div className="flex items-center gap-1">
+              <p className="font-medium">{order.item_count ?? 0} items</p>
+              {order.items && order.items.length > 0 && (
+                <button
+                  onClick={() => setIsItemsExpanded(!isItemsExpanded)}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  {isItemsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Sample Items */}
-        {order.items && order.items.length > 0 && (
-          <div>
-            <p className="text-sm text-muted-foreground mb-2">Items Preview:</p>
-            <div className="space-y-1">
-              {order.items.slice(0, 2).map((item, index) => (
-                <div key={index} className="text-xs bg-gray-50 p-2 rounded">
-                  <span className="font-medium">{item.name}</span>
-                  <span className="text-muted-foreground ml-2">
-                    {item.quantity} @ ${item.unit_price} = ${item.total}
-                  </span>
+        {/* Expandable Items List */}
+        {order.items && order.items.length > 0 && isItemsExpanded && (
+          <div className="border-t pt-3">
+            <p className="text-sm font-medium text-muted-foreground mb-2">Order Items:</p>
+            <div className="space-y-2">
+              {order.items.map((item, index) => (
+                <div key={item.id || index} className="text-sm bg-gray-50 p-3 rounded">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-medium">{item.name}</span>
+                    <span className="font-semibold">${Number(item.total).toFixed(2)}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Quantity: {item.quantity} × ${Number(item.unit_price).toFixed(2)}
+                  </div>
                 </div>
               ))}
-              {order.items.length > 2 && (
-                <p className="text-xs text-muted-foreground">+{order.items.length - 2} more items...</p>
-              )}
             </div>
           </div>
         )}
@@ -113,7 +147,7 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
             </Button>
             <Button size="sm" variant="secondary" onClick={() => onRequestInfo(order.id)}>
               <Send className="h-4 w-4 mr-1" />
-              Info
+              Request Info
             </Button>
           </div>
         )}
