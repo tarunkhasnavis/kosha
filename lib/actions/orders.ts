@@ -74,6 +74,7 @@ export interface CreateOrderInput {
   contact_email?: string
   organization_id: string
   email_from: string
+  email_url?: string
 }
 
 /**
@@ -102,6 +103,7 @@ export async function createOrder(input: CreateOrderInput) {
       contact_email: input.contact_email || null,
       organization_id: input.organization_id,
       email_from: input.email_from,
+      email_url: input.email_url || null,
     })
     .select()
     .single()

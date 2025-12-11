@@ -34,6 +34,9 @@ async function createNewOrder(
   // Use AI-extracted received date or fallback to email date
   const receivedDate = aiResult.receivedDate || email.date
 
+  // Build Gmail URL from message ID
+  const emailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.id}`
+
   // Build order input
   const orderInput: CreateOrderInput = {
     order_number: orderNumber,
@@ -52,6 +55,7 @@ async function createNewOrder(
     contact_email: aiResult.contactEmail,
     organization_id: organizationId,
     email_from: email.from,
+    email_url: emailUrl,
   }
 
   try {
