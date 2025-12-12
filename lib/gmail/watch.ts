@@ -138,7 +138,7 @@ export async function stopGmailWatch(
  * Renew Gmail watch subscriptions that are about to expire
  *
  * Gmail watch subscriptions expire after ~7 days. This function should be
- * called periodically (e.g., daily via cron) to renew expiring watches.
+ * called periodically to renew expiring watches.
  *
  * @returns Summary of renewal results
  */

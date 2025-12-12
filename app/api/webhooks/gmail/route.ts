@@ -2,7 +2,6 @@
  * Gmail Pub/Sub Webhook Endpoint
  *
  * Receives push notifications from Google Pub/Sub when Gmail inbox changes.
- * This replaces the polling-based cron job for real-time email processing.
  *
  * Flow:
  * 1. Gmail detects inbox change → sends to Pub/Sub topic
