@@ -16,7 +16,7 @@ const nextConfig = {
     ],
     unoptimized: true,
   },
-  serverExternalPackages: ['sharp'],
+  serverExternalPackages: ['sharp', 'pdf-to-img', 'pdfjs-dist'],
 }
 
 export default nextConfig

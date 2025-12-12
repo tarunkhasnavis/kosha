@@ -1,6 +1,8 @@
 'use server'
 
 import type { ParsedEmail } from '@/lib/gmail/client'
+import type { ProcessedAttachment } from '@/lib/attachments/parser'
+import { prepareAttachmentsForAI } from '@/lib/attachments/parser'
 import { openai } from '@/lib/openai'
 
 /**
@@ -77,6 +79,7 @@ interface RawAIResponse {
  *
  * @param email - The current email to process
  * @param threadContext - Optional: Previous emails in the thread for full context
+ * @param processedAttachments - Optional: Processed attachments (images, PDFs, Excel)
  */
 export async function processEmailWithAI(
   email: ParsedEmail,
@@ -85,7 +88,8 @@ export async function processEmailWithAI(
     email_subject: string
     email_date: string
     email_body: string
-  }>
+  }>,
+  processedAttachments?: ProcessedAttachment[]
 ): Promise<ParsedOrderData | null> {
   // Build email context with thread history if available
   let emailContext = ''
@@ -123,7 +127,37 @@ ${email.body}
 
   emailContext = emailContext.trim()
 
+  // Process attachments if provided
+  let attachmentTextContent = ''
+  let attachmentImageUrls: string[] = []
+
+  if (processedAttachments && processedAttachments.length > 0) {
+    const prepared = prepareAttachmentsForAI(processedAttachments)
+    attachmentTextContent = prepared.textContent
+    attachmentImageUrls = prepared.imageUrls
+    console.log(`Prepared ${attachmentImageUrls.length} images and ${attachmentTextContent ? 'Excel data' : 'no Excel data'} for AI`)
+  }
+
+  // If we have Excel data, append it to the email context
+  if (attachmentTextContent) {
+    emailContext += `\n\n--- ATTACHED FILES DATA ---${attachmentTextContent}`
+  }
+
   try {
+    // Build the user message content (text + images for multimodal)
+    const userMessageContent: Array<
+      | { type: 'text'; text: string }
+      | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
+    > = [{ type: 'text', text: emailContext }]
+
+    // Add images from attachments (PDFs converted to images, direct image attachments)
+    for (const imageUrl of attachmentImageUrls) {
+      userMessageContent.push({
+        type: 'image_url',
+        image_url: { url: imageUrl, detail: 'high' },
+      })
+    }
+
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -193,11 +227,20 @@ Rules:
 - orderValue should be the total if mentioned, or sum of item totals
 
 Example order:
-"Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"`,
+"Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"
+
+ATTACHMENTS - IMPORTANT:
+- The email may include attached files (images, PDFs, Excel spreadsheets)
+- ATTACHMENTS TYPICALLY CONTAIN THE DETAILED ITEMIZED ORDER LIST - extract all items from them
+- The email body often just says "please see attached order" or similar, with the actual items in the attachment
+- Images/PDFs: Usually contain order forms, invoices, or itemized lists. Carefully extract EVERY line item with name, quantity, SKU, and price.
+- Excel data: Provided as JSON in the text. Each row typically represents one order item - extract ALL rows.
+- PRIORITIZE attachment data for items - it's usually more complete than the email body
+- COMBINE information: Use email body for contact info, delivery instructions, etc. Use attachments for the itemized order list.`,
         },
         {
           role: 'user',
-          content: emailContext,
+          content: userMessageContent,
         },
       ],
       response_format: { type: 'json_object' },
