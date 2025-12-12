@@ -94,12 +94,36 @@ export async function POST(request: NextRequest) {
     // Process each email
     let processedCount = 0
     let skippedCount = 0
+    let skippedOwnEmails = 0
     const results: Array<{ id: string; action: string; success: boolean }> = []
+
+    // Get org email to filter out self-sent emails
+    const orgEmail = org.gmail_email?.toLowerCase()
 
     for (const message of response.messages) {
       try {
-        const fullMessage = await gmailClient.getMessage(message.id)
-        const parsedEmail = gmailClient.parseMessage(fullMessage)
+        // Use getEmail() to fetch message with attachment data included
+        const parsedEmail = await gmailClient.getEmail(message.id)
+
+        // Debug: Log email details
+        console.log('📧 Parsed email - API ID:', parsedEmail.id)
+        console.log('📧 Parsed email - Message-ID header:', parsedEmail.messageId)
+        console.log('📧 Parsed email - Subject:', parsedEmail.subject)
+        console.log('📧 Parsed email - From:', parsedEmail.from)
+        console.log('📧 Parsed email - Attachments:', parsedEmail.attachments.length)
+
+        // Skip emails sent FROM our own address (prevents loops)
+        const fromEmail = parsedEmail.from.toLowerCase()
+        if (orgEmail && fromEmail.includes(orgEmail)) {
+          console.log(`[TEST] Skipping email from self: ${parsedEmail.subject}`)
+          skippedOwnEmails++
+          results.push({
+            id: parsedEmail.id,
+            action: 'skipped_self_email',
+            success: false,
+          })
+          continue
+        }
 
         const result = await handleEmailOrder(parsedEmail, organizationId)
 
@@ -131,6 +155,7 @@ export async function POST(request: NextRequest) {
       email: org.gmail_email,
       processed: processedCount,
       skipped: skippedCount,
+      skippedOwnEmails,
       total: response.messages.length,
       results,
     })

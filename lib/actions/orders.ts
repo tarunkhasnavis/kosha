@@ -3,7 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { OrderStatus } from '@/types/orders'
-import { getOrderClarificationInfo } from './orderEmails'
+import { getOrderClarificationInfo, clearClarificationMessage } from './orderEmails'
 import { sendGmailReply } from '@/lib/gmail/reply'
 
 // ============================================
@@ -46,6 +46,13 @@ export async function requestOrderInfo(orderId: string) {
     throw new Error('No clarification message found for this order. The order may not have missing information.')
   }
 
+  // Validate that clarification message is not empty
+  if (!clarificationInfo.clarificationMessage || clarificationInfo.clarificationMessage.trim() === '') {
+    throw new Error('Clarification message is empty. Cannot send blank email.')
+  }
+
+  console.log(`📤 Attempting to send clarification email for order ${orderId}`)
+
   // Send the clarification email
   const result = await sendGmailReply(
     clarificationInfo.threadId,
@@ -57,6 +64,9 @@ export async function requestOrderInfo(orderId: string) {
   if (!result.success) {
     throw new Error(`Failed to send clarification email: ${result.error}`)
   }
+
+  // Clear the clarification message so button shows "Request Sent"
+  await clearClarificationMessage(orderId)
 
   console.log(`✅ Sent clarification email for order ${orderId} (messageId: ${result.messageId})`)
 

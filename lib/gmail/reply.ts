@@ -18,6 +18,15 @@ export async function sendGmailReply(
   organizationId?: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
+    // SAFETY: Never send empty emails
+    if (!replyBody || replyBody.trim() === '') {
+      console.error('🚫 Attempted to send empty email - blocked')
+      return {
+        success: false,
+        error: 'Cannot send empty email body'
+      }
+    }
+
     // Get access token from database (auto-refreshes if expired)
     let accessToken: string | null = null
 

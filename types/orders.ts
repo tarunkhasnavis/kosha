@@ -18,6 +18,7 @@ export interface Order {
   contact_email?: string
   items?: OrderItem[]
   email_url?: string
+  clarification_message?: string | null  // Pending clarification message to send (null = already sent)
 }
 
 export interface OrderItem {
@@ -34,6 +35,7 @@ export interface OrderItem {
 
 export interface OrderStats {
   waitingReview: number
+  awaitingClarification: number
   uploadSuccessful: number
   totalToday: number
   processingTime: string

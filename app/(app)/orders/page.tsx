@@ -53,11 +53,33 @@ export default async function OrdersPage() {
     console.error('Failed to fetch order items:', itemsError)
   }
 
-  // Join order_items to their respective orders using the foreign key
+  // Fetch latest clarification_message for each order from order_emails
+  // We need to get the most recent email's clarification_message for orders awaiting clarification
+  const { data: orderEmails, error: emailsError } = await supabase
+    .from('order_emails')
+    .select('order_id, changes_made')
+    .in('order_id', orderIds)
+    .order('created_at', { ascending: false })
+
+  if (emailsError) {
+    console.error('Failed to fetch order emails:', emailsError)
+  }
+
+  // Build a map of order_id -> latest clarification_message
+  const clarificationMap = new Map<string, string | null>()
+  orderEmails?.forEach(email => {
+    // Only set if we haven't seen this order yet (first = most recent due to ordering)
+    if (!clarificationMap.has(email.order_id)) {
+      const changesMade = email.changes_made as { clarification_message?: string } | null
+      clarificationMap.set(email.order_id, changesMade?.clarification_message || null)
+    }
+  })
+
+  // Join order_items and clarification_message to their respective orders
   const ordersWithItems = orders?.map(order => ({
     ...order,
     items: orderItems?.filter(item => item.order_id === order.id) || [],
-    email_url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQcpwwLTRmPfXlBjNFtbJrtfChV'
+    clarification_message: clarificationMap.get(order.id) || null,
   })) || []
 
   const stats = {

@@ -99,20 +99,17 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   }
 
   const handleRequestInfo = async (orderId: string) => {
-    const order = initialOrders.find((o) => o.id === orderId)
-    if (!order) return
-
     try {
-      await requestOrderInfo(orderId, order.company_name)
+      await requestOrderInfo(orderId)
       toast({
         title: "Success",
-        description: "Information request sent successfully",
+        description: "Clarification email sent successfully",
       })
     } catch (error) {
       console.error("Failed to request info:", error)
       toast({
         title: "Error",
-        description: "Failed to send information request",
+        description: error instanceof Error ? error.message : "Failed to send clarification email",
         variant: "destructive",
       })
     }
@@ -155,21 +152,21 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 max-w-2xl">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pending Review</CardTitle>
+                <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
                 <Clock className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-orange-600">{initialStats.waitingReview}</div>
-                <p className="text-xs text-muted-foreground">Awaiting approval</p>
+                <div className="text-2xl font-bold text-orange-600">{initialStats.awaitingClarification + initialStats.waitingReview}</div>
+                <p className="text-xs text-muted-foreground">Needs attention</p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-blue-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Today</CardTitle>
                 <TrendingUp className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
@@ -205,18 +202,18 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
           {/* Tabs */}
           <Tabs defaultValue="waiting" className="space-y-6">
             <TabsList className="grid w-full max-w-3xl grid-cols-3">
-              <TabsTrigger value="waiting" className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                Pending Review
-                <Badge variant="secondary" className="ml-1">
-                  {waitingOrders.length}
-                </Badge>
-              </TabsTrigger>
               <TabsTrigger value="clarification" className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4" />
                 Needs Info
                 <Badge variant="secondary" className="ml-1">
                   {clarificationOrders.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="waiting" className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Pending Review
+                <Badge variant="secondary" className="ml-1">
+                  {waitingOrders.length}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger value="approved" className="flex items-center gap-2">

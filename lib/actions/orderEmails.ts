@@ -178,3 +178,40 @@ export async function getOrderClarificationInfo(
     organizationId: data.organization_id,
   }
 }
+
+/**
+ * Clear the clarification_message from the most recent email for an order
+ * Called after successfully sending the clarification email
+ */
+export async function clearClarificationMessage(orderId: string): Promise<void> {
+  const supabase = await createClient()
+
+  // Get the most recent email for this order
+  const { data: emailRecord, error: fetchError } = await supabase
+    .from('order_emails')
+    .select('id, changes_made')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (fetchError || !emailRecord) {
+    console.error('Failed to find email record to clear clarification:', fetchError)
+    return
+  }
+
+  // Update the changes_made to remove clarification_message
+  const changesMade = emailRecord.changes_made as Record<string, unknown> | null
+  if (changesMade && 'clarification_message' in changesMade) {
+    const { clarification_message, ...restOfChanges } = changesMade
+
+    const { error: updateError } = await supabase
+      .from('order_emails')
+      .update({ changes_made: restOfChanges })
+      .eq('id', emailRecord.id)
+
+    if (updateError) {
+      console.error('Failed to clear clarification message:', updateError)
+    }
+  }
+}

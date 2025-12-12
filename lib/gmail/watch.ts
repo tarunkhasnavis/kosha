@@ -272,12 +272,12 @@ export async function getGmailHistory(
  */
 export async function findOrganizationByGmailEmail(
   email: string
-): Promise<{ id: string; name: string; gmail_last_history_id: string | null } | null> {
+): Promise<{ id: string; name: string; gmail_email: string; gmail_last_history_id: string | null } | null> {
   const supabase = createServiceClient()
 
   const { data, error } = await supabase
     .from('organizations')
-    .select('id, name, gmail_last_history_id')
+    .select('id, name, gmail_email, gmail_last_history_id')
     .eq('gmail_email', email)
     .single()
 

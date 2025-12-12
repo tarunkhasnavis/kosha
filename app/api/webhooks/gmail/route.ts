@@ -104,13 +104,25 @@ export async function POST(request: NextRequest) {
 
     // Process each new message
     let processedCount = 0
+    let skippedOwnEmails = 0
     const errors: string[] = []
+
+    // Get the organization's Gmail email to filter out our own sent emails
+    const orgEmail = organization.gmail_email?.toLowerCase()
 
     for (const messageId of messageIds) {
       try {
         // Fetch full message content
         const fullMessage = await gmailClient.getMessage(messageId)
         const parsedEmail = gmailClient.parseMessage(fullMessage)
+
+        // Skip emails sent FROM our own address (prevents infinite loops when we send clarification emails)
+        const fromEmail = parsedEmail.from.toLowerCase()
+        if (orgEmail && fromEmail.includes(orgEmail)) {
+          console.log(`Skipping email from self: ${parsedEmail.subject}`)
+          skippedOwnEmails++
+          continue
+        }
 
         // Process through existing order handler
         const result = await handleEmailOrder(parsedEmail, organization.id)
@@ -136,11 +148,12 @@ export async function POST(request: NextRequest) {
       await updateHistoryId(organization.id, notification.historyId)
     }
 
-    console.log(`Webhook complete: ${processedCount}/${messageIds.length} emails processed for ${organization.name}`)
+    console.log(`Webhook complete: ${processedCount}/${messageIds.length} emails processed for ${organization.name} (${skippedOwnEmails} self-emails skipped)`)
 
     return NextResponse.json({
       status: 'success',
       processed: processedCount,
+      skippedSelfEmails: skippedOwnEmails,
       total: messageIds.length,
       errors: errors.length > 0 ? errors : undefined,
     })

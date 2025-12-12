@@ -18,6 +18,8 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  Loader2,
+  CheckCheck,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 
@@ -25,7 +27,7 @@ interface OrderCardProps {
   order: Order
   onApprove: (orderId: string) => void
   onReject: (orderId: string) => void
-  onRequestInfo: (orderId: string) => void
+  onRequestInfo: (orderId: string) => Promise<void>
 }
 
 const sourceIcons = {
@@ -44,17 +46,35 @@ const sourceColors = {
   pdf: "bg-gray-100 text-gray-800",
 }
 
+const statusBorderColors = {
+  waiting_review: "border-l-blue-500",
+  awaiting_clarification: "border-l-orange-500",
+  approved: "border-l-green-500",
+  rejected: "border-l-red-500",
+}
+
 export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCardProps) {
   const [isItemsExpanded, setIsItemsExpanded] = useState(false)
+  const [isRequestingInfo, setIsRequestingInfo] = useState(false)
   const SourceIcon = sourceIcons[order.source]
   const isWaitingReview = order.status === "waiting_review"
 
-  // Debug: Log order items
-  console.log(`Order ${order.order_number} items:`, order.items)
-  console.log(`Order ${order.order_number} has ${order.items?.length || 0} items`)
+  // Check if there's a pending clarification message to send
+  const hasPendingClarification = !!order.clarification_message
+
+  const handleRequestInfo = async () => {
+    setIsRequestingInfo(true)
+    try {
+      await onRequestInfo(order.id)
+    } finally {
+      setIsRequestingInfo(false)
+    }
+  }
+
+  const borderColor = statusBorderColors[order.status as keyof typeof statusBorderColors] || "border-l-gray-500"
 
   return (
-    <Card className="hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
+    <Card className={`hover:shadow-md transition-shadow border-l-4 ${borderColor}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -136,7 +156,7 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
 
         {/* Actions */}
         {isWaitingReview && (
-          <div className="grid grid-cols-3 gap-2 pt-2">
+          <div className="grid grid-cols-2 gap-2 pt-2">
             <Button size="sm" onClick={() => onApprove(order.id)}>
               <CheckCircle className="h-4 w-4 mr-1" />
               Approve
@@ -145,9 +165,44 @@ export function OrderCard({ order, onApprove, onReject, onRequestInfo }: OrderCa
               <XCircle className="h-4 w-4 mr-1" />
               Reject
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => onRequestInfo(order.id)}>
-              <Send className="h-4 w-4 mr-1" />
-              Request Info
+          </div>
+        )}
+
+        {order.status === "awaiting_clarification" && (
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            {hasPendingClarification ? (
+              <Button
+                size="sm"
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                onClick={handleRequestInfo}
+                disabled={isRequestingInfo}
+              >
+                {isRequestingInfo ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-1" />
+                    Request Info
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-gray-100 text-gray-500 cursor-not-allowed"
+                disabled
+              >
+                <CheckCheck className="h-4 w-4 mr-1" />
+                Request Sent
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => onReject(order.id)}>
+              <XCircle className="h-4 w-4 mr-1" />
+              Reject
             </Button>
           </div>
         )}
