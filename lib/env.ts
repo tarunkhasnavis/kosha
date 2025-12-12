@@ -11,7 +11,6 @@ const envSchema = z.object({
     .string()
     .length(64)
     .regex(/^[0-9a-f]{64}$/i),
-  CRON_SECRET: z.string().optional(),
   DATABASE_URL: z.string().url().optional(),
 })
 
