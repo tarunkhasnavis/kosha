@@ -2,11 +2,12 @@
 
 import type { ParsedEmail } from '@/lib/gmail/client'
 import type { ParsedOrderData } from './processEmail'
+import type { ProcessedAttachment } from '@/lib/attachments/parser'
 import { processEmailWithAI } from './processEmail'
+import { processAllAttachments, isSupportedAttachment } from '@/lib/attachments/parser'
 import { createOrder, updateOrderFields, type CreateOrderInput } from './orders'
 import { replaceOrderItems, type OrderItemInput } from './orderItems'
 import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails } from './orderEmails'
-import { sendGmailReply } from '@/lib/gmail/reply'
 
 /**
  * Generate a unique order number (fallback if email doesn't have one)
@@ -34,8 +35,10 @@ async function createNewOrder(
   // Use AI-extracted received date or fallback to email date
   const receivedDate = aiResult.receivedDate || email.date
 
-  // Build Gmail URL from message ID
-  const emailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.id}`
+  // Gmail web uses a different ID format than the API, so we link to a search that opens the email directly
+  // Using "in:anywhere" ensures it finds the email even if archived/in other folders
+  const searchQuery = `in:anywhere rfc822msgid:${email.messageId}`
+  const emailUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`
 
   // Build order input
   const orderInput: CreateOrderInput = {
@@ -62,7 +65,36 @@ async function createNewOrder(
     // 1. Create the order
     const order = await createOrder(orderInput)
 
-    // 2. Create order items
+    // 2. Save email to audit log IMMEDIATELY after order creation
+    //    This is critical for idempotency - if this fails, we'll have an orphan order
+    //    but at least we won't create duplicates on retry
+    try {
+      await saveEmailAuditLog({
+        order_id: order.id,
+        organization_id: organizationId,
+        gmail_message_id: email.id,
+        gmail_thread_id: email.threadId,
+        email_from: email.from,
+        email_subject: email.subject,
+        email_to: email.to,
+        email_date: email.date,
+        email_body: email.body,
+        changes_made: {
+          type: aiResult.isComplete ? 'created_order' : 'awaiting_clarification',
+          items_added: aiResult.items,
+          missing_info: aiResult.missingInfo,
+          order_value: aiResult.orderValue,
+          clarification_message: aiResult.clarificationEmail,
+        },
+      })
+    } catch (emailLogError) {
+      // If email log fails with duplicate key, the email was already processed
+      // This shouldn't happen often since we check first, but handles race conditions
+      console.error('Email audit log failed (possible duplicate):', emailLogError)
+      // Don't throw - the order was created successfully
+    }
+
+    // 3. Create order items
     if (aiResult.items.length > 0) {
       const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
         name: item.name,
@@ -75,44 +107,8 @@ async function createNewOrder(
       await replaceOrderItems(order.id, itemInputs, organizationId)
     }
 
-    // 3. Save email to audit log
-    await saveEmailAuditLog({
-      order_id: order.id,
-      organization_id: organizationId,
-      gmail_message_id: email.id,
-      gmail_thread_id: email.threadId,
-      email_from: email.from,
-      email_subject: email.subject,
-      email_to: email.to,
-      email_date: email.date,
-      email_body: email.body,
-      changes_made: {
-        type: aiResult.isComplete ? 'created_order' : 'awaiting_clarification',
-        items_added: aiResult.items,
-        missing_info: aiResult.missingInfo,
-        order_value: aiResult.orderValue,
-      },
-    })
-
-    // 4. Send clarification email if order is incomplete
-    if (!aiResult.isComplete && aiResult.clarificationEmail) {
-      try {
-        const result = await sendGmailReply(
-          email.threadId,
-          aiResult.clarificationEmail,
-          `Re: ${email.subject}`,
-          organizationId
-        )
-        if (result.success) {
-          console.log(`✅ Sent clarification email for order ${order.id} (messageId: ${result.messageId})`)
-        } else {
-          console.error(`❌ Failed to send clarification email for order ${order.id}:`, result.error)
-        }
-      } catch (error) {
-        console.error('Failed to send clarification email:', error)
-        // Don't fail the order creation if email sending fails
-      }
-    }
+    // NOTE: Clarification emails are now sent manually via the "Request Info" button
+    // The clarification_message is stored in order_emails.changes_made for later use
 
     return { success: true, orderId: order.id }
   } catch (error) {
@@ -148,7 +144,35 @@ async function updateExistingOrder(
       contact_email: aiResult.contactEmail || null,
     })
 
-    // 2. Replace order items
+    // 2. Save email to audit log IMMEDIATELY after order update
+    //    This is critical for idempotency
+    try {
+      await saveEmailAuditLog({
+        order_id: existingOrderId,
+        organization_id: organizationId,
+        gmail_message_id: email.id,
+        gmail_thread_id: email.threadId,
+        email_from: email.from,
+        email_subject: email.subject,
+        email_to: email.to,
+        email_date: email.date,
+        email_body: email.body,
+        changes_made: {
+          type: 'updated_order',
+          items_updated: aiResult.items,
+          missing_info: aiResult.missingInfo,
+          order_value: aiResult.orderValue,
+          status_changed_to: newStatus,
+          clarification_message: aiResult.clarificationEmail,
+        },
+      })
+    } catch (emailLogError) {
+      // If email log fails with duplicate key, the email was already processed
+      console.error('Email audit log failed (possible duplicate):', emailLogError)
+      // Don't throw - the order was updated successfully
+    }
+
+    // 3. Replace order items
     if (aiResult.items.length > 0) {
       const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
         name: item.name,
@@ -161,41 +185,8 @@ async function updateExistingOrder(
       await replaceOrderItems(existingOrderId, itemInputs, organizationId)
     }
 
-    // 3. Save email to audit log
-    await saveEmailAuditLog({
-      order_id: existingOrderId,
-      organization_id: organizationId,
-      gmail_message_id: email.id,
-      gmail_thread_id: email.threadId,
-      email_from: email.from,
-      email_subject: email.subject,
-      email_to: email.to,
-      email_date: email.date,
-      email_body: email.body,
-      changes_made: {
-        type: 'updated_order',
-        items_updated: aiResult.items,
-        missing_info: aiResult.missingInfo,
-        order_value: aiResult.orderValue,
-        status_changed_to: newStatus,
-      },
-    })
-
-    // 4. Send clarification email if order is still incomplete
-    if (!aiResult.isComplete && aiResult.clarificationEmail) {
-      try {
-        await sendGmailReply(
-          email.threadId,
-          aiResult.clarificationEmail,
-          `Re: ${email.subject}`,
-          organizationId
-        )
-        console.log(`Sent clarification email for updated order ${existingOrderId}`)
-      } catch (error) {
-        console.error('Failed to send clarification email:', error)
-        // Don't fail the order update if email sending fails
-      }
-    }
+    // NOTE: Clarification emails are now sent manually via the "Request Info" button
+    // The clarification_message is stored in order_emails.changes_made for later use
 
     return { success: true, orderId: existingOrderId }
   } catch (error) {
@@ -205,14 +196,45 @@ async function updateExistingOrder(
 }
 
 /**
+ * Process attachments from an email (attachment data should already be populated)
+ *
+ * @param email - Parsed email with attachment data already fetched
+ * @returns Processed attachments ready for AI
+ */
+async function processAttachmentsForAI(
+  email: ParsedEmail
+): Promise<ProcessedAttachment[]> {
+  // Check if there are any supported attachments with data
+  const supportedAttachments = email.attachments.filter(
+    (att) => isSupportedAttachment(att) && att.data
+  )
+
+  if (supportedAttachments.length === 0) {
+    return []
+  }
+
+  console.log(`📎 Processing ${supportedAttachments.length} supported attachments`)
+
+  // Process attachments (convert PDFs to images, parse Excel, etc.)
+  const processed = await processAllAttachments(supportedAttachments)
+
+  console.log(`✅ Processed ${processed.length} attachments for AI`)
+  return processed
+}
+
+/**
  * Main handler: Process email and create/update order in database
  *
  * This is a high-level orchestrator that:
  * 1. Checks for idempotency (already processed) - BEFORE AI processing to save costs
- * 2. Runs AI extraction only for new emails
- * 3. Checks if email is a reply to existing order
- * 4. Creates new order OR updates existing order
- * 5. Uses atomic DB operations from orders.ts, orderItems.ts, orderEmails.ts
+ * 2. Processes attachments for AI (PDFs, Excel, images)
+ * 3. Runs AI extraction on email body + attachments
+ * 4. Checks if email is a reply to existing order
+ * 5. Creates new order OR updates existing order
+ * 6. Uses atomic DB operations from orders.ts, orderItems.ts, orderEmails.ts
+ *
+ * @param email - Parsed email to process (use GmailClient.getEmail() to include attachment data)
+ * @param organizationId - Organization ID
  */
 export async function handleEmailOrder(
   email: ParsedEmail,
@@ -226,7 +248,19 @@ export async function handleEmailOrder(
     return { success: true, orderId: existingOrderId, action: 'already_processed' }
   }
 
-  // Step 2: Check if this is a reply to an existing order (thread_id match)
+  // Step 2: Process attachments if present (attachment data should already be in email)
+  let processedAttachments: ProcessedAttachment[] = []
+
+  if (email.attachments.length > 0) {
+    try {
+      processedAttachments = await processAttachmentsForAI(email)
+    } catch (error) {
+      console.error('Error processing attachments:', error)
+      // Continue without attachments - don't fail the entire order
+    }
+  }
+
+  // Step 3: Check if this is a reply to an existing order (thread_id match)
   const existingOrder = await findOrderByThreadId(email.threadId, organizationId)
 
   let aiResult: ParsedOrderData | null
@@ -235,8 +269,8 @@ export async function handleEmailOrder(
     // This is a reply to an existing order - fetch thread context
     const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
 
-    // Process email with full thread context
-    aiResult = await processEmailWithAI(email, threadEmails)
+    // Process email with full thread context and attachments
+    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments)
 
     if (!aiResult) {
       // If AI can't extract order from thread, log and skip
@@ -248,8 +282,8 @@ export async function handleEmailOrder(
     const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId)
     return { ...result, action: 'updated_order' }
   } else {
-    // New email - process with AI (no thread context)
-    aiResult = await processEmailWithAI(email)
+    // New email - process with AI (no thread context, but with attachments)
+    aiResult = await processEmailWithAI(email, undefined, processedAttachments)
 
     if (!aiResult) {
       // Not an order email, skip

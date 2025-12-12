@@ -22,6 +22,7 @@ export interface EmailAuditInput {
     missing_info?: string[]
     order_value?: number
     status_changed_to?: string
+    clarification_message?: string
   }
 }
 
@@ -133,4 +134,47 @@ export async function fetchThreadEmails(
   }
 
   return data
+}
+
+/**
+ * Get clarification info for an order (thread_id, subject, clarification message)
+ * Used for manually sending clarification emails from UI
+ */
+export async function getOrderClarificationInfo(
+  orderId: string
+): Promise<{
+  threadId: string
+  subject: string
+  clarificationMessage: string
+  organizationId: string
+} | null> {
+  const supabase = await createClient()
+
+  // Get the most recent email for this order that has clarification info
+  const { data, error } = await supabase
+    .from('order_emails')
+    .select('gmail_thread_id, email_subject, changes_made, organization_id')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error || !data) {
+    console.error('Failed to get order clarification info:', error)
+    return null
+  }
+
+  const changesMade = data.changes_made as any
+  const clarificationMessage = changesMade?.clarification_message
+
+  if (!clarificationMessage) {
+    return null
+  }
+
+  return {
+    threadId: data.gmail_thread_id,
+    subject: data.email_subject,
+    clarificationMessage,
+    organizationId: data.organization_id,
+  }
 }

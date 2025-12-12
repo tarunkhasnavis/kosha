@@ -3,6 +3,8 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { OrderStatus } from '@/types/orders'
+import { getOrderClarificationInfo } from './orderEmails'
+import { sendGmailReply } from '@/lib/gmail/reply'
 
 // ============================================
 // USER-FACING SERVER ACTIONS (UI interactions)
@@ -36,18 +38,30 @@ export async function rejectOrder(orderId: string, reason?: string) {
   return { success: true }
 }
 
-export async function requestOrderInfo(orderId: string, recipientEmail: string) {
-  const supabase = await createClient()
+export async function requestOrderInfo(orderId: string) {
+  // Get the stored clarification info for this order
+  const clarificationInfo = await getOrderClarificationInfo(orderId)
 
-  const { error } = await supabase
-    .from('orders')
-    .update({ status: 'info_requested' })
-    .eq('id', orderId)
+  if (!clarificationInfo) {
+    throw new Error('No clarification message found for this order. The order may not have missing information.')
+  }
 
-  if (error) throw error
+  // Send the clarification email
+  const result = await sendGmailReply(
+    clarificationInfo.threadId,
+    clarificationInfo.clarificationMessage,
+    `Re: ${clarificationInfo.subject}`,
+    clarificationInfo.organizationId
+  )
+
+  if (!result.success) {
+    throw new Error(`Failed to send clarification email: ${result.error}`)
+  }
+
+  console.log(`✅ Sent clarification email for order ${orderId} (messageId: ${result.messageId})`)
 
   revalidatePath('/orders')
-  return { success: true }
+  return { success: true, messageId: result.messageId }
 }
 
 // ============================================
