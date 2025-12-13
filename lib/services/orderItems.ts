@@ -1,4 +1,9 @@
-'use server'
+/**
+ * Order Items Service
+ *
+ * Internal DB operations for order items.
+ * Used by orders.ts (Server Action) and handleEmailOrder.ts
+ */
 
 import { createClient } from '@/utils/supabase/server'
 
@@ -8,7 +13,8 @@ import { createClient } from '@/utils/supabase/server'
 export interface OrderItemInput {
   name: string
   sku?: string
-  quantity: string
+  quantity: number
+  quantity_unit: string
   unit_price: number
   total: number
 }
@@ -33,6 +39,7 @@ export async function createOrderItems(
     name: item.name,
     sku: item.sku || null,
     quantity: item.quantity,
+    quantity_unit: item.quantity_unit,
     unit_price: item.unit_price,
     total: item.total,
   }))

@@ -18,8 +18,8 @@ import {
   updateHistoryId,
 } from '@/lib/gmail/watch'
 import { GmailClient } from '@/lib/gmail/client'
-import { getValidAccessToken } from '@/lib/actions/oauthTokens'
-import { handleEmailOrder } from '@/lib/actions/handleEmailOrder'
+import { getValidAccessToken } from '@/lib/services/oauthTokens'
+import { handleEmailOrder } from '@/lib/services/handleEmailOrder'
 
 interface PubSubMessage {
   message: {

@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { getUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
-import { storeOAuthTokens } from '@/lib/actions/oauthTokens'
+import { storeOAuthTokens } from '@/lib/services/oauthTokens'
 import { startGmailWatch } from '@/lib/gmail/watch'
 
 export async function GET(request: Request) {

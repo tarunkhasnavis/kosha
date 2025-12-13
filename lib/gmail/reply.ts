@@ -1,6 +1,6 @@
 'use server'
 
-import { getValidAccessToken } from '@/lib/actions/oauthTokens'
+import { getValidAccessToken } from '@/lib/services/oauthTokens'
 
 /**
  * Send a reply email to a Gmail thread (Reply-All)

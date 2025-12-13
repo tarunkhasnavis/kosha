@@ -1,4 +1,9 @@
-'use server'
+/**
+ * Order Emails Service
+ *
+ * Internal DB operations for email audit trail and thread handling.
+ * Used by orders.ts (Server Action) and handleEmailOrder.ts
+ */
 
 import { createClient } from '@/utils/supabase/server'
 

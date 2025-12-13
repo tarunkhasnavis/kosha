@@ -3,8 +3,10 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { OrderStatus } from '@/types/orders'
-import { getOrderClarificationInfo, clearClarificationMessage } from './orderEmails'
+import { getOrderClarificationInfo, clearClarificationMessage } from '@/lib/services/orderEmails'
 import { sendGmailReply } from '@/lib/gmail/reply'
+import { replaceOrderItems, type OrderItemInput } from '@/lib/services/orderItems'
+import { getOrganizationId } from '@/lib/db/organizations'
 
 // ============================================
 // USER-FACING SERVER ACTIONS (UI interactions)
@@ -169,4 +171,134 @@ export async function updateOrderFields(
     console.error('Failed to update order:', error)
     throw new Error(`Failed to update order: ${error.message}`)
   }
+}
+
+// ============================================
+// UI SAVE OPERATIONS (for order editing modal)
+// ============================================
+
+/**
+ * Input type for editable items from the UI
+ */
+export interface EditableItemInput {
+  id: string
+  name: string
+  sku: string
+  quantity: number
+  quantity_unit: string
+  unit_price: string
+  total: number
+  isNew?: boolean
+}
+
+/**
+ * Save all changes to an order (items + order fields)
+ *
+ * For "awaiting_clarification" orders:
+ * - After saving, we need to re-evaluate if the order is now complete
+ * - This will be handled by a separate AI call (TODO: implement re-evaluation)
+ * - For now, we just save the changes and keep the status as-is
+ *
+ * @param orderId - The order to update
+ * @param items - The edited items
+ * @param orderFields - The edited order-level fields
+ */
+export async function saveOrderChanges(
+  orderId: string,
+  items: EditableItemInput[],
+  orderFields: {
+    notes?: string
+    expected_delivery_date?: string
+  }
+) {
+  const organizationId = await getOrganizationId()
+  if (!organizationId) {
+    throw new Error('No organization found')
+  }
+
+  // Calculate new totals from items
+  const orderValue = items.reduce((sum, item) => sum + item.total, 0)
+  const itemCount = items.length
+
+  // Update order fields (but not status - that's handled separately)
+  await updateOrderFields(orderId, {
+    order_value: orderValue,
+    item_count: itemCount,
+    notes: orderFields.notes || null,
+    expected_delivery_date: orderFields.expected_delivery_date || null,
+  })
+
+  // Convert editable items to order item inputs
+  const orderItemInputs: OrderItemInput[] = items.map(item => ({
+    name: item.name,
+    sku: item.sku || undefined,
+    quantity: item.quantity,
+    quantity_unit: item.quantity_unit,
+    unit_price: parseFloat(item.unit_price) || 0,
+    total: item.total,
+  }))
+
+  // Replace all items with the edited ones
+  await replaceOrderItems(orderId, orderItemInputs, organizationId)
+
+  // TODO: For "awaiting_clarification" orders, re-evaluate completeness with AI
+  // and update status + clarification_message accordingly
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
+/**
+ * Save changes and approve the order
+ */
+export async function saveAndApproveOrder(
+  orderId: string,
+  items: EditableItemInput[],
+  orderFields: {
+    notes?: string
+    expected_delivery_date?: string
+  }
+) {
+  const organizationId = await getOrganizationId()
+  if (!organizationId) {
+    throw new Error('No organization found')
+  }
+
+  // Calculate new totals from items
+  const orderValue = items.reduce((sum, item) => sum + item.total, 0)
+  const itemCount = items.length
+
+  const supabase = await createClient()
+
+  // Update order fields AND status in one call
+  const { error } = await supabase
+    .from('orders')
+    .update({
+      order_value: orderValue,
+      item_count: itemCount,
+      notes: orderFields.notes || null,
+      expected_delivery_date: orderFields.expected_delivery_date || null,
+      status: 'approved',
+    })
+    .eq('id', orderId)
+
+  if (error) {
+    throw new Error(`Failed to save and approve order: ${error.message}`)
+  }
+
+  // Convert editable items to order item inputs
+  const orderItemInputs: OrderItemInput[] = items.map(item => ({
+    name: item.name,
+    sku: item.sku || undefined,
+    quantity: item.quantity,
+    quantity_unit: item.quantity_unit,
+    unit_price: parseFloat(item.unit_price) || 0,
+    total: item.total,
+  }))
+
+  // Replace all items with the edited ones
+  await replaceOrderItems(orderId, orderItemInputs, organizationId)
+
+  revalidatePath('/orders')
+  return { success: true }
 }

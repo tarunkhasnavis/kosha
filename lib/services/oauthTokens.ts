@@ -8,7 +8,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { createServiceClient } from '@/utils/supabase/service'
-import { encryptToken, decryptToken } from '@/lib/crypto/tokenEncryption'
+import { encryptToken, decryptToken } from '@/lib/tokenEncryption'
 
 interface OAuthTokens {
   accessToken: string

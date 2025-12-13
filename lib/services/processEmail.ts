@@ -1,8 +1,13 @@
-'use server'
+/**
+ * Email Processing Service
+ *
+ * Uses OpenAI to extract order information from emails.
+ * Called by handleEmailOrder.ts
+ */
 
 import type { ParsedEmail } from '@/lib/gmail/client'
-import type { ProcessedAttachment } from '@/lib/attachments/parser'
-import { prepareAttachmentsForAI } from '@/lib/attachments/parser'
+import type { ProcessedAttachment } from '@/lib/attachmentProcessor'
+import { prepareAttachmentsForAI } from '@/lib/attachmentProcessor'
 import { openai } from '@/lib/openai'
 
 /**
@@ -11,7 +16,8 @@ import { openai } from '@/lib/openai'
 export interface ParsedOrderItem {
   name: string           // REQUIRED - item name
   sku?: string           // OPTIONAL - product SKU if found in email
-  quantity: string       // REQUIRED - e.g., "10 lbs", "5 cases"
+  quantity: number       // REQUIRED - numeric quantity (e.g., 10, 5, 2.5)
+  quantityUnit: string   // REQUIRED - unit of measurement (e.g., "lbs", "cases", "each")
   unitPrice?: number     // OPTIONAL - price per unit
   total?: number         // OPTIONAL - quantity * unitPrice (can be calculated later)
 }
@@ -64,7 +70,8 @@ interface RawAIResponse {
   items?: Array<{
     name: string
     sku?: string
-    quantity: string
+    quantity: number
+    quantityUnit: string
     unitPrice?: number
     total?: number
   }>
@@ -207,7 +214,8 @@ Return JSON in this EXACT format:
     {
       "name": "Chicken Breast",
       "sku": "CHK-001" or null,
-      "quantity": "10 lbs",
+      "quantity": 10,
+      "quantityUnit": "lbs",
       "unitPrice": 5.99 or null,
       "total": 59.90 or null
     }
@@ -219,7 +227,11 @@ Return JSON in this EXACT format:
 
 Rules:
 - If NOT an order (question, complaint, general inquiry) → return {"isOrder": false}
-- Keep quantity units (e.g., "10 lbs", "5 cases", "2 dozen")
+- IMPORTANT: Split quantity into numeric value and unit separately:
+  - "10 lbs" → quantity: 10, quantityUnit: "lbs"
+  - "5 cases" → quantity: 5, quantityUnit: "cases"
+  - "2 dozen" → quantity: 2, quantityUnit: "dozen"
+  - "100" (no unit) → quantity: 100, quantityUnit: "each"
 - Parse dates intelligently ("tomorrow" = next day, "Monday" = next Monday, etc.)
 - If date mentioned is in the past, use email date
 - isComplete = true only if ALL items have name + quantity
@@ -228,6 +240,10 @@ Rules:
 
 Example order:
 "Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"
+Expected items output: [
+  {"name": "Chicken Breast", "quantity": 10, "quantityUnit": "lbs", "unitPrice": 5.99, "total": 59.90},
+  {"name": "Ground Beef", "quantity": 5, "quantityUnit": "lbs", "unitPrice": null, "total": null}
+]
 
 ATTACHMENTS - IMPORTANT:
 - The email may include attached files (images, PDFs, Excel spreadsheets)

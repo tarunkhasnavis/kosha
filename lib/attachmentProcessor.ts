@@ -1,3 +1,14 @@
+/**
+ * Attachment Processor
+ *
+ * Processes email attachments (images, PDFs, Excel files) into formats
+ * suitable for AI processing via OpenAI's multimodal API.
+ *
+ * - Images: Pass through as base64
+ * - PDFs: Convert pages to images
+ * - Excel: Parse to JSON
+ */
+
 import * as XLSX from 'xlsx'
 import { pdf } from 'pdf-to-img'
 import type { EmailAttachment } from '@/lib/gmail/client'

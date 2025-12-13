@@ -1,12 +1,22 @@
-'use server'
+/**
+ * Email Order Handler Service
+ *
+ * Orchestrates the email-to-order flow:
+ * 1. Checks idempotency
+ * 2. Processes attachments
+ * 3. Runs AI extraction
+ * 4. Creates/updates orders in database
+ *
+ * Called by API webhook routes.
+ */
 
 import type { ParsedEmail } from '@/lib/gmail/client'
 import type { ParsedOrderData } from './processEmail'
-import type { ProcessedAttachment } from '@/lib/attachments/parser'
+import type { ProcessedAttachment } from '@/lib/attachmentProcessor'
 import { processEmailWithAI } from './processEmail'
-import { processAllAttachments, isSupportedAttachment } from '@/lib/attachments/parser'
-import { createOrder, updateOrderFields, type CreateOrderInput } from './orders'
-import { replaceOrderItems, type OrderItemInput } from './orderItems'
+import { processAllAttachments, isSupportedAttachment } from '@/lib/attachmentProcessor'
+import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/actions/orders'
+import { createOrderItems, replaceOrderItems, type OrderItemInput } from './orderItems'
 import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails } from './orderEmails'
 
 /**
@@ -100,11 +110,12 @@ async function createNewOrder(
         name: item.name,
         sku: item.sku,
         quantity: item.quantity,
+        quantity_unit: item.quantityUnit,
         unit_price: item.unitPrice || 0,
         total: item.total || 0,
       }))
 
-      await replaceOrderItems(order.id, itemInputs, organizationId)
+      await createOrderItems(order.id, itemInputs, organizationId)
     }
 
     // NOTE: Clarification emails are now sent manually via the "Request Info" button
@@ -178,6 +189,7 @@ async function updateExistingOrder(
         name: item.name,
         sku: item.sku,
         quantity: item.quantity,
+        quantity_unit: item.quantityUnit,
         unit_price: item.unitPrice || 0,
         total: item.total || 0,
       }))

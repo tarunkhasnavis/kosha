@@ -5,7 +5,7 @@
  * When a user's Gmail inbox changes, Google sends a notification to our webhook.
  */
 
-import { getValidAccessToken } from '@/lib/actions/oauthTokens'
+import { getValidAccessToken } from '@/lib/services/oauthTokens'
 import { createServiceClient } from '@/utils/supabase/service'
 
 const GOOGLE_PROJECT_ID = 'zoodl-474118'

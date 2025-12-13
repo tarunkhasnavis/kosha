@@ -26,7 +26,8 @@ export interface OrderItem {
   order_id: string
   name: string
   sku?: string
-  quantity: string
+  quantity: number
+  quantity_unit: string
   unit_price: number
   total: number
   created_at?: string

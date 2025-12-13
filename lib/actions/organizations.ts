@@ -10,7 +10,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { getUser, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { storeOAuthTokens } from './oauthTokens'
+import { storeOAuthTokens } from '../services/oauthTokens'
 import { startGmailWatch } from '@/lib/gmail/watch'
 
 /**

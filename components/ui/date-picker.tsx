@@ -6,7 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
-export function DatePicker({ selected, onSelect, placeholder = "Pick a date", className }) {
+interface DatePickerProps {
+  selected?: Date
+  onSelect?: (date: Date | undefined) => void
+  placeholder?: string
+  className?: string
+}
+
+export function DatePicker({ selected, onSelect, placeholder = "Pick a date", className }: DatePickerProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>

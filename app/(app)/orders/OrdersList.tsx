@@ -10,7 +10,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, Filter, RefreshCw, TrendingUp, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { OrderCard } from "./components/OrderCard"
-import { approveOrder, rejectOrder, requestOrderInfo } from "@/lib/actions/orders"
+import { OrderEditModal } from "./components/OrderEditModal"
+import {
+  saveOrderChanges,
+  saveAndApproveOrder,
+  approveOrder,
+  rejectOrder,
+  requestOrderInfo,
+  type EditableItemInput,
+} from "@/lib/actions/orders"
 import { createClient } from "@/utils/supabase/client"
 import type { Order, OrderStats } from "@/types/orders"
 
@@ -23,6 +31,8 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
 
@@ -64,52 +74,113 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
     setTimeout(() => setIsRefreshing(false), 500)
   }
 
-  const handleApprove = async (orderId: string) => {
+  // Open modal when clicking an order card
+  const handleOrderClick = (order: Order) => {
+    setSelectedOrder(order)
+    setIsModalOpen(true)
+  }
+
+  // Close modal
+  const handleCloseModal = () => {
+    setIsModalOpen(false)
+    setSelectedOrder(null)
+  }
+
+  // Handle save from modal
+  const handleSave = async (
+    orderId: string,
+    items: EditableItemInput[],
+    orderFields: { notes?: string; expected_delivery_date?: string }
+  ) => {
     try {
-      await approveOrder(orderId)
+      await saveOrderChanges(orderId, items, orderFields)
       toast({
         title: "Success",
-        description: "Order approved successfully",
+        description: "Order saved successfully",
       })
     } catch (error) {
-      console.error("Failed to approve order:", error)
+      console.error("Failed to save order:", error)
       toast({
         title: "Error",
-        description: "Failed to approve order",
+        description: error instanceof Error ? error.message : "Failed to save order",
         variant: "destructive",
       })
+      throw error // Re-throw so modal knows save failed
     }
   }
 
-  const handleReject = async (orderId: string) => {
+  // Handle save and approve from modal
+  const handleSaveAndApprove = async (
+    orderId: string,
+    items: EditableItemInput[],
+    orderFields: { notes?: string; expected_delivery_date?: string }
+  ) => {
     try {
-      await rejectOrder(orderId, "Manual rejection")
+      await saveAndApproveOrder(orderId, items, orderFields)
       toast({
         title: "Success",
-        description: "Order rejected successfully",
+        description: "Order saved and approved",
+      })
+    } catch (error) {
+      console.error("Failed to save and approve order:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save and approve order",
+        variant: "destructive",
+      })
+      throw error
+    }
+  }
+
+  // Handle reject from card
+  const handleReject = async (orderId: string) => {
+    try {
+      await rejectOrder(orderId)
+      toast({
+        title: "Order Rejected",
+        description: "The order has been removed",
       })
     } catch (error) {
       console.error("Failed to reject order:", error)
       toast({
         title: "Error",
-        description: "Failed to reject order",
+        description: error instanceof Error ? error.message : "Failed to reject order",
         variant: "destructive",
       })
     }
   }
 
+  // Handle approve from card
+  const handleApprove = async (orderId: string) => {
+    try {
+      await approveOrder(orderId)
+      toast({
+        title: "Order Approved",
+        description: "The order has been approved",
+      })
+    } catch (error) {
+      console.error("Failed to approve order:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to approve order",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Handle request info from card
   const handleRequestInfo = async (orderId: string) => {
     try {
       await requestOrderInfo(orderId)
       toast({
-        title: "Success",
-        description: "Clarification email sent successfully",
+        title: "Request Sent",
+        description: "Clarification email has been sent to the customer",
       })
     } catch (error) {
-      console.error("Failed to request info:", error)
+      console.error("Failed to send clarification request:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to send clarification email",
+        description: error instanceof Error ? error.message : "Failed to send clarification request",
         variant: "destructive",
       })
     }
@@ -153,10 +224,10 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 max-w-2xl">
-            <Card className="border-l-4 border-l-orange-500">
+            <Card className="border-l-4 border-l-orange-600">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
-                <Clock className="h-4 w-4 text-orange-500" />
+                <Clock className="h-4 w-4 text-orange-600" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-orange-600">{initialStats.awaitingClarification + initialStats.waitingReview}</div>
@@ -225,7 +296,10 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="waiting" className="space-y-6">
+            <TabsContent value="waiting" className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Orders ready for review and approval.
+              </p>
               {waitingOrders.length === 0 ? (
                 <Card>
                   <CardContent className="flex flex-col items-center justify-center py-12">
@@ -242,8 +316,9 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onApprove={handleApprove}
+                      onClick={() => handleOrderClick(order)}
                       onReject={handleReject}
+                      onApprove={handleApprove}
                       onRequestInfo={handleRequestInfo}
                     />
                   ))}
@@ -251,7 +326,10 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
               )}
             </TabsContent>
 
-            <TabsContent value="clarification" className="space-y-6">
+            <TabsContent value="clarification" className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Orders missing information. Request clarification from the customer before processing.
+              </p>
               {clarificationOrders.length === 0 ? (
                 <Card>
                   <CardContent className="flex flex-col items-center justify-center py-12">
@@ -268,8 +346,9 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onApprove={handleApprove}
+                      onClick={() => handleOrderClick(order)}
                       onReject={handleReject}
+                      onApprove={handleApprove}
                       onRequestInfo={handleRequestInfo}
                     />
                   ))}
@@ -277,7 +356,10 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
               )}
             </TabsContent>
 
-            <TabsContent value="approved" className="space-y-6">
+            <TabsContent value="approved" className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Orders that have been approved and are ready for fulfillment.
+              </p>
               {approvedOrders.length === 0 ? (
                 <Card>
                   <CardContent className="flex flex-col items-center justify-center py-12">
@@ -294,8 +376,9 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onApprove={handleApprove}
+                      onClick={() => handleOrderClick(order)}
                       onReject={handleReject}
+                      onApprove={handleApprove}
                       onRequestInfo={handleRequestInfo}
                     />
                   ))}
@@ -305,6 +388,15 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
           </Tabs>
         </div>
       </main>
+
+      {/* Order Edit Modal */}
+      <OrderEditModal
+        order={selectedOrder}
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        onSave={handleSave}
+        onSaveAndApprove={handleSaveAndApprove}
+      />
     </div>
   )
 }
