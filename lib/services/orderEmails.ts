@@ -185,6 +185,78 @@ export async function getOrderClarificationInfo(
 }
 
 /**
+ * Update the clarification_message in the most recent email for an order
+ * Called after AI regenerates a new clarification message based on edits
+ */
+export async function updateClarificationMessage(orderId: string, newMessage: string): Promise<void> {
+  const supabase = await createClient()
+
+  // Get the most recent email for this order
+  const { data: emailRecord, error: fetchError } = await supabase
+    .from('order_emails')
+    .select('id, changes_made')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (fetchError || !emailRecord) {
+    console.error('Failed to find email record to update clarification:', fetchError)
+    return
+  }
+
+  // Update the changes_made with new clarification_message
+  const changesMade = (emailRecord.changes_made as Record<string, unknown>) || {}
+  const updatedChanges = {
+    ...changesMade,
+    clarification_message: newMessage,
+  }
+
+  const { error: updateError } = await supabase
+    .from('order_emails')
+    .update({ changes_made: updatedChanges })
+    .eq('id', emailRecord.id)
+
+  if (updateError) {
+    console.error('Failed to update clarification message:', updateError)
+  }
+}
+
+/**
+ * Get thread info for any order (not just clarification orders)
+ * Used for sending approval/rejection emails
+ */
+export async function getOrderThreadInfo(
+  orderId: string
+): Promise<{
+  threadId: string
+  subject: string
+  organizationId: string
+} | null> {
+  const supabase = await createClient()
+
+  // Get the most recent email for this order
+  const { data, error } = await supabase
+    .from('order_emails')
+    .select('gmail_thread_id, email_subject, organization_id')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error || !data) {
+    console.error('Failed to get order thread info:', error)
+    return null
+  }
+
+  return {
+    threadId: data.gmail_thread_id,
+    subject: data.email_subject,
+    organizationId: data.organization_id,
+  }
+}
+
+/**
  * Clear the clarification_message from the most recent email for an order
  * Called after successfully sending the clarification email
  */

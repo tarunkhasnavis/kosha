@@ -1,13 +1,6 @@
-/**
- * Email Processing Service
- *
- * Uses OpenAI to extract order information from emails.
- * Called by handleEmailOrder.ts
- */
+'use server'
 
 import type { ParsedEmail } from '@/lib/gmail/client'
-import type { ProcessedAttachment } from '@/lib/attachmentProcessor'
-import { prepareAttachmentsForAI } from '@/lib/attachmentProcessor'
 import { openai } from '@/lib/openai'
 
 /**
@@ -16,8 +9,7 @@ import { openai } from '@/lib/openai'
 export interface ParsedOrderItem {
   name: string           // REQUIRED - item name
   sku?: string           // OPTIONAL - product SKU if found in email
-  quantity: number       // REQUIRED - numeric quantity (e.g., 10, 5, 2.5)
-  quantityUnit: string   // REQUIRED - unit of measurement (e.g., "lbs", "cases", "each")
+  quantity: string       // REQUIRED - e.g., "10 lbs", "5 cases"
   unitPrice?: number     // OPTIONAL - price per unit
   total?: number         // OPTIONAL - quantity * unitPrice (can be calculated later)
 }
@@ -70,8 +62,7 @@ interface RawAIResponse {
   items?: Array<{
     name: string
     sku?: string
-    quantity: number
-    quantityUnit: string
+    quantity: string
     unitPrice?: number
     total?: number
   }>
@@ -81,12 +72,40 @@ interface RawAIResponse {
 }
 
 /**
+ * Existing order item structure from database
+ */
+export interface ExistingOrderItem {
+  name: string
+  sku?: string | null
+  quantity: string
+  unit_price: number
+  total: number
+}
+
+/**
+ * Existing order data to pass to AI for merging
+ */
+export interface ExistingOrderData {
+  companyName?: string
+  orderNumber?: string
+  orderValue: number
+  expectedDeliveryDate?: string | null
+  notes?: string | null
+  billingAddress?: string | null
+  phone?: string | null
+  paymentMethod?: string | null
+  contactName?: string | null
+  contactEmail?: string | null
+  items: ExistingOrderItem[]
+}
+
+/**
  * Process an email using OpenAI to extract order information.
  * Returns ParsedOrderData if it's an order, or null if not an order.
  *
  * @param email - The current email to process
  * @param threadContext - Optional: Previous emails in the thread for full context
- * @param processedAttachments - Optional: Processed attachments (images, PDFs, Excel)
+ * @param existingOrder - Optional: Current order data from database (for reply emails)
  */
 export async function processEmailWithAI(
   email: ParsedEmail,
@@ -96,14 +115,40 @@ export async function processEmailWithAI(
     email_date: string
     email_body: string
   }>,
-  processedAttachments?: ProcessedAttachment[]
+  existingOrder?: ExistingOrderData
 ): Promise<ParsedOrderData | null> {
   // Build email context with thread history if available
   let emailContext = ''
 
+  // Include existing order data if this is a reply to an existing order
+  if (existingOrder) {
+    const existingItemsStr = existingOrder.items.map((item, i) =>
+      `  ${i + 1}. ${item.name} - ${item.quantity} @ $${item.unit_price.toFixed(2)} = $${item.total.toFixed(2)}${item.sku ? ` (SKU: ${item.sku})` : ''}`
+    ).join('\n')
+
+    emailContext = `
+=== EXISTING ORDER IN DATABASE (SOURCE OF TRUTH) ===
+Company: ${existingOrder.companyName || 'Unknown'}
+Order Number: ${existingOrder.orderNumber || 'Not assigned'}
+Contact: ${existingOrder.contactName || 'Unknown'}
+Contact Email: ${existingOrder.contactEmail || 'Unknown'}
+Phone: ${existingOrder.phone || 'Not provided'}
+Billing Address: ${existingOrder.billingAddress || 'Not provided'}
+Payment Method: ${existingOrder.paymentMethod || 'Not provided'}
+Expected Delivery: ${existingOrder.expectedDeliveryDate || 'ASAP'}
+Notes: ${existingOrder.notes || 'None'}
+Order Value: $${existingOrder.orderValue.toFixed(2)}
+
+CURRENT ITEMS:
+${existingItemsStr || '  (No items yet)'}
+=== END EXISTING ORDER ===
+
+`
+  }
+
   if (threadContext && threadContext.length > 0) {
     // Include previous emails for context
-    emailContext = threadContext.map((prevEmail, index) => `
+    emailContext += threadContext.map((prevEmail, index) => `
 --- Previous Email ${index + 1} ---
 Subject: ${prevEmail.email_subject}
 From: ${prevEmail.email_from}
@@ -122,7 +167,7 @@ ${email.body}
 `
   } else {
     // Single email, no thread context
-    emailContext = `
+    emailContext += `
 Subject: ${email.subject}
 From: ${email.from}
 Date: ${email.date}
@@ -134,37 +179,7 @@ ${email.body}
 
   emailContext = emailContext.trim()
 
-  // Process attachments if provided
-  let attachmentTextContent = ''
-  let attachmentImageUrls: string[] = []
-
-  if (processedAttachments && processedAttachments.length > 0) {
-    const prepared = prepareAttachmentsForAI(processedAttachments)
-    attachmentTextContent = prepared.textContent
-    attachmentImageUrls = prepared.imageUrls
-    console.log(`Prepared ${attachmentImageUrls.length} images and ${attachmentTextContent ? 'Excel data' : 'no Excel data'} for AI`)
-  }
-
-  // If we have Excel data, append it to the email context
-  if (attachmentTextContent) {
-    emailContext += `\n\n--- ATTACHED FILES DATA ---${attachmentTextContent}`
-  }
-
   try {
-    // Build the user message content (text + images for multimodal)
-    const userMessageContent: Array<
-      | { type: 'text'; text: string }
-      | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
-    > = [{ type: 'text', text: emailContext }]
-
-    // Add images from attachments (PDFs converted to images, direct image attachments)
-    for (const imageUrl of attachmentImageUrls) {
-      userMessageContent.push({
-        type: 'image_url',
-        image_url: { url: imageUrl, detail: 'high' },
-      })
-    }
-
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -177,6 +192,18 @@ IMPORTANT: You may receive a single email OR an email thread (conversation). Whe
 - The LATEST email contains the most recent information
 - COMBINE all information from the thread to build the complete order
 - If a reply provides missing information (e.g., prices), add it to the original items
+
+CRITICAL - EXISTING ORDER HANDLING:
+If you see "=== EXISTING ORDER IN DATABASE ===" at the top of the input, this is the CURRENT STATE of the order in our system.
+You MUST:
+1. START with ALL existing items - do NOT remove or forget any items
+2. UPDATE items with new information from the email (e.g., add prices, update quantities)
+3. ADD any NEW items mentioned in the email
+4. ONLY remove items if the customer EXPLICITLY says to remove them
+5. Match items by name (case-insensitive) when merging updates
+
+Example: If existing order has "Chicken Breast - 10 lbs @ $0.00" and customer replies "$5.99/lb for chicken",
+you should return "Chicken Breast" with quantity "10 lbs", unitPrice 5.99, and total 59.90.
 
 Your task:
 1. Determine if this email contains an order (items with quantities)
@@ -214,8 +241,7 @@ Return JSON in this EXACT format:
     {
       "name": "Chicken Breast",
       "sku": "CHK-001" or null,
-      "quantity": 10,
-      "quantityUnit": "lbs",
+      "quantity": "10 lbs",
       "unitPrice": 5.99 or null,
       "total": 59.90 or null
     }
@@ -227,11 +253,7 @@ Return JSON in this EXACT format:
 
 Rules:
 - If NOT an order (question, complaint, general inquiry) → return {"isOrder": false}
-- IMPORTANT: Split quantity into numeric value and unit separately:
-  - "10 lbs" → quantity: 10, quantityUnit: "lbs"
-  - "5 cases" → quantity: 5, quantityUnit: "cases"
-  - "2 dozen" → quantity: 2, quantityUnit: "dozen"
-  - "100" (no unit) → quantity: 100, quantityUnit: "each"
+- Keep quantity units (e.g., "10 lbs", "5 cases", "2 dozen")
 - Parse dates intelligently ("tomorrow" = next day, "Monday" = next Monday, etc.)
 - If date mentioned is in the past, use email date
 - isComplete = true only if ALL items have name + quantity
@@ -239,24 +261,11 @@ Rules:
 - orderValue should be the total if mentioned, or sum of item totals
 
 Example order:
-"Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"
-Expected items output: [
-  {"name": "Chicken Breast", "quantity": 10, "quantityUnit": "lbs", "unitPrice": 5.99, "total": 59.90},
-  {"name": "Ground Beef", "quantity": 5, "quantityUnit": "lbs", "unitPrice": null, "total": null}
-]
-
-ATTACHMENTS - IMPORTANT:
-- The email may include attached files (images, PDFs, Excel spreadsheets)
-- ATTACHMENTS TYPICALLY CONTAIN THE DETAILED ITEMIZED ORDER LIST - extract all items from them
-- The email body often just says "please see attached order" or similar, with the actual items in the attachment
-- Images/PDFs: Usually contain order forms, invoices, or itemized lists. Carefully extract EVERY line item with name, quantity, SKU, and price.
-- Excel data: Provided as JSON in the text. Each row typically represents one order item - extract ALL rows.
-- PRIORITIZE attachment data for items - it's usually more complete than the email body
-- COMBINE information: Use email body for contact info, delivery instructions, etc. Use attachments for the itemized order list.`,
+"Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"`,
         },
         {
           role: 'user',
-          content: userMessageContent,
+          content: emailContext,
         },
       ],
       response_format: { type: 'json_object' },
@@ -314,118 +323,5 @@ ATTACHMENTS - IMPORTANT:
   } catch (error) {
     console.error('Error processing email with OpenAI:', error)
     throw error
-  }
-}
-
-/**
- * Result of analyzing order completeness
- */
-export interface OrderCompletenessResult {
-  isComplete: boolean
-  missingInfo: string[]
-  clarificationEmail?: string
-}
-
-/**
- * Analyze if an order is complete based on its items.
- * Used after user edits to determine if the order can be approved or needs clarification.
- *
- * @param items - The current order items
- * @param companyName - The company name (optional, may be missing)
- * @param originalMissingInfo - Original missing info for context
- */
-export async function analyzeOrderCompleteness(
-  items: Array<{
-    name: string
-    sku?: string
-    quantity: number
-    quantity_unit: string
-    unit_price: number
-    total: number
-  }>,
-  companyName?: string,
-  originalMissingInfo?: string[]
-): Promise<OrderCompletenessResult> {
-  try {
-    // Build the items summary for the AI
-    const itemsSummary = items.map((item, i) =>
-      `${i + 1}. ${item.name}${item.sku ? ` (SKU: ${item.sku})` : ''}: ${item.quantity} ${item.quantity_unit} @ $${item.unit_price.toFixed(2)} = $${item.total.toFixed(2)}`
-    ).join('\n')
-
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an AI assistant that validates food service order completeness.
-
-Analyze the order items and determine if all required information is present for processing.
-
-REQUIRED for EVERY item:
-- Name (what is being ordered)
-- Quantity (numeric amount)
-- Quantity unit (lbs, cases, each, etc.)
-- Unit price (price per unit - we need this to process the order)
-
-NICE TO HAVE but not required:
-- SKU
-- Total (can be calculated from quantity × unit price)
-
-An order is COMPLETE if ALL items have name, quantity, quantity unit, AND unit price.
-An order is INCOMPLETE if ANY item is missing name, quantity, quantity unit, or unit price.
-
-Also check for:
-- Company name (if missing, flag it)
-- Obvious errors (e.g., quantity of 0, negative prices)
-
-Return JSON in this format:
-{
-  "isComplete": true/false,
-  "missingInfo": ["List of what's missing or unclear"],
-  "clarificationEmail": "Friendly email asking for missing info (only if incomplete)"
-}
-
-The clarificationEmail should:
-- Be friendly and professional
-- Specifically mention what information is missing
-- Ask them to reply with the missing details
-- NOT include a greeting with recipient name (we don't know their name)
-- Keep it concise (2-3 sentences max)`,
-        },
-        {
-          role: 'user',
-          content: `Analyze this order for completeness:
-
-Company: ${companyName || 'Unknown (missing)'}
-
-Items:
-${itemsSummary}
-
-${originalMissingInfo && originalMissingInfo.length > 0 ? `\nOriginal missing info that we were asking about:\n- ${originalMissingInfo.join('\n- ')}` : ''}
-
-Is this order now complete? What (if anything) is still missing?`,
-        },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-    })
-
-    const content = response.choices[0]?.message?.content
-    if (!content) {
-      console.error('No content in OpenAI response for completeness check')
-      // Default to complete if AI fails - user can still send manually
-      return { isComplete: true, missingInfo: [] }
-    }
-
-    const parsed = JSON.parse(content)
-    return {
-      isComplete: parsed.isComplete ?? true,
-      missingInfo: parsed.missingInfo ?? [],
-      clarificationEmail: parsed.clarificationEmail || undefined,
-    }
-  } catch (error) {
-    console.error('Error analyzing order completeness:', error)
-    // Default to complete if error - user can still send manually
-    return { isComplete: true, missingInfo: [] }
   }
 }

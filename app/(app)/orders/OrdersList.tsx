@@ -14,10 +14,13 @@ import { OrderEditModal } from "./components/OrderEditModal"
 import {
   saveOrderChanges,
   saveAndApproveOrder,
+  saveAndAnalyzeOrder,
   approveOrder,
   rejectOrder,
   requestOrderInfo,
+  saveClarificationMessage,
   type EditableItemInput,
+  type SaveAndAnalyzeResult,
 } from "@/lib/actions/orders"
 import { createClient } from "@/utils/supabase/client"
 import type { Order, OrderStats } from "@/types/orders"
@@ -168,7 +171,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
     }
   }
 
-  // Handle request info from card
+  // Handle request info from card (uses stored message)
   const handleRequestInfo = async (orderId: string) => {
     try {
       await requestOrderInfo(orderId)
@@ -183,6 +186,70 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
         description: error instanceof Error ? error.message : "Failed to send clarification request",
         variant: "destructive",
       })
+    }
+  }
+
+  // Handle save and analyze from modal (for "needs info" orders with edits)
+  const handleSaveAndAnalyze = async (
+    orderId: string,
+    items: EditableItemInput[],
+    orderFields: { notes?: string; expected_delivery_date?: string }
+  ): Promise<SaveAndAnalyzeResult> => {
+    try {
+      const result = await saveAndAnalyzeOrder(orderId, items, orderFields)
+      toast({
+        title: "Changes Saved",
+        description: result.isComplete
+          ? "Order is now complete and ready for review"
+          : "Order saved. Still missing some information.",
+      })
+      return result
+    } catch (error) {
+      console.error("Failed to save and analyze order:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save order",
+        variant: "destructive",
+      })
+      throw error
+    }
+  }
+
+  // Handle request info from modal (with custom message)
+  const handleRequestInfoWithMessage = async (orderId: string, clarificationMessage: string) => {
+    try {
+      await requestOrderInfo(orderId, clarificationMessage)
+      toast({
+        title: "Request Sent",
+        description: "Clarification email has been sent to the customer",
+      })
+    } catch (error) {
+      console.error("Failed to send clarification request:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send clarification request",
+        variant: "destructive",
+      })
+      throw error
+    }
+  }
+
+  // Handle saving clarification message edits (for "Save for Later")
+  const handleSaveClarificationMessage = async (orderId: string, message: string) => {
+    try {
+      await saveClarificationMessage(orderId, message)
+      toast({
+        title: "Saved",
+        description: "Clarification message saved for later",
+      })
+    } catch (error) {
+      console.error("Failed to save clarification message:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save clarification message",
+        variant: "destructive",
+      })
+      throw error
     }
   }
 
@@ -396,6 +463,9 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
         onClose={handleCloseModal}
         onSave={handleSave}
         onSaveAndApprove={handleSaveAndApprove}
+        onSaveAndAnalyze={handleSaveAndAnalyze}
+        onRequestInfo={handleRequestInfoWithMessage}
+        onSaveClarificationMessage={handleSaveClarificationMessage}
       />
     </div>
   )
