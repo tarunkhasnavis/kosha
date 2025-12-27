@@ -11,9 +11,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/utils/supabase/service'
-import { GmailClient } from '@/lib/gmail/client'
-import { getValidAccessToken } from '@/lib/services/oauthTokens'
-import { handleEmailOrder } from '@/lib/services/handleEmailOrder'
+import { GmailClient } from '@/lib/email/gmail/client'
+import { getValidAccessToken } from '@/lib/organizations/oauth'
+import { handleEmailOrder } from '@/lib/email/handler'
 
 /**
  * POST /api/test/trigger-email-sync

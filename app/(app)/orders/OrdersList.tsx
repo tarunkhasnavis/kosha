@@ -4,13 +4,12 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Filter, RefreshCw, TrendingUp, Clock, CheckCircle, AlertCircle } from "lucide-react"
+import { Search, TrendingUp, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { OrderCard } from "./components/OrderCard"
-import { OrderEditModal } from "./components/OrderEditModal"
+import { OrderEditModal, type OrderFieldsWithOrgFields } from "./components/OrderEditModal"
 import {
   saveOrderChanges,
   saveAndApproveOrder,
@@ -21,28 +20,23 @@ import {
   saveClarificationMessage,
   type EditableItemInput,
   type SaveAndAnalyzeResult,
-} from "@/lib/actions/orders"
+} from "@/lib/orders/actions"
 import { createClient } from "@/utils/supabase/client"
 import type { Order, OrderStats } from "@/types/orders"
+import type { OrgRequiredField } from "@/lib/orders/field-config"
 
 interface OrdersListProps {
   initialOrders: Order[]
   initialStats: OrderStats
+  orgRequiredFields: OrgRequiredField[]
 }
 
-export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
+export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: OrdersListProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
-
-  // Set initial timestamp only on client
-  useEffect(() => {
-    setLastUpdated(new Date())
-  }, [])
 
   // Set up real-time subscription for automation updates
   useEffect(() => {
@@ -59,7 +53,6 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
         },
         () => {
           // When automation updates DB, refresh the page data
-          setLastUpdated(new Date())
           router.refresh()
         }
       )
@@ -69,13 +62,6 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
       supabase.removeChannel(channel)
     }
   }, [router])
-
-  const handleRefresh = () => {
-    setIsRefreshing(true)
-    setLastUpdated(new Date())
-    router.refresh()
-    setTimeout(() => setIsRefreshing(false), 500)
-  }
 
   // Open modal when clicking an order card
   const handleOrderClick = (order: Order) => {
@@ -93,7 +79,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   const handleSave = async (
     orderId: string,
     items: EditableItemInput[],
-    orderFields: { notes?: string; expected_delivery_date?: string }
+    orderFields: OrderFieldsWithOrgFields
   ) => {
     try {
       await saveOrderChanges(orderId, items, orderFields)
@@ -116,7 +102,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   const handleSaveAndApprove = async (
     orderId: string,
     items: EditableItemInput[],
-    orderFields: { notes?: string; expected_delivery_date?: string }
+    orderFields: OrderFieldsWithOrgFields
   ) => {
     try {
       await saveAndApproveOrder(orderId, items, orderFields)
@@ -193,7 +179,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
   const handleSaveAndAnalyze = async (
     orderId: string,
     items: EditableItemInput[],
-    orderFields: { notes?: string; expected_delivery_date?: string }
+    orderFields: OrderFieldsWithOrgFields
   ): Promise<SaveAndAnalyzeResult> => {
     try {
       const result = await saveAndAnalyzeOrder(orderId, items, orderFields)
@@ -275,17 +261,15 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
               <p className="text-muted-foreground mt-1">AI-powered order processing and management</p>
-              {lastUpdated && (
-                <p className="text-muted-foreground text-xs mt-1">
-                  Last updated: {lastUpdated.toLocaleTimeString()}
-                </p>
-              )}
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                System Online
-              </Badge>
+            <div className="relative w-72">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search orders..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
             </div>
           </div>
 
@@ -312,29 +296,6 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
                 <p className="text-xs text-muted-foreground">Last 24 hours</p>
               </CardContent>
             </Card>
-          </div>
-
-          {/* Controls */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search by order number or company..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm">
-                <Filter className="h-4 w-4 mr-2" />
-                Filter
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                Refresh
-              </Button>
-            </div>
           </div>
 
           {/* Tabs */}
@@ -466,6 +427,7 @@ export function OrdersList({ initialOrders, initialStats }: OrdersListProps) {
         onSaveAndAnalyze={handleSaveAndAnalyze}
         onRequestInfo={handleRequestInfoWithMessage}
         onSaveClarificationMessage={handleSaveClarificationMessage}
+        orgRequiredFields={orgRequiredFields}
       />
     </div>
   )

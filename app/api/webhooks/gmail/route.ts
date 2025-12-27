@@ -16,10 +16,10 @@ import {
   findOrganizationByGmailEmail,
   getGmailHistory,
   updateHistoryId,
-} from '@/lib/gmail/watch'
-import { GmailClient } from '@/lib/gmail/client'
-import { getValidAccessToken } from '@/lib/services/oauthTokens'
-import { handleEmailOrder } from '@/lib/services/handleEmailOrder'
+} from '@/lib/email/gmail/watch'
+import { GmailClient } from '@/lib/email/gmail/client'
+import { getValidAccessToken } from '@/lib/organizations/oauth'
+import { handleEmailOrder } from '@/lib/email/handler'
 
 interface PubSubMessage {
   message: {

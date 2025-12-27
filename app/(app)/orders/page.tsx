@@ -1,8 +1,9 @@
 import { createClient } from '@/utils/supabase/server'
-import { getOrganizationId } from '@/lib/db/organizations'
+import { getOrganizationId } from '@/lib/organizations/queries'
 import { OrdersList } from './OrdersList'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
+import { getOrgRequiredFields } from '@/lib/orders/field-config'
 
 export default async function OrdersPage() {
   // Auth handled by (app)/layout.tsx
@@ -28,6 +29,15 @@ export default async function OrdersPage() {
       </div>
     )
   }
+
+  // Fetch organization's required fields config
+  const { data: orgData } = await supabase
+    .from('organizations')
+    .select('required_order_fields')
+    .eq('id', orgId)
+    .single()
+
+  const orgRequiredFields = getOrgRequiredFields(orgData?.required_order_fields)
 
   // Fetch orders filtered by organization
   const { data: orders, error: ordersError } = await supabase
@@ -90,5 +100,5 @@ export default async function OrdersPage() {
     processingTime: '2 min'
   }
 
-  return <OrdersList initialOrders={ordersWithItems} initialStats={stats} />
+  return <OrdersList initialOrders={ordersWithItems} initialStats={stats} orgRequiredFields={orgRequiredFields} />
 }

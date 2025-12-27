@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { renewExpiringWatches } from '@/lib/gmail/watch'
+import { renewExpiringWatches } from '@/lib/email/gmail/watch'
 
 /**
  * GET /api/cron/renew-watches

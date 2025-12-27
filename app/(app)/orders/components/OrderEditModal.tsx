@@ -36,7 +36,8 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
-import type { SaveAndAnalyzeResult } from "@/lib/actions/orders"
+import type { SaveAndAnalyzeResult } from "@/lib/orders/actions"
+import type { OrgRequiredField } from "@/lib/orders/field-config"
 
 interface EditableItem {
   id: string
@@ -64,15 +65,25 @@ const QUANTITY_UNITS = [
   "liters",
 ]
 
+/**
+ * Extended order fields type that includes org-specific fields
+ */
+export interface OrderFieldsWithOrgFields {
+  notes?: string
+  expected_delivery_date?: string
+  orgFields?: Record<string, string | number | null>
+}
+
 interface OrderEditModalProps {
   order: Order | null
   isOpen: boolean
   onClose: () => void
-  onSave: (orderId: string, items: EditableItem[], orderFields: { notes?: string; expected_delivery_date?: string }) => Promise<void>
-  onSaveAndApprove: (orderId: string, items: EditableItem[], orderFields: { notes?: string; expected_delivery_date?: string }) => Promise<void>
-  onSaveAndAnalyze?: (orderId: string, items: EditableItem[], orderFields: { notes?: string; expected_delivery_date?: string }) => Promise<SaveAndAnalyzeResult>
+  onSave: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields) => Promise<void>
+  onSaveAndApprove: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields) => Promise<void>
+  onSaveAndAnalyze?: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields) => Promise<SaveAndAnalyzeResult>
   onRequestInfo?: (orderId: string, clarificationMessage: string) => Promise<void>
   onSaveClarificationMessage?: (orderId: string, clarificationMessage: string) => Promise<void>
+  orgRequiredFields: OrgRequiredField[]
 }
 
 function generateTempId(): string {
@@ -143,7 +154,8 @@ interface CompletenessResult {
  */
 function calculateCompleteness(
   order: Order,
-  items: EditableItem[]
+  items: EditableItem[],
+  orgRequiredFields: OrgRequiredField[]
 ): CompletenessResult {
   const missingRequiredFields: string[] = []
   const missingOptionalFields: string[] = []
@@ -166,6 +178,20 @@ function calculateCompleteness(
       } else {
         missingOptionalFields.push(field.label)
       }
+    }
+  }
+
+  // Check org-specific required fields from custom_fields
+  const customFields = order.custom_fields || {}
+  for (const field of orgRequiredFields.filter(f => f.required)) {
+    totalFields++
+    const value = customFields[field.field]
+    const isFilled = value !== null && value !== undefined && value !== ''
+
+    if (isFilled) {
+      filledFields++
+    } else {
+      missingRequiredFields.push(field.label)
     }
   }
 
@@ -241,11 +267,13 @@ export function OrderEditModal({
   onSaveAndAnalyze,
   onRequestInfo,
   onSaveClarificationMessage,
+  orgRequiredFields,
 }: OrderEditModalProps) {
   const [items, setItems] = useState<EditableItem[]>([])
   const [originalItems, setOriginalItems] = useState<EditableItem[]>([])
   const [notes, setNotes] = useState("")
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined)
+  const [orgFieldValues, setOrgFieldValues] = useState<Record<string, string | number | null>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [savingAction, setSavingAction] = useState<string | null>(null)
   const [isRequestingInfo, setIsRequestingInfo] = useState(false)
@@ -277,6 +305,16 @@ export function OrderEditModal({
       setOriginalItems(mappedItems)
       setNotes(order.notes || "")
       setDeliveryDate(order.expected_delivery_date ? new Date(order.expected_delivery_date) : undefined)
+
+      // Initialize org field values from order.custom_fields
+      const initialOrgFields: Record<string, string | number | null> = {}
+      const customFields = order.custom_fields || {}
+      for (const field of orgRequiredFields) {
+        const value = customFields[field.field]
+        initialOrgFields[field.field] = value ?? null
+      }
+      setOrgFieldValues(initialOrgFields)
+
       setIsEmailSectionOpen(false)
       setShowContinueDialog(false)
       setContinueDialogData(null)
@@ -300,8 +338,8 @@ export function OrderEditModal({
   // Compute completeness
   const completeness = useMemo(() => {
     if (!order) return null
-    return calculateCompleteness(order, items)
-  }, [order, items])
+    return calculateCompleteness(order, items, orgRequiredFields)
+  }, [order, items, orgRequiredFields])
 
   if (!order) return null
 
@@ -364,7 +402,7 @@ export function OrderEditModal({
     setSavingAction("save")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSave(order.id, items, { notes, expected_delivery_date: deliveryDateStr })
+      await onSave(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
       onClose()
     } finally {
       setIsSaving(false)
@@ -378,7 +416,7 @@ export function OrderEditModal({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_delivery_date: deliveryDateStr })
+      await onSaveAndApprove(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
       onClose()
     } finally {
       setIsSaving(false)
@@ -394,7 +432,7 @@ export function OrderEditModal({
     setSavingAction("continue")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_delivery_date: deliveryDateStr })
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
 
       // Show the continuation dialog with the result
       setContinueDialogData({
@@ -834,6 +872,63 @@ export function OrderEditModal({
               />
             </div>
           </div>
+
+          {/* Additional Info - Org-Specific Required Fields (below Order Details) */}
+          {orgRequiredFields.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Additional Info
+                </h3>
+                {/* Show indicator if any org fields need attention - styled like Items section */}
+                {(() => {
+                  const missingOrgFields = orgRequiredFields.filter(f => {
+                    if (!f.required) return false
+                    const value = orgFieldValues[f.field]
+                    return value === null || value === undefined || value === ''
+                  })
+                  return missingOrgFields.length > 0 ? (
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
+                      {missingOrgFields.length} field{missingOrgFields.length > 1 ? 's' : ''} need{missingOrgFields.length === 1 ? 's' : ''} attention
+                    </Badge>
+                  ) : null
+                })()}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {orgRequiredFields.map((field) => {
+                  const value = orgFieldValues[field.field]
+                  const displayValue = value !== null && value !== undefined ? String(value) : ''
+                  const isMissing = field.required && (!displayValue || displayValue === '')
+                  return (
+                    <div key={field.field} className="space-y-1">
+                      <Label className={isMissing ? 'text-orange-600' : ''}>
+                        {field.label}
+                        {field.required && <span className="text-red-500 ml-1">*</span>}
+                      </Label>
+                      <Input
+                        type={field.type === 'number' ? 'number' : 'text'}
+                        value={displayValue}
+                        onChange={(e) => {
+                          const newValue = field.type === 'number'
+                            ? (e.target.value === '' ? null : Number(e.target.value))
+                            : e.target.value
+                          setOrgFieldValues(prev => ({
+                            ...prev,
+                            [field.field]: newValue
+                          }))
+                        }}
+                        className={isMissing ? 'border-orange-400' : ''}
+                        placeholder={`Enter ${field.label.toLowerCase()}`}
+                      />
+                      {isMissing && (
+                        <p className="text-xs text-orange-500">Required field</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Order Total */}
           <div className="border-t pt-4">

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MainNav } from "@/components/main-nav"
 import { Search, Plus, Edit, Trash2, Download, Filter, Star } from 'lucide-react'
 import {
   Dialog,
@@ -255,8 +254,6 @@ export default function SuppliersPage() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <MainNav />
-
       <main className="flex-1 ml-64 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="border-b bg-white px-6 py-4">

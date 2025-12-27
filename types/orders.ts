@@ -19,6 +19,8 @@ export interface Order {
   items?: OrderItem[]
   email_url?: string
   clarification_message?: string | null  // Pending clarification message to send (null = already sent)
+  ship_via?: string  // Delivery method: 'Delivery' or 'Customer Pickup' (empty = not specified)
+  custom_fields?: Record<string, string | number | null>  // Org-specific fields (e.g., liquor_license)
 }
 
 export interface OrderItem {

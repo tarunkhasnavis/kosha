@@ -1,4 +1,4 @@
-import { getUserOrganization } from '@/lib/db/organizations'
+import { getUserOrganization } from '@/lib/organizations/queries'
 import { redirect } from 'next/navigation'
 import { CreateOrganizationForm } from './CreateOrganizationForm'
 

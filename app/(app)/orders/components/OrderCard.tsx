@@ -23,6 +23,7 @@ import {
   Send,
   Loader2,
   AlertCircle,
+  Download,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 
@@ -215,9 +216,23 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo }
 
         {/* Approved */}
         {order.status === "approved" && (
-          <div className="flex items-center gap-2 text-green-600 text-sm pt-4">
-            <CheckCircle className="h-4 w-4" />
-            <span className="font-medium">Approved and processed</span>
+          <div className="flex items-center justify-between pt-4">
+            <div className="flex items-center gap-2 text-green-600 text-sm">
+              <CheckCircle className="h-4 w-4" />
+              <span className="font-medium">Approved</span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation()
+                // Trigger download via browser
+                window.open(`/api/orders/${order.id}/pdf`, '_blank')
+              }}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Download
+            </Button>
           </div>
         )}
       </CardContent>
