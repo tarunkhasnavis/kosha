@@ -10,7 +10,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { OrderStatus } from '@/types/orders'
-import { getOrderClarificationInfo, clearClarificationMessage, updateClarificationMessage, getOrderThreadInfo } from './queries'
+import { getOrderClarificationInfo, clearClarificationMessage, updateClarificationMessage, getOrderThreadInfo, getOrderLearningData } from './queries'
 import { generateApprovalEmail, generateRejectionEmail } from './utils/templates'
 import { getUserOrganization, getOrganizationId } from '@/lib/organizations/queries'
 import { analyzeOrderCompleteness } from '@/lib/email/parser'
@@ -18,6 +18,7 @@ import { sendGmailReply } from '@/lib/email/gmail/reply'
 import { replaceOrderItems, type OrderItemInput } from './services'
 import { triggerOrderCompleted } from '@/lib/integrations/dispatcher'
 import { getOrgRequiredFields } from './field-config'
+import { saveOrderExample } from '@/lib/ai/embeddings'
 
 // ============================================
 // USER-FACING SERVER ACTIONS (UI interactions)
@@ -130,6 +131,54 @@ export async function approveOrder(orderId: string) {
     // Don't throw - order is still approved
   }
 
+  // Save as learning example for RAG (non-blocking)
+  try {
+    const learningData = await getOrderLearningData(orderId)
+    if (learningData) {
+      // Build the final extracted order from current state
+      const extractedOrder = {
+        companyName: order.company_name,
+        orderNumber: order.order_number,
+        orderValue: order.order_value,
+        items: (order.order_items || []).map((item: any) => ({
+          name: item.name,
+          sku: item.sku,
+          quantity: item.quantity,
+          quantityUnit: item.quantity_unit,
+          unitPrice: item.unit_price,
+          total: item.total,
+        })),
+        contactName: order.contact_name,
+        expectedDeliveryDate: order.expected_delivery_date,
+      }
+
+      // Determine if order was edited by comparing item counts or values
+      // (Simple heuristic - could be more sophisticated)
+      const originalItems = learningData.originalExtraction?.items_added as any[] | undefined
+      const wasEdited = !originalItems ||
+        originalItems.length !== (order.order_items || []).length ||
+        order.order_value !== learningData.originalExtraction?.order_value
+
+      const result = await saveOrderExample(
+        learningData.rawInput,
+        extractedOrder,
+        learningData.organizationId,
+        orderId,
+        wasEdited,
+        { senderDomain: learningData.senderDomain, docType: 'email' }
+      )
+
+      if (result.success) {
+        console.log(`📚 Saved order ${orderId} as learning example (edited: ${wasEdited})`)
+      } else {
+        console.error(`⚠️ Failed to save learning example: ${result.error}`)
+      }
+    }
+  } catch (learningError) {
+    console.error('Error saving learning example:', learningError)
+    // Don't throw - order is still approved
+  }
+
   revalidatePath('/orders')
   return { success: true }
 }
@@ -230,6 +279,68 @@ export async function rejectOrder(orderId: string, reason?: string) {
   return { success: true }
 }
 
+/**
+ * Mark an order's PDF as downloaded
+ * Updates the pdf_downloaded_at timestamp
+ */
+export async function markOrderPdfDownloaded(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ pdf_downloaded_at: new Date().toISOString() })
+    .eq('id', orderId)
+
+  if (error) {
+    console.error('Failed to mark PDF as downloaded:', error)
+    throw new Error(`Failed to mark PDF as downloaded: ${error.message}`)
+  }
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
+/**
+ * Archive an approved order
+ * Moves the order to archived status
+ */
+export async function archiveOrder(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'archived' })
+    .eq('id', orderId)
+
+  if (error) {
+    console.error('Failed to archive order:', error)
+    throw new Error(`Failed to archive order: ${error.message}`)
+  }
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
+/**
+ * Unarchive an order (restore to approved status)
+ */
+export async function unarchiveOrder(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'approved' })
+    .eq('id', orderId)
+
+  if (error) {
+    console.error('Failed to unarchive order:', error)
+    throw new Error(`Failed to unarchive order: ${error.message}`)
+  }
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
 export async function requestOrderInfo(orderId: string, customMessage?: string) {
   // Get the stored clarification info for this order (for thread/subject info)
   const clarificationInfo = await getOrderClarificationInfo(orderId)
@@ -306,6 +417,7 @@ export interface CreateOrderInput {
   email_from: string
   email_url?: string
   custom_fields?: Record<string, string | number | null>  // Org-specific fields stored as JSONB
+  inferred_fields?: string[]  // Fields where AI made logical leaps (e.g., "items[0].sku", "liquor_license")
 }
 
 /**
@@ -335,6 +447,7 @@ export async function createOrder(input: CreateOrderInput) {
     organization_id: input.organization_id,
     email_from: input.email_from,
     email_url: input.email_url || null,
+    inferred_fields: input.inferred_fields || null,
   }
 
   // Extract org-specific fields (any fields not in the base set)
@@ -342,7 +455,8 @@ export async function createOrder(input: CreateOrderInput) {
     'order_number', 'company_name', 'source', 'status', 'order_value',
     'item_count', 'received_date', 'expected_delivery_date', 'notes',
     'billing_address', 'phone', 'payment_method', 'contact_name',
-    'contact_email', 'ship_via', 'organization_id', 'email_from', 'email_url'
+    'contact_email', 'ship_via', 'organization_id', 'email_from', 'email_url',
+    'inferred_fields'
   ])
 
   const orgFields: Record<string, string | number | null> = {}
@@ -387,6 +501,7 @@ export async function updateOrderFields(
     contact_email?: string | null
     ship_via?: string | null
     custom_fields?: Record<string, string | number | null>  // Org-specific fields
+    inferred_fields?: string[] | null  // Fields where AI made logical leaps
   }
 ) {
   const supabase = await createClient()
@@ -544,14 +659,15 @@ export async function saveAndAnalyzeOrder(
     throw new Error('Failed to fetch order')
   }
 
-  // Get organization's required fields config
+  // Get organization's required fields config and system prompt
   const { data: orgData } = await supabase
     .from('organizations')
-    .select('required_order_fields')
+    .select('required_order_fields, system_prompt')
     .eq('id', organizationId)
     .single()
 
   const orgRequiredFields = getOrgRequiredFields(orgData?.required_order_fields)
+  const orgSystemPrompt = orgData?.system_prompt || null
 
   // Calculate new totals from items
   const orderValue = items.reduce((sum, item) => sum + item.total, 0)
@@ -576,13 +692,14 @@ export async function saveAndAnalyzeOrder(
     },
   }
 
-  // Call AI to analyze completeness (including org-specific required fields)
+  // Call AI to analyze completeness (including org-specific required fields and prompt)
   const analysisResult = await analyzeOrderCompleteness(
     itemsForAnalysis,
     currentOrder.company_name || undefined,
     undefined, // originalMissingInfo - not available here
     mergedOrderData, // order data with user's org field edits
-    orgRequiredFields
+    orgRequiredFields,
+    orgSystemPrompt
   )
 
   // Determine new status based on completeness

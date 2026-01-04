@@ -24,18 +24,18 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  Archive,
+  ArchiveRestore,
+  type LucideIcon,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
+import { markOrderPdfDownloaded, archiveOrder, unarchiveOrder } from "@/lib/orders/actions"
 
-interface OrderCardProps {
-  order: Order
-  onClick: () => void
-  onReject?: (orderId: string) => Promise<void>
-  onApprove?: (orderId: string) => Promise<void>
-  onRequestInfo?: (orderId: string) => Promise<void>
-}
+// =============================================================================
+// Constants
+// =============================================================================
 
-const sourceIcons = {
+const sourceIcons: Record<Order["source"], LucideIcon> = {
   email: Mail,
   text: MessageSquare,
   voicemail: Phone,
@@ -43,7 +43,7 @@ const sourceIcons = {
   pdf: FileText,
 }
 
-const sourceColors = {
+const sourceColors: Record<Order["source"], string> = {
   email: "bg-blue-100 text-blue-800",
   text: "bg-green-100 text-green-800",
   voicemail: "bg-purple-100 text-purple-800",
@@ -51,37 +51,323 @@ const sourceColors = {
   pdf: "bg-gray-100 text-gray-800",
 }
 
-const statusBorderColors = {
+const statusBorderColors: Record<string, string> = {
   waiting_review: "border-l-blue-500",
   awaiting_clarification: "border-l-orange-600",
   approved: "border-l-green-500",
   rejected: "border-l-red-500",
+  archived: "border-l-gray-400",
 }
 
-export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo }: OrderCardProps) {
+// =============================================================================
+// Reusable Sub-components
+// =============================================================================
+
+interface IconButtonProps {
+  icon: LucideIcon
+  tooltip: string
+  loading: boolean
+  disabled?: boolean
+  className?: string
+  onClick: (e: React.MouseEvent) => void
+}
+
+function IconButton({ icon: Icon, tooltip, loading, disabled, className = "", onClick }: IconButtonProps) {
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || loading}
+            className={`h-8 w-8 p-0 ${className}`}
+            onClick={onClick}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Icon className="h-4 w-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+interface ActionButtonProps {
+  icon: LucideIcon
+  label: string
+  loading: boolean
+  disabled?: boolean
+  variant?: "default" | "outline"
+  className?: string
+  onClick: (e: React.MouseEvent) => void
+}
+
+function ActionButton({
+  icon: Icon,
+  label,
+  loading,
+  disabled,
+  variant = "outline",
+  className = "",
+  onClick
+}: ActionButtonProps) {
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={className}
+    >
+      {loading ? (
+        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+      ) : (
+        <Icon className="h-4 w-4 mr-1" />
+      )}
+      {label}
+    </Button>
+  )
+}
+
+// =============================================================================
+// Status-specific Action Components
+// =============================================================================
+
+interface StatusActionsProps {
+  order: Order
+  isLoading: string | null
+  onAction: (action: string, handler: () => Promise<void>) => (e: React.MouseEvent) => void
+  onReject?: (orderId: string) => Promise<void>
+  onApprove?: (orderId: string) => Promise<void>
+  onRequestInfo?: (orderId: string) => Promise<void>
+}
+
+function PendingReviewActions({ order, isLoading, onAction, onReject, onApprove }: StatusActionsProps) {
+  return (
+    <div className="grid grid-cols-2 gap-2 pt-4">
+      <ActionButton
+        icon={XCircle}
+        label="Reject"
+        loading={isLoading === "reject"}
+        disabled={isLoading !== null}
+        onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
+      />
+      <ActionButton
+        icon={CheckCircle}
+        label="Approve"
+        loading={isLoading === "approve"}
+        disabled={isLoading !== null}
+        variant="default"
+        onClick={onAction("approve", () => onApprove?.(order.id) ?? Promise.resolve())}
+      />
+    </div>
+  )
+}
+
+function NeedsInfoActions({ order, isLoading, onAction, onReject, onRequestInfo }: StatusActionsProps) {
+  const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
+
+  return (
+    <div className="grid grid-cols-2 gap-2 pt-4">
+      <ActionButton
+        icon={XCircle}
+        label="Reject"
+        loading={isLoading === "reject"}
+        disabled={isLoading !== null}
+        onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
+      />
+      {hasClarificationMessage ? (
+        <ActionButton
+          icon={Send}
+          label="Request Info"
+          loading={isLoading === "requestInfo"}
+          disabled={isLoading !== null}
+          variant="default"
+          className="bg-orange-600 hover:bg-orange-700 text-white"
+          onClick={onAction("requestInfo", () => onRequestInfo?.(order.id) ?? Promise.resolve())}
+        />
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="bg-gray-100 text-gray-500"
+          disabled
+        >
+          <CheckCheck className="h-4 w-4 mr-1" />
+          Request Sent
+        </Button>
+      )}
+    </div>
+  )
+}
+
+interface ApprovedActionsProps {
+  order: Order
+  isLoading: string | null
+  hasBeenDownloaded: boolean
+  justDownloaded: boolean
+  onArchive: (e: React.MouseEvent) => void
+  onDownload: (e: React.MouseEvent) => void
+}
+
+function ApprovedActions({
+  isLoading,
+  hasBeenDownloaded,
+  justDownloaded,
+  onArchive,
+  onDownload
+}: ApprovedActionsProps) {
+  const isDownloaded = hasBeenDownloaded || justDownloaded
+
+  return (
+    <div className="flex items-center justify-between pt-4">
+      <div className="flex items-center gap-2 text-green-600 text-sm">
+        <CheckCircle className="h-4 w-4" />
+        <span className="font-medium">Approved</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isLoading === "download"}
+                className={
+                  isDownloaded
+                    ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800"
+                    : ""
+                }
+                onClick={onDownload}
+              >
+                {isLoading === "download" ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : isDownloaded ? (
+                  <CheckCheck className="h-4 w-4 mr-1" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                {isDownloaded ? "Downloaded" : "Download"}
+              </Button>
+            </TooltipTrigger>
+            {isDownloaded && (
+              <TooltipContent>
+                <p>Click to download again</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
+        <IconButton
+          icon={Archive}
+          tooltip="Archive"
+          loading={isLoading === "archive"}
+          onClick={onArchive}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface ArchivedActionsProps {
+  order: Order
+  isLoading: string | null
+  onUnarchive: (e: React.MouseEvent) => void
+  onDownload: (e: React.MouseEvent) => void
+}
+
+function ArchivedActions({ isLoading, onUnarchive, onDownload }: ArchivedActionsProps) {
+  return (
+    <div className="flex items-center justify-between pt-4">
+      <div className="flex items-center gap-2 text-gray-500 text-sm">
+        <Archive className="h-4 w-4" />
+        <span className="font-medium">Archived</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <IconButton
+          icon={ArchiveRestore}
+          tooltip="Restore"
+          loading={isLoading === "unarchive"}
+          onClick={onUnarchive}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onDownload}
+        >
+          <Download className="h-4 w-4 mr-1" />
+          Download
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
+// Main Component
+// =============================================================================
+
+interface OrderCardProps {
+  order: Order
+  onClick: () => void
+  onReject?: (orderId: string) => Promise<void>
+  onApprove?: (orderId: string) => Promise<void>
+  onRequestInfo?: (orderId: string) => Promise<void>
+  onDownload?: (orderId: string) => void
+}
+
+export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, onDownload }: OrderCardProps) {
   const [isLoading, setIsLoading] = useState<string | null>(null)
+  const [justDownloaded, setJustDownloaded] = useState(false)
+
   const SourceIcon = sourceIcons[order.source]
-  const borderColor = statusBorderColors[order.status as keyof typeof statusBorderColors] || "border-l-gray-500"
+  const borderColor = statusBorderColors[order.status] || "border-l-gray-500"
+  const hasBeenDownloaded = order.pdf_downloaded_at !== null && order.pdf_downloaded_at !== undefined
+  const isNeedsInfo = order.status === "awaiting_clarification"
+  const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
 
-  const handleAction = async (
-    e: React.MouseEvent,
-    action: "reject" | "approve" | "requestInfo",
-    handler?: (orderId: string) => Promise<void>
-  ) => {
-    e.stopPropagation() // Prevent card click
-    if (!handler) return
+  // Generic action handler factory
+  const createActionHandler = (action: string, handler: () => Promise<void>) => {
+    return async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setIsLoading(action)
+      try {
+        await handler()
+      } finally {
+        setIsLoading(null)
+      }
+    }
+  }
 
-    setIsLoading(action)
+  // Specific handlers for archive/download actions
+  const handleArchive = createActionHandler("archive", async () => { await archiveOrder(order.id) })
+  const handleUnarchive = createActionHandler("unarchive", async () => { await unarchiveOrder(order.id) })
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsLoading("download")
+    window.open(`/api/orders/${order.id}/pdf`, '_blank')
     try {
-      await handler(order.id)
+      await markOrderPdfDownloaded(order.id)
+      setJustDownloaded(true)
+      onDownload?.(order.id)
+    } catch (error) {
+      console.error('Failed to mark as downloaded:', error)
     } finally {
       setIsLoading(null)
     }
   }
 
-  const isNeedsInfo = order.status === "awaiting_clarification"
-  const isPendingReview = order.status === "waiting_review"
-  const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
+  const handleSimpleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    window.open(`/api/orders/${order.id}/pdf`, '_blank')
+  }
 
   return (
     <Card
@@ -138,102 +424,45 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo }
           </div>
         </div>
 
-        {/* Action Buttons */}
-        {/* Pending Review: Reject, Approve */}
-        {isPendingReview && (
-          <div className="grid grid-cols-2 gap-2 pt-4">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={(e) => handleAction(e, "reject", onReject)}
-              disabled={isLoading !== null}
-            >
-              {isLoading === "reject" ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <XCircle className="h-4 w-4 mr-1" />
-              )}
-              Reject
-            </Button>
-            <Button
-              size="sm"
-              onClick={(e) => handleAction(e, "approve", onApprove)}
-              disabled={isLoading !== null}
-            >
-              {isLoading === "approve" ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <CheckCircle className="h-4 w-4 mr-1" />
-              )}
-              Approve
-            </Button>
-          </div>
+        {/* Status-specific Actions */}
+        {order.status === "waiting_review" && (
+          <PendingReviewActions
+            order={order}
+            isLoading={isLoading}
+            onAction={createActionHandler}
+            onReject={onReject}
+            onApprove={onApprove}
+          />
         )}
 
-        {/* Needs Info: Reject, Request Info or Request Sent */}
-        {isNeedsInfo && (
-          <div className="grid grid-cols-2 gap-2 pt-4">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={(e) => handleAction(e, "reject", onReject)}
-              disabled={isLoading !== null}
-            >
-              {isLoading === "reject" ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <XCircle className="h-4 w-4 mr-1" />
-              )}
-              Reject
-            </Button>
-            {hasClarificationMessage ? (
-              <Button
-                size="sm"
-                className="bg-orange-600 hover:bg-orange-700 text-white"
-                onClick={(e) => handleAction(e, "requestInfo", onRequestInfo)}
-                disabled={isLoading !== null}
-              >
-                {isLoading === "requestInfo" ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4 mr-1" />
-                )}
-                Request Info
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-gray-100 text-gray-500"
-                disabled
-              >
-                <CheckCheck className="h-4 w-4 mr-1" />
-                Request Sent
-              </Button>
-            )}
-          </div>
+        {order.status === "awaiting_clarification" && (
+          <NeedsInfoActions
+            order={order}
+            isLoading={isLoading}
+            onAction={createActionHandler}
+            onReject={onReject}
+            onRequestInfo={onRequestInfo}
+          />
         )}
 
-        {/* Approved */}
         {order.status === "approved" && (
-          <div className="flex items-center justify-between pt-4">
-            <div className="flex items-center gap-2 text-green-600 text-sm">
-              <CheckCircle className="h-4 w-4" />
-              <span className="font-medium">Approved</span>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation()
-                // Trigger download via browser
-                window.open(`/api/orders/${order.id}/pdf`, '_blank')
-              }}
-            >
-              <Download className="h-4 w-4 mr-1" />
-              Download
-            </Button>
-          </div>
+          <ApprovedActions
+            order={order}
+            isLoading={isLoading}
+            hasBeenDownloaded={hasBeenDownloaded}
+            justDownloaded={justDownloaded}
+            onArchive={handleArchive}
+            onDownload={handleDownload}
+          />
+        )}
+
+        {order.status === "archived" && (
+          <ArchivedActions
+            order={order}
+            isLoading={isLoading}
+            onUnarchive={handleUnarchive}
+            onDownload={handleSimpleDownload}
+          />
         )}
       </CardContent>
     </Card>

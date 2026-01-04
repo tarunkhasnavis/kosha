@@ -35,12 +35,8 @@ ADDITIONAL REQUIRED FIELDS FOR THIS ORGANIZATION:
 Extract these fields and include them in the "orgFields" object:
 ${fieldsList}
 
-IMPORTANT: Look for these field values ANYWHERE in the email - in the body, notes section, comments, attachments, or any other location.
-For example, a liquor license number might appear in the "Note:" field of an order email. Extract it from wherever you find it.
-
-Example orgFields format: { ${exampleFields} }
-
-If any required org field is not found, add it to missingInfo (e.g., "Missing ${requiredFields[0]?.label || 'field'}").
+Search the entire email (body, notes, comments, signatures) for these values.
+Format: { ${exampleFields} }
 `
 }
 

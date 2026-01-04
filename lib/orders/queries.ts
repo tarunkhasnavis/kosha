@@ -296,3 +296,53 @@ export async function clearClarificationMessage(orderId: string): Promise<void> 
     }
   }
 }
+
+/**
+ * Data needed to save an order as a learning example
+ */
+export interface OrderLearningData {
+  /** Raw input text (email body with context) */
+  rawInput: string
+  /** Sender domain for filtering */
+  senderDomain: string | null
+  /** Original AI extraction (from changes_made) */
+  originalExtraction: Record<string, unknown> | null
+  /** Organization ID */
+  organizationId: string
+}
+
+/**
+ * Fetch the data needed to save an approved order as a learning example
+ * Returns the original email body and AI extraction for comparison
+ */
+export async function getOrderLearningData(orderId: string): Promise<OrderLearningData | null> {
+  const supabase = await createClient()
+
+  // Get the first email for this order (the original order email)
+  const { data, error } = await supabase
+    .from('order_emails')
+    .select('email_from, email_subject, email_body, changes_made, organization_id')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (error || !data) {
+    console.error('Failed to fetch order learning data:', error)
+    return null
+  }
+
+  // Build raw input in consistent format
+  const rawInput = `Subject: ${data.email_subject}\nFrom: ${data.email_from}\n\n${data.email_body}`
+
+  // Extract sender domain
+  const domainMatch = data.email_from.match(/@([^\s>]+)/)
+  const senderDomain = domainMatch ? domainMatch[1].toLowerCase() : null
+
+  return {
+    rawInput,
+    senderDomain,
+    originalExtraction: data.changes_made as Record<string, unknown> | null,
+    organizationId: data.organization_id,
+  }
+}

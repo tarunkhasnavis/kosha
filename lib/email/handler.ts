@@ -11,15 +11,16 @@
  */
 
 import type { ParsedEmail } from './gmail/client'
-import type { ParsedOrderData } from './parser'
+import type { ParsedOrderData, ProductCatalogItem } from './parser'
 import type { ProcessedAttachment } from './attachments'
 import { processEmailWithAI } from './parser'
 import { processAllAttachments, isSupportedAttachment } from './attachments'
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
 import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails } from '@/lib/orders/queries'
-import { getOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
+import { getOrgRequiredFields, validateOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
 import { createClient } from '@/utils/supabase/server'
+import { retrieveSimilarExamples, type OrderExample } from '@/lib/ai/embeddings'
 
 /**
  * Generate a unique order number (fallback if email doesn't have one)
@@ -31,17 +32,37 @@ function generateOrderNumber(): string {
 }
 
 /**
- * Fetch organization's required fields config
+ * Fetch organization's required fields config, system prompt, and product catalog
  */
-async function fetchOrgRequiredFields(organizationId: string): Promise<OrgRequiredField[]> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('organizations')
-    .select('required_order_fields')
-    .eq('id', organizationId)
-    .single()
+interface OrgConfig {
+  requiredFields: OrgRequiredField[]
+  systemPrompt: string | null
+  productCatalog: ProductCatalogItem[]
+}
 
-  return getOrgRequiredFields(data?.required_order_fields)
+async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
+  const supabase = await createClient()
+
+  // Fetch org settings and products in parallel
+  const [orgResult, productsResult] = await Promise.all([
+    supabase
+      .from('organizations')
+      .select('required_order_fields, system_prompt')
+      .eq('id', organizationId)
+      .single(),
+    supabase
+      .from('products')
+      .select('sku, name, unit_price')
+      .eq('organization_id', organizationId)
+      .eq('is_active', true)
+      .order('sku', { ascending: true })
+  ])
+
+  return {
+    requiredFields: getOrgRequiredFields(orgResult.data?.required_order_fields),
+    systemPrompt: orgResult.data?.system_prompt || null,
+    productCatalog: (productsResult.data || []) as ProductCatalogItem[],
+  }
 }
 
 /**
@@ -50,10 +71,26 @@ async function fetchOrgRequiredFields(organizationId: string): Promise<OrgRequir
 async function createNewOrder(
   email: ParsedEmail,
   aiResult: ParsedOrderData,
-  organizationId: string
+  organizationId: string,
+  orgRequiredFields: OrgRequiredField[]
 ): Promise<{ success: boolean; orderId: string }> {
-  // Determine order status based on completeness
-  const status = aiResult.isComplete ? 'waiting_review' : 'awaiting_clarification'
+  // Validate org-specific required fields - this is the source of truth, NOT the AI
+  const orgFieldsValidation = validateOrgRequiredFields(
+    aiResult.orgFields || {},
+    orgRequiredFields
+  )
+
+  // Order is only complete if AI says complete AND all required org fields are present
+  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+
+  // Determine order status based on ACTUAL completeness
+  const status = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
+
+  // Merge missing info from AI and org field validation
+  const allMissingInfo = [
+    ...aiResult.missingInfo,
+    ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
+  ]
 
   // Use AI-provided order number or generate one
   const orderNumber = aiResult.orderNumber || generateOrderNumber()
@@ -88,6 +125,8 @@ async function createNewOrder(
     email_url: emailUrl,
     // Store org-specific fields in custom_fields JSONB column
     custom_fields: aiResult.orgFields || {},
+    // Store fields where AI made logical leaps for UI highlighting
+    inferred_fields: aiResult.inferredFields || [],
   }
 
   try {
@@ -109,9 +148,9 @@ async function createNewOrder(
         email_date: email.date,
         email_body: email.body,
         changes_made: {
-          type: aiResult.isComplete ? 'created_order' : 'awaiting_clarification',
+          type: isActuallyComplete ? 'created_order' : 'awaiting_clarification',
           items_added: aiResult.items,
-          missing_info: aiResult.missingInfo,
+          missing_info: allMissingInfo,
           order_value: aiResult.orderValue,
           clarification_message: aiResult.clarificationEmail,
         },
@@ -154,10 +193,26 @@ async function updateExistingOrder(
   existingOrderId: string,
   email: ParsedEmail,
   aiResult: ParsedOrderData,
-  organizationId: string
+  organizationId: string,
+  orgRequiredFields: OrgRequiredField[]
 ): Promise<{ success: boolean; orderId: string }> {
-  // Determine new status based on completeness
-  const newStatus = aiResult.isComplete ? 'waiting_review' : 'awaiting_clarification'
+  // Validate org-specific required fields - this is the source of truth, NOT the AI
+  const orgFieldsValidation = validateOrgRequiredFields(
+    aiResult.orgFields || {},
+    orgRequiredFields
+  )
+
+  // Order is only complete if AI says complete AND all required org fields are present
+  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+
+  // Determine new status based on ACTUAL completeness
+  const newStatus = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
+
+  // Merge missing info from AI and org field validation
+  const allMissingInfo = [
+    ...aiResult.missingInfo,
+    ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
+  ]
 
   try {
     // 1. Update order fields (including org-specific fields in custom_fields)
@@ -174,6 +229,7 @@ async function updateExistingOrder(
       contact_email: aiResult.contactEmail || null,
       ship_via: aiResult.shipVia || null,
       custom_fields: aiResult.orgFields || {},
+      inferred_fields: aiResult.inferredFields || [],
     })
 
     // 2. Save email to audit log IMMEDIATELY after order update
@@ -192,7 +248,7 @@ async function updateExistingOrder(
         changes_made: {
           type: 'updated_order',
           items_updated: aiResult.items,
-          missing_info: aiResult.missingInfo,
+          missing_info: allMissingInfo,
           order_value: aiResult.orderValue,
           status_changed_to: newStatus,
           clarification_message: aiResult.clarificationEmail,
@@ -281,8 +337,9 @@ export async function handleEmailOrder(
     return { success: true, orderId: existingOrderId, action: 'already_processed' }
   }
 
-  // Step 2: Fetch organization's required fields config
-  const orgRequiredFields = await fetchOrgRequiredFields(organizationId)
+  // Step 2: Fetch organization's config (required fields + system prompt + product catalog)
+  const orgConfig = await fetchOrgConfig(organizationId)
+  const { requiredFields: orgRequiredFields, systemPrompt: orgSystemPrompt, productCatalog } = orgConfig
 
   // Step 3: Process attachments if present (attachment data should already be in email)
   let processedAttachments: ProcessedAttachment[] = []
@@ -299,14 +356,28 @@ export async function handleEmailOrder(
   // Step 4: Check if this is a reply to an existing order (thread_id match)
   const existingOrder = await findOrderByThreadId(email.threadId, organizationId)
 
+  // Step 5: Retrieve similar past orders for RAG (few-shot learning)
+  // Build raw input text for embedding search
+  const rawInputForRAG = `Subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`
+  let ragExamples: OrderExample[] = []
+  try {
+    ragExamples = await retrieveSimilarExamples(rawInputForRAG, organizationId)
+    if (ragExamples.length > 0) {
+      console.log(`📚 Found ${ragExamples.length} similar past orders for RAG`)
+    }
+  } catch (error) {
+    console.error('RAG retrieval failed (continuing without examples):', error)
+    ragExamples = []
+  }
+
   let aiResult: ParsedOrderData | null
 
   if (existingOrder) {
     // This is a reply to an existing order - fetch thread context
     const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
 
-    // Process email with full thread context, attachments, and org fields
-    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields)
+    // Process email with full thread context, attachments, org fields, org prompt, product catalog, and RAG examples
+    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples)
 
     if (!aiResult) {
       // If AI can't extract order from thread, log and skip
@@ -315,11 +386,11 @@ export async function handleEmailOrder(
     }
 
     // UPDATE existing order with full context
-    const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId)
+    const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId, orgRequiredFields)
     return { ...result, action: 'updated_order' }
   } else {
-    // New email - process with AI (no thread context, but with attachments and org fields)
-    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields)
+    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, and RAG examples)
+    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples)
 
     if (!aiResult) {
       // Not an order email, skip
@@ -328,7 +399,7 @@ export async function handleEmailOrder(
     }
 
     // CREATE new order
-    const result = await createNewOrder(email, aiResult, organizationId)
+    const result = await createNewOrder(email, aiResult, organizationId, orgRequiredFields)
     return { ...result, action: 'created_order' }
   }
 }

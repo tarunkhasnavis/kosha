@@ -5,6 +5,7 @@ import { AlertCircle } from 'lucide-react'
 import { WooCommerceSettings } from './components/WooCommerceSettings'
 import { CustomFieldsSettings } from './components/CustomFieldsSettings'
 import { OrganizationInfoSettings } from './components/OrganizationInfoSettings'
+import { SystemPromptSettings } from './components/SystemPromptSettings'
 import { getOrgRequiredFields } from '@/lib/orders/field-config'
 
 // Note: Card and CardContent are still used in the "No Organization Found" error state
@@ -17,6 +18,7 @@ interface OrganizationData {
   phone: string | null
   created_at: string
   required_order_fields: unknown
+  system_prompt: string | null
 }
 
 async function getOrganizationData(orgId: string): Promise<OrganizationData | null> {
@@ -24,7 +26,7 @@ async function getOrganizationData(orgId: string): Promise<OrganizationData | nu
 
   const { data, error } = await supabase
     .from('organizations')
-    .select('id, name, gmail_email, address, phone, created_at, required_order_fields')
+    .select('id, name, gmail_email, address, phone, created_at, required_order_fields, system_prompt')
     .eq('id', orgId)
     .single()
 
@@ -94,10 +96,16 @@ export default async function SettingsPage() {
           {/* Order Configuration Section */}
           <section>
             <h2 className="text-lg font-medium text-gray-900 mb-4">Order Configuration</h2>
-            <CustomFieldsSettings
-              organizationId={orgId}
-              initialFields={getOrgRequiredFields(org.required_order_fields)}
-            />
+            <div className="space-y-6">
+              <CustomFieldsSettings
+                organizationId={orgId}
+                initialFields={getOrgRequiredFields(org.required_order_fields)}
+              />
+              <SystemPromptSettings
+                organizationId={orgId}
+                initialPrompt={org.system_prompt}
+              />
+            </div>
           </section>
 
           {/* Integrations Section */}

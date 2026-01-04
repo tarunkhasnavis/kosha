@@ -13,21 +13,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
-  Trash2,
-  Plus,
   Loader2,
   Mail,
   Send,
@@ -38,32 +29,13 @@ import {
 import type { Order } from "@/types/orders"
 import type { SaveAndAnalyzeResult } from "@/lib/orders/actions"
 import type { OrgRequiredField } from "@/lib/orders/field-config"
-
-interface EditableItem {
-  id: string
-  name: string
-  sku: string
-  quantity: number
-  quantity_unit: string
-  unit_price: string
-  total: number
-  isNew?: boolean
-}
-
-const QUANTITY_UNITS = [
-  "each",
-  "lbs",
-  "kg",
-  "oz",
-  "cases",
-  "boxes",
-  "bags",
-  "dozen",
-  "packs",
-  "units",
-  "gallons",
-  "liters",
-]
+import {
+  calculateCompleteness,
+  hasItemsChanged,
+  generateTempId,
+  type EditableItem,
+} from "@/lib/orders/completeness"
+import { ItemsTable } from "./ItemsTable"
 
 /**
  * Extended order fields type that includes org-specific fields
@@ -84,178 +56,6 @@ interface OrderEditModalProps {
   onRequestInfo?: (orderId: string, clarificationMessage: string) => Promise<void>
   onSaveClarificationMessage?: (orderId: string, clarificationMessage: string) => Promise<void>
   orgRequiredFields: OrgRequiredField[]
-}
-
-function generateTempId(): string {
-  return `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-}
-
-/**
- * Compare two item arrays to detect if there are changes
- */
-function hasItemsChanged(current: EditableItem[], original: EditableItem[]): boolean {
-  if (current.length !== original.length) return true
-
-  for (let i = 0; i < current.length; i++) {
-    const curr = current[i]
-    const orig = original[i]
-    if (
-      curr.name !== orig.name ||
-      curr.sku !== orig.sku ||
-      curr.quantity !== orig.quantity ||
-      curr.quantity_unit !== orig.quantity_unit ||
-      curr.unit_price !== orig.unit_price
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-/**
- * Field definitions for completeness tracking
- * - required: true means the field MUST be filled for order to be complete
- * - required: false means it's nice-to-have but doesn't affect completeness
- */
-interface FieldDefinition {
-  key: string
-  label: string
-  required: boolean
-}
-
-// Order-level fields
-const ORDER_FIELDS: FieldDefinition[] = [
-  { key: 'company_name', label: 'Company Name', required: true },
-  { key: 'contact_name', label: 'Contact Name', required: false },
-  { key: 'contact_email', label: 'Contact Email', required: false },
-  { key: 'phone', label: 'Phone', required: false },
-]
-
-// Item-level fields (per item)
-const ITEM_FIELDS: FieldDefinition[] = [
-  { key: 'name', label: 'Item Name', required: true },
-  { key: 'sku', label: 'SKU', required: false },
-  { key: 'quantity', label: 'Quantity', required: true },
-  { key: 'quantity_unit', label: 'Unit', required: true },
-  { key: 'unit_price', label: 'Unit Price', required: true }, // Required until we have SKU/price catalog
-]
-
-interface CompletenessResult {
-  percentage: number
-  totalFields: number
-  filledFields: number
-  missingRequiredFields: string[]
-  missingOptionalFields: string[]
-  itemMissingFields: Map<string, string[]> // itemId -> missing field keys
-}
-
-/**
- * Calculate order completeness based on filled fields
- */
-function calculateCompleteness(
-  order: Order,
-  items: EditableItem[],
-  orgRequiredFields: OrgRequiredField[]
-): CompletenessResult {
-  const missingRequiredFields: string[] = []
-  const missingOptionalFields: string[] = []
-  const itemMissingFields = new Map<string, string[]>()
-
-  let totalFields = 0
-  let filledFields = 0
-
-  // Check order-level fields
-  for (const field of ORDER_FIELDS) {
-    totalFields++
-    const value = order[field.key as keyof Order]
-    const isFilled = value !== null && value !== undefined && value !== ''
-
-    if (isFilled) {
-      filledFields++
-    } else {
-      if (field.required) {
-        missingRequiredFields.push(field.label)
-      } else {
-        missingOptionalFields.push(field.label)
-      }
-    }
-  }
-
-  // Check org-specific required fields from custom_fields
-  const customFields = order.custom_fields || {}
-  for (const field of orgRequiredFields.filter(f => f.required)) {
-    totalFields++
-    const value = customFields[field.field]
-    const isFilled = value !== null && value !== undefined && value !== ''
-
-    if (isFilled) {
-      filledFields++
-    } else {
-      missingRequiredFields.push(field.label)
-    }
-  }
-
-  // Check item-level fields
-  for (const item of items) {
-    const itemMissing: string[] = []
-
-    for (const field of ITEM_FIELDS) {
-      totalFields++
-      let isFilled = false
-
-      if (field.key === 'name') {
-        isFilled = item.name.trim() !== ''
-      } else if (field.key === 'sku') {
-        isFilled = item.sku.trim() !== ''
-      } else if (field.key === 'quantity') {
-        isFilled = item.quantity > 0
-      } else if (field.key === 'quantity_unit') {
-        isFilled = item.quantity_unit.trim() !== ''
-      } else if (field.key === 'unit_price') {
-        const price = parseFloat(item.unit_price)
-        isFilled = !isNaN(price) && price > 0
-      }
-
-      if (isFilled) {
-        filledFields++
-      } else {
-        itemMissing.push(field.key)
-        const fieldDef = ITEM_FIELDS.find(f => f.key === field.key)
-        if (fieldDef?.required) {
-          // Only add to missing required if not already there
-          const label = `${fieldDef.label} (Item: ${item.name || 'Unnamed'})`
-          if (!missingRequiredFields.includes(label)) {
-            missingRequiredFields.push(label)
-          }
-        }
-      }
-    }
-
-    if (itemMissing.length > 0) {
-      itemMissingFields.set(item.id, itemMissing)
-    }
-  }
-
-  // Calculate percentage
-  const percentage = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0
-
-  return {
-    percentage,
-    totalFields,
-    filledFields,
-    missingRequiredFields,
-    missingOptionalFields,
-    itemMissingFields,
-  }
-}
-
-/**
- * Get CSS class for missing field highlight
- */
-function getMissingFieldClass(isMissing: boolean): string {
-  return isMissing
-    ? 'border-orange-400 ring-1 ring-orange-400 focus:border-orange-500 focus:ring-orange-500'
-    : ''
 }
 
 export function OrderEditModal({
@@ -698,145 +498,14 @@ export function OrderEditModal({
           </div>
 
           {/* Items Table */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Items
-              </h3>
-              {/* Show indicator if any items have missing required fields */}
-              {completeness && completeness.itemMissingFields.size > 0 && (
-                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
-                  {completeness.itemMissingFields.size} item{completeness.itemMissingFields.size > 1 ? 's' : ''} need attention
-                </Badge>
-              )}
-            </div>
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3 w-32">
-                      SKU
-                    </th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3">
-                      Description
-                    </th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3 w-36">
-                      Qty
-                    </th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3 w-28">
-                      Price
-                    </th>
-                    <th className="text-right text-xs font-medium text-muted-foreground uppercase px-4 py-3 w-24">
-                      Total
-                    </th>
-                    <th className="w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <Input
-                          value={item.sku}
-                          onChange={(e) => updateItem(item.id, "sku", e.target.value)}
-                          placeholder="SKU"
-                          className={`h-8 text-sm ${getMissingFieldClass(
-                            completeness?.itemMissingFields.get(item.id)?.includes('sku') ?? false
-                          )}`}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Input
-                          value={item.name}
-                          onChange={(e) => updateItem(item.id, "name", e.target.value)}
-                          placeholder="Item description"
-                          className={`h-8 text-sm ${getMissingFieldClass(
-                            completeness?.itemMissingFields.get(item.id)?.includes('name') ?? false
-                          )}`}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1">
-                          <Input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateItem(item.id, "quantity", parseInt(e.target.value) || 0)}
-                            min="0"
-                            step="1"
-                            className={`h-8 text-sm w-16 ${getMissingFieldClass(
-                              completeness?.itemMissingFields.get(item.id)?.includes('quantity') ?? false
-                            )}`}
-                          />
-                          <Select
-                            value={item.quantity_unit}
-                            onValueChange={(value) => updateItem(item.id, "quantity_unit", value)}
-                          >
-                            <SelectTrigger className={`h-8 text-sm w-20 ${getMissingFieldClass(
-                              completeness?.itemMissingFields.get(item.id)?.includes('quantity_unit') ?? false
-                            )}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {/* Include current value if not in standard list */}
-                              {!QUANTITY_UNITS.includes(item.quantity_unit) && (
-                                <SelectItem value={item.quantity_unit}>{item.quantity_unit}</SelectItem>
-                              )}
-                              {QUANTITY_UNITS.map((unit) => (
-                                <SelectItem key={unit} value={unit}>
-                                  {unit}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                            $
-                          </span>
-                          <Input
-                            type="number"
-                            value={item.unit_price}
-                            onChange={(e) => updateItem(item.id, "unit_price", e.target.value)}
-                            min="0"
-                            step="0.01"
-                            className={`h-8 text-sm pl-6 ${getMissingFieldClass(
-                              completeness?.itemMissingFields.get(item.id)?.includes('unit_price') ?? false
-                            )}`}
-                          />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        ${item.total.toFixed(2)}
-                      </td>
-                      <td className="px-2 py-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteItem(item.id)}
-                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {items.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                        No items. Click "Add Item" to add one.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <Button variant="outline" size="sm" onClick={addItem}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add Item
-            </Button>
-          </div>
+          <ItemsTable
+            items={items}
+            completeness={completeness}
+            inferredFields={order.inferred_fields}
+            onUpdateItem={updateItem}
+            onDeleteItem={deleteItem}
+            onAddItem={addItem}
+          />
 
           {/* Order Details */}
           <div className="space-y-4">

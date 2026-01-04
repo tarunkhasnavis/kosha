@@ -53,6 +53,7 @@ export async function GET(
         contact_email,
         email_url,
         ship_via,
+        custom_fields,
         order_items (
           id,
           order_id,
@@ -98,6 +99,7 @@ export async function GET(
       contact_email: order.contact_email,
       email_url: order.email_url,
       ship_via: order.ship_via,
+      custom_fields: order.custom_fields,
     }
 
     const items: OrderItem[] = (order.order_items || []).map((item: any) => ({

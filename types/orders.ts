@@ -5,7 +5,7 @@ export interface Order {
   order_number: string
   company_name: string
   source: "email" | "text" | "voicemail" | "spreadsheet" | "pdf"
-  status: "waiting_review" | "approved" | "rejected" | "processing" | "awaiting_clarification"
+  status: "waiting_review" | "approved" | "rejected" | "processing" | "awaiting_clarification" | "archived"
   received_date: string
   expected_delivery_date?: string
   order_value: number
@@ -21,6 +21,8 @@ export interface Order {
   clarification_message?: string | null  // Pending clarification message to send (null = already sent)
   ship_via?: string  // Delivery method: 'Delivery' or 'Customer Pickup' (empty = not specified)
   custom_fields?: Record<string, string | number | null>  // Org-specific fields (e.g., liquor_license)
+  pdf_downloaded_at?: string | null  // Timestamp when PDF was last downloaded
+  inferred_fields?: string[]  // Fields where AI made logical leaps (e.g., "items[0].sku", "liquor_license")
 }
 
 export interface OrderItem {
@@ -46,7 +48,7 @@ export interface OrderStats {
 
 // Type guards
 export const isOrderStatus = (status: string): status is Order['status'] => {
-  return ['waiting_review', 'approved', 'rejected', 'processing', 'awaiting_clarification'].includes(status)
+  return ['waiting_review', 'approved', 'rejected', 'processing', 'awaiting_clarification', 'archived'].includes(status)
 }
 
 // Helper types

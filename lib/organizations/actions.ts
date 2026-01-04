@@ -359,6 +359,53 @@ export async function revalidatePendingOrdersForNewFields(
 }
 
 /**
+ * Save system prompt for an organization
+ */
+export async function saveSystemPrompt(
+  organizationId: string,
+  systemPrompt: string | null
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+
+  if (!user) {
+    return { success: false, error: 'Not authenticated' }
+  }
+
+  const supabase = await createClient()
+
+  // Verify user has access to this organization
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('organization_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.organization_id !== organizationId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Only owners and admins can modify settings
+  if (profile.role !== 'owner' && profile.role !== 'admin') {
+    return { success: false, error: 'Insufficient permissions' }
+  }
+
+  // Update the organization's system_prompt
+  const { error } = await supabase
+    .from('organizations')
+    .update({ system_prompt: systemPrompt || null })
+    .eq('id', organizationId)
+
+  if (error) {
+    console.error('Failed to save system prompt:', error)
+    return { success: false, error: 'Failed to save system prompt' }
+  }
+
+  revalidatePath('/settings')
+
+  return { success: true }
+}
+
+/**
  * Update organization information (address, phone)
  */
 export async function updateOrganizationInfo(

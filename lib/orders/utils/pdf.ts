@@ -153,40 +153,20 @@ function drawHeader(ctx: DrawContext, org: OrgInfo): number {
 
   y -= 15
 
-  // Organization address
+  // Organization address (single field, may contain multiple lines)
   if (org.addressLine1) {
-    page.drawText(org.addressLine1, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-    y -= 12
-  }
-
-  if (org.addressLine2) {
-    page.drawText(org.addressLine2, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-    y -= 12
-  }
-
-  // City, State, Zip
-  const cityStateZip = [org.city, org.state, org.zip].filter(Boolean).join(', ')
-  if (cityStateZip) {
-    page.drawText(cityStateZip, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-    y -= 12
+    // Split address by newlines or commas for multi-line display
+    const addressLines = org.addressLine1.split(/[,\n]/).map(line => line.trim()).filter(Boolean)
+    for (const line of addressLines) {
+      page.drawText(line, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.BLACK,
+      })
+      y -= 12
+    }
   }
 
   // Email
@@ -327,17 +307,25 @@ function drawAddressBlocks(ctx: DrawContext, order: Order): number {
     }
   }
 
-  // License field (below address)
-  addrY -= 12 // More spacing to avoid crowding
-  page.drawText('LICENSE:', {
-    x: PAGE.MARGIN_LEFT + 260,
-    y: addrY,
-    size: FONTS.SMALL,
-    font: fonts.bold,
-    color: COLORS.GRAY,
-  })
-  // License value would go here when available
-  // page.drawText(order.license || '', { x: PAGE.MARGIN_LEFT + 310, y: addrY, ... })
+  // License field (below address) - from custom_fields.liquor_license
+  const licenseValue = order.custom_fields?.liquor_license
+  if (licenseValue) {
+    addrY -= 12 // More spacing to avoid crowding
+    page.drawText('LICENSE:', {
+      x: PAGE.MARGIN_LEFT + 260,
+      y: addrY,
+      size: FONTS.SMALL,
+      font: fonts.bold,
+      color: COLORS.GRAY,
+    })
+    page.drawText(String(licenseValue), {
+      x: PAGE.MARGIN_LEFT + 310,
+      y: addrY,
+      size: FONTS.BODY,
+      font: fonts.regular,
+      color: COLORS.BLACK,
+    })
+  }
 
   y -= 12
 

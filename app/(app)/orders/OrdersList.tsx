@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, TrendingUp, Clock, CheckCircle, AlertCircle } from "lucide-react"
+import { Search, TrendingUp, Clock, CheckCircle, AlertCircle, Archive } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { OrderCard } from "./components/OrderCard"
 import { OrderEditModal, type OrderFieldsWithOrgFields } from "./components/OrderEditModal"
@@ -251,6 +251,7 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
   const waitingOrders = filteredOrders.filter((order) => order.status === "waiting_review")
   const approvedOrders = filteredOrders.filter((order) => order.status === "approved")
   const clarificationOrders = filteredOrders.filter((order) => order.status === "awaiting_clarification")
+  const archivedOrders = filteredOrders.filter((order) => order.status === "archived")
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -300,7 +301,7 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
 
           {/* Tabs */}
           <Tabs defaultValue="waiting" className="space-y-6">
-            <TabsList className="grid w-full max-w-3xl grid-cols-3">
+            <TabsList className="grid w-full max-w-4xl grid-cols-4">
               <TabsTrigger value="clarification" className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4" />
                 Needs Info
@@ -320,6 +321,13 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
                 Approved
                 <Badge variant="secondary" className="ml-1">
                   {approvedOrders.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="archived" className="flex items-center gap-2">
+                <Archive className="h-4 w-4" />
+                Archived
+                <Badge variant="secondary" className="ml-1">
+                  {archivedOrders.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>
@@ -401,6 +409,36 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
                   {approvedOrders.map((order) => (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      onClick={() => handleOrderClick(order)}
+                      onReject={handleReject}
+                      onApprove={handleApprove}
+                      onRequestInfo={handleRequestInfo}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="archived" className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Orders that have been archived after processing.
+              </p>
+              {archivedOrders.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Archive className="h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No archived orders</h3>
+                    <p className="text-muted-foreground text-center max-w-md">
+                      Archived orders will appear here. You can archive approved orders to keep your workspace tidy.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
+                  {archivedOrders.map((order) => (
                     <OrderCard
                       key={order.id}
                       order={order}

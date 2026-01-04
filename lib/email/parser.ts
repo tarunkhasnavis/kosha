@@ -13,6 +13,7 @@ import {
   type OrgRequiredField,
   generateOrgFieldPromptInstructions,
 } from '@/lib/orders/field-config'
+import { type OrderExample, formatExamplesForPrompt } from '@/lib/ai/embeddings'
 
 /**
  * AI extracted order item
@@ -24,6 +25,15 @@ export interface ParsedOrderItem {
   quantityUnit: string   // REQUIRED - unit of measurement (e.g., "lbs", "cases", "each")
   unitPrice?: number     // OPTIONAL - price per unit
   total?: number         // OPTIONAL - quantity * unitPrice (can be calculated later)
+}
+
+/**
+ * Product catalog item for AI matching
+ */
+export interface ProductCatalogItem {
+  sku: string
+  name: string
+  unit_price: number
 }
 
 /**
@@ -57,6 +67,9 @@ export interface ParsedOrderData {
 
   // Clarification email (if incomplete)
   clarificationEmail?: string      // AI-generated reply asking for missing info
+
+  // Inference tracking - fields where AI made logical leaps vs explicit extraction
+  inferredFields?: string[]        // e.g., ["items[0].sku", "items[1].unit_price", "liquor_license"]
 }
 
 /**
@@ -88,6 +101,7 @@ interface RawAIResponse {
   isComplete?: boolean
   missingInfo?: string[]
   clarificationEmail?: string
+  inferredFields?: string[]        // Fields where AI made logical leaps
 }
 
 /**
@@ -98,6 +112,9 @@ interface RawAIResponse {
  * @param threadContext - Optional: Previous emails in the thread for full context
  * @param processedAttachments - Optional: Processed attachments (images, PDFs, Excel)
  * @param orgRequiredFields - Optional: Organization-specific required fields
+ * @param orgSystemPrompt - Optional: Organization-specific AI instructions from DB
+ * @param productCatalog - Optional: Organization's product catalog for SKU/price matching
+ * @param ragExamples - Optional: Similar past orders retrieved via RAG for few-shot learning
  */
 export async function processEmailWithAI(
   email: ParsedEmail,
@@ -108,7 +125,10 @@ export async function processEmailWithAI(
     email_body: string
   }>,
   processedAttachments?: ProcessedAttachment[],
-  orgRequiredFields?: OrgRequiredField[]
+  orgRequiredFields?: OrgRequiredField[],
+  orgSystemPrompt?: string | null,
+  productCatalog?: ProductCatalogItem[],
+  ragExamples?: OrderExample[]
 ): Promise<ParsedOrderData | null> {
   // Build email context with thread history if available
   let emailContext = ''
@@ -187,50 +207,37 @@ ${email.body}
 CRITICAL - IDENTIFYING THE CUSTOMER:
 - You are processing emails received by a food distributor/vendor (the recipient of the email)
 - The CUSTOMER is the person/company PLACING THE ORDER, NOT the recipient/vendor
-- The email greeting (e.g., "Hello, VINILANDIA NH INC!") is addressing the VENDOR who receives the email - this is NEVER the customer
-- Many emails come from automated systems (like ECRS Gateway) that just say "Hello, [Vendor Name]!" - the vendor name in that greeting is YOUR organization, not the customer
+- Email greetings like "Hello, [Name]!" or "Dear [Name]" address the VENDOR - this is NEVER the customer
+- Many emails come from automated ordering systems - the vendor name in greetings is YOUR organization
 
-WHERE TO FIND THE CUSTOMER NAME (in priority order):
-  1. ATTACHMENTS (PDF/images): Look for "Bill To:", "Sold To:", "Ship To:", "Customer:", "Buyer:", or the company name/letterhead on the purchase order - THIS IS THE PRIMARY SOURCE
-  2. Email subject line: Often contains the customer/store name (e.g., "PO from Acme Foods" or "Order - Restaurant XYZ")
-  3. Email sender info if it's from the customer directly (not an automated system like ECRS)
+WHERE TO FIND THE CUSTOMER NAME (priority order):
+  1. ATTACHMENTS: Look for "Bill To:", "Sold To:", "Ship To:", "Customer:", "Buyer:", or company letterhead - THIS IS PRIMARY
+  2. Email subject line: Often contains the customer/store name (e.g., "PO from Acme Foods")
+  3. Email sender info if from customer directly (not an automated system)
 
 DO NOT use as customer name:
-- Any name in a greeting like "Hello, [Name]!" or "Dear [Name]" - that's the vendor/recipient
+- Names in greetings ("Hello, [Name]!")
 - The vendor's own organization name
-- Generic system names like "ECRS Gateway"
+- Generic system/gateway names
 
-IMPORTANT: You may receive a single email OR an email thread (conversation). When you receive a thread:
-- Previous emails provide context (original order, clarification requests, etc.)
+EMAIL THREADS:
+- Previous emails provide context (original order, clarification requests)
 - The LATEST email contains the most recent information
 - COMBINE all information from the thread to build the complete order
-- If a reply provides missing information (e.g., prices), add it to the original items
+- If a reply provides missing information, add it to the original items
 
-Your task:
+EXTRACTION TASK:
 1. Determine if this email contains an order (items with quantities)
-2. Extract all order information including:
-   - Company/customer name (the company PLACING the order - see rules above, PRIORITIZE PDF/attachment data)
-   - Contact person name (WHO is placing the order - look for "Chef X needs", "for Manager Y", signature names, "this is John ordering")
-   - Contact email (if the person placing the order has a different email than the sender)
-   - Order number (customer's PO number if mentioned)
-   - Items with name, SKU (if mentioned), quantity, unit price (if mentioned), and total
-   - Order value (extract total from email OR calculate from items)
-   - Received date (when the order was placed - look for phrases like "order placed on", "for Monday", etc.)
-   - Expected delivery date (when they want it delivered/picked up - look for "deliver on", "need by", "for tomorrow", "picking up on", etc.)
-   - Ship via (infer from context: "Customer Pickup" if they mention picking up, "Delivery" if explicitly mentioned, null if unclear)
-   - Notes (special instructions, delivery notes, comments - BUT extract structured data from notes into proper fields)
-   - Billing address (if mentioned)
-   - Phone number (if mentioned)
-   - Payment method (if mentioned - e.g., "Net 30", "Credit Card", "COD")
+2. Extract: company name, contact person, contact email, order/PO number, items (name, SKU, quantity, unit, price, total), order value, received date, expected delivery date, ship via, notes, billing address, phone, payment method
 3. Assess completeness: Do ALL items have name + quantity?
 4. If incomplete, generate a friendly clarification email
 
 SHIP VIA DETECTION:
-- If email/notes mention "pickup", "picking up", "will pick up", "customer pickup" → shipVia = "Customer Pickup"
-- If email/notes mention "delivery", "deliver to", "ship to" → shipVia = "Delivery"
-- If unclear or not mentioned → shipVia = null (leave empty)
+- "pickup", "picking up", "will pick up" → "Customer Pickup"
+- "delivery", "deliver to", "ship to" → "Delivery"
+- If unclear → null
 
-Return JSON in this EXACT format:
+RESPONSE FORMAT (JSON):
 {
   "isOrder": true/false,
   "companyName": "Company Name",
@@ -246,54 +253,52 @@ Return JSON in this EXACT format:
   "phone": "555-1234" or null,
   "paymentMethod": "Net 30" or null,
   "orgFields": { "field_name": "value" } or null,
-  "items": [
-    {
-      "name": "Chicken Breast",
-      "sku": "CHK-001" or null,
-      "quantity": 10,
-      "quantityUnit": "lbs",
-      "unitPrice": 5.99 or null,
-      "total": 59.90 or null
-    }
-  ],
+  "items": [{"name": "Product", "sku": "SKU-001" or null, "quantity": 10, "quantityUnit": "lbs", "unitPrice": 5.99 or null, "total": 59.90 or null}],
   "isComplete": true/false,
-  "missingInfo": ["Unit price for Chicken", "Delivery date"],
-  "clarificationEmail": "Hi John, thanks for your order! Could you please confirm..." or null
+  "missingInfo": ["Unit price for Product", "Delivery date"],
+  "clarificationEmail": "Thanks for your order! Could you please confirm..." or null,
+  "inferredFields": ["items[0].sku", "ship_via"] or []
 }
 
-Rules:
-- If NOT an order (question, complaint, general inquiry) → return {"isOrder": false}
-- IMPORTANT: Split quantity into numeric value and unit separately:
-  - "10 lbs" → quantity: 10, quantityUnit: "lbs"
-  - "5 cases" → quantity: 5, quantityUnit: "cases"
-  - "2 dozen" → quantity: 2, quantityUnit: "dozen"
-  - "100" (no unit) → quantity: 100, quantityUnit: "each"
-- CRITICAL - MISSING QUANTITIES:
-  - If an item is listed WITHOUT a quantity, set quantity to 0 and quantityUnit to "unknown"
-  - NEVER assume or default to quantity 1 - this is incorrect and causes order errors
-  - Add the missing quantity to missingInfo (e.g., "Quantity for Chicken Breast")
-  - Set isComplete = false when any item has quantity 0 or missing
-- Parse dates intelligently ("tomorrow" = next day, "Monday" = next Monday, etc.)
-- If date mentioned is in the past, use email date
-- isComplete = true only if ALL items have name + quantity (quantity > 0)
+RULES:
+- Not an order (question, complaint, inquiry) → {"isOrder": false}
+- Split quantity and unit: "10 lbs" → quantity: 10, quantityUnit: "lbs"
+- No unit specified → quantityUnit: "each"
+- MISSING QUANTITIES: Set quantity to 0, quantityUnit to "unknown", add to missingInfo, set isComplete = false
+- NEVER assume quantity 1 - this causes order errors
+- Parse dates intelligently ("tomorrow", "Monday", etc.)
+- isComplete = true only if ALL items have name + quantity > 0
 - Generate clarificationEmail only if isComplete = false
-- orderValue should be the total if mentioned, or sum of item totals
 
-Example order:
-"Hi, we need 10 lbs chicken breast @ $5.99/lb and 5 lbs ground beef for delivery tomorrow. Thanks, John from Acme Restaurant"
-Expected items output: [
-  {"name": "Chicken Breast", "quantity": 10, "quantityUnit": "lbs", "unitPrice": 5.99, "total": 59.90},
-  {"name": "Ground Beef", "quantity": 5, "quantityUnit": "lbs", "unitPrice": null, "total": null}
-]
+ATTACHMENTS:
+- Often contain the detailed itemized order list - extract ALL items
+- Email body may just say "see attached" with actual items in attachment
+- PRIORITIZE attachment data for items over email body
+- Use email body for contact info, delivery instructions
+- Excel data provided as JSON - extract ALL rows${generateOrgFieldPromptInstructions(orgRequiredFields || [])}${productCatalog && productCatalog.length > 0 ? `
 
-ATTACHMENTS - IMPORTANT:
-- The email may include attached files (images, PDFs, Excel spreadsheets)
-- ATTACHMENTS TYPICALLY CONTAIN THE DETAILED ITEMIZED ORDER LIST - extract all items from them
-- The email body often just says "please see attached order" or similar, with the actual items in the attachment
-- Images/PDFs: Usually contain order forms, invoices, or itemized lists. Carefully extract EVERY line item with name, quantity, SKU, and price.
-- Excel data: Provided as JSON in the text. Each row typically represents one order item - extract ALL rows.
-- PRIORITIZE attachment data for items - it's usually more complete than the email body
-- COMBINE information: Use email body for contact info, delivery instructions, etc. Use attachments for the itemized order list.${generateOrgFieldPromptInstructions(orgRequiredFields || [])}`,
+PRODUCT CATALOG - Use this to fill in missing SKU/price:
+${productCatalog.map(p => `SKU: ${p.sku} | Name: ${p.name} | Price: $${p.unit_price.toFixed(2)}`).join('\n')}
+
+CATALOG MATCHING RULES:
+- If an item name closely matches a catalog product, use the catalog SKU and price
+- Catalog matches are HIGH CONFIDENCE - do NOT add to inferredFields
+- Only add to inferredFields when making pattern-based guesses without explicit text` : ''}
+
+INFERENCE TRACKING:
+Track which fields required logical leaps vs explicit extraction in "inferredFields" array.
+
+ADD to inferredFields when:
+- You guess a field from patterns (e.g., 6-digit number → liquor license without label)
+- You infer ship_via from context clues without explicit "pickup" or "delivery" text
+- You match a product name loosely (not exact match) to fill in SKU
+
+DO NOT add to inferredFields:
+- Fields with explicit text labels (e.g., "Liquor License: 123456")
+- Exact catalog matches (SKU or name matches exactly)
+- Prices filled from catalog (catalog is source of truth)
+
+Format: ["items[0].sku", "items[1].unit_price", "liquor_license", "ship_via"]${orgSystemPrompt ? `\n\n--- ORGANIZATION-SPECIFIC INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}${ragExamples && ragExamples.length > 0 ? formatExamplesForPrompt(ragExamples) : ''}`,
         },
         {
           role: 'user',
@@ -353,6 +358,7 @@ ATTACHMENTS - IMPORTANT:
       isComplete: parsed.isComplete ?? false,
       missingInfo: parsed.missingInfo ?? [],
       clarificationEmail: parsed.clarificationEmail || undefined,
+      inferredFields: parsed.inferredFields || [],
     }
   } catch (error) {
     console.error('Error processing email with OpenAI:', error)
@@ -378,6 +384,7 @@ export interface OrderCompletenessResult {
  * @param originalMissingInfo - Original missing info for context
  * @param orderData - Additional order fields to check (e.g., liquor_license)
  * @param orgRequiredFields - Organization-specific required fields
+ * @param orgSystemPrompt - Organization-specific AI instructions from DB
  */
 export async function analyzeOrderCompleteness(
   items: Array<{
@@ -391,7 +398,8 @@ export async function analyzeOrderCompleteness(
   companyName?: string,
   originalMissingInfo?: string[],
   orderData?: Record<string, unknown>,
-  orgRequiredFields?: OrgRequiredField[]
+  orgRequiredFields?: OrgRequiredField[],
+  orgSystemPrompt?: string | null
 ): Promise<OrderCompletenessResult> {
   try {
     // Build the items summary for the AI
@@ -451,7 +459,7 @@ The clarificationEmail should:
 - Specifically mention what information is missing
 - Ask them to reply with the missing details
 - NOT include a greeting with recipient name (we don't know their name)
-- Keep it concise (2-3 sentences max)`,
+- Keep it concise (2-3 sentences max)${orgSystemPrompt ? `\n\n--- ORGANIZATION-SPECIFIC INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}`,
         },
         {
           role: 'user',

@@ -167,7 +167,7 @@ export async function getOrganizationForPdf(organizationId: string): Promise<Org
 
   const { data: org, error } = await supabase
     .from('organizations')
-    .select('id, name, gmail_email')
+    .select('id, name, gmail_email, address, phone')
     .eq('id', organizationId)
     .single()
 
@@ -177,10 +177,10 @@ export async function getOrganizationForPdf(organizationId: string): Promise<Org
   }
 
   // Return organization data with available fields
-  // Address fields can be added to the organizations table later
   return {
     name: org.name || 'Your Company',
-    addressLine1: '', // Can be added to organizations table
+    addressLine1: org.address || '',
     email: org.gmail_email || undefined,
+    phone: org.phone || undefined,
   }
 }
