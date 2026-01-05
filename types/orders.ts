@@ -7,7 +7,7 @@ export interface Order {
   source: "email" | "text" | "voicemail" | "spreadsheet" | "pdf"
   status: "waiting_review" | "approved" | "rejected" | "processing" | "awaiting_clarification" | "archived"
   received_date: string
-  expected_delivery_date?: string
+  expected_date?: string  // When customer wants pickup OR delivery
   order_value: number
   item_count: number
   notes?: string

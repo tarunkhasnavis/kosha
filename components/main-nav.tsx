@@ -16,6 +16,7 @@ import {
   Shield,
   Check,
   Loader2,
+  HelpCircle,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -34,6 +35,11 @@ const youngSerif = Young_Serif({ weight: "400", subsets: ["latin"] })
 const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
   { name: "Products", href: "/products", icon: Package },
+]
+
+const footerNavigation = [
+  { name: "Help & Support", href: "/help", icon: HelpCircle },
+  { name: "Settings", href: "/settings", icon: Settings },
 ]
 
 interface Organization {
@@ -76,12 +82,12 @@ export function MainNav({
   }
 
   return (
-    <nav className="fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 flex flex-col">
+    <nav className="fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-[rgba(15,23,42,0.06)] flex flex-col">
       {/* Logo */}
-      <div className="h-16 flex items-center px-6 border-b border-gray-200">
+      <div className="h-16 flex items-center px-6">
         <Link href="/orders" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="Kosha Logo" width={32} height={32} className="h-8 w-8" />
-          <span className={`text-xl text-gray-900 ${youngSerif.className}`}>kosha</span>
+          <Image src="/logo.png" alt="Kosha Logo" width={28} height={28} className="h-7 w-7" />
+          <span className={`text-xl text-slate-900 ${youngSerif.className}`}>kosha</span>
         </Link>
         {isSuperAdmin && (
           <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-700 border-purple-200">
@@ -93,11 +99,11 @@ export function MainNav({
 
       {/* Super Admin Org Switcher */}
       {isSuperAdmin && allOrganizations.length > 0 && (
-        <div className="px-3 py-3 border-b border-gray-200 bg-purple-50/50">
+        <div className="px-3 py-3 border-b border-[rgba(15,23,42,0.06)] bg-purple-50/30">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-300 transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-300 transition-colors duration-150"
                 disabled={isSwitching}
               >
                 {isSwitching ? (
@@ -105,10 +111,10 @@ export function MainNav({
                 ) : (
                   <Shield className="h-4 w-4 text-purple-600" />
                 )}
-                <span className="flex-1 text-left text-sm font-medium text-gray-900 truncate">
+                <span className="flex-1 text-left text-sm font-medium text-slate-900 truncate">
                   {isOverride ? organizationName : "Select Organization"}
                 </span>
-                <ChevronDown className="h-4 w-4 text-gray-400" />
+                <ChevronDown className="h-4 w-4 text-slate-400" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
@@ -159,13 +165,40 @@ export function MainNav({
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                  "relative flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-150",
                   isActive
-                    ? "bg-green-50 text-[#48663D]"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    ? "bg-slate-100 text-slate-900"
+                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
                 )}
               >
+                {isActive && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 rounded-full" />
+                )}
                 <item.icon className="h-5 w-5" />
+                {item.name}
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Footer Navigation */}
+      <div className="px-3 pb-2 border-t border-[rgba(15,23,42,0.06)] pt-3">
+        <div className="space-y-1">
+          {footerNavigation.map((item) => {
+            const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150",
+                  isActive
+                    ? "bg-slate-100 text-slate-900"
+                    : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                )}
+              >
+                <item.icon className="h-4 w-4" />
                 {item.name}
               </Link>
             )
@@ -175,23 +208,23 @@ export function MainNav({
 
       {/* Organization Dropdown at Bottom */}
       {organizationName && (
-        <div className="p-3 border-t border-gray-200">
+        <div className="p-3 border-t border-[rgba(15,23,42,0.06)]">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors">
+              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors duration-150">
                 <div className={cn(
                   "p-1.5 rounded-md",
-                  isOverride ? "bg-purple-100" : "bg-green-100"
+                  isOverride ? "bg-purple-100" : "bg-slate-100"
                 )}>
                   <Building2 className={cn(
                     "h-4 w-4",
-                    isOverride ? "text-purple-700" : "text-green-700"
+                    isOverride ? "text-purple-700" : "text-slate-600"
                   )} />
                 </div>
-                <span className="flex-1 text-left text-sm font-medium text-gray-900 truncate">
+                <span className="flex-1 text-left text-sm font-medium text-slate-900 truncate">
                   {organizationName}
                 </span>
-                <ChevronDown className="h-4 w-4 text-gray-400" />
+                <ChevronDown className="h-4 w-4 text-slate-400" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-56">

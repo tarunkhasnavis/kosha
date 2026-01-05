@@ -297,6 +297,124 @@ export async function clearClarificationMessage(orderId: string): Promise<void> 
   }
 }
 
+// ============================================
+// CUSTOMER ORDER HISTORY QUERIES
+// ============================================
+
+/**
+ * Order item from history
+ */
+export interface HistoricalOrderItem {
+  name: string
+  sku: string | null
+  quantity: number
+  quantity_unit: string
+  unit_price: number
+}
+
+/**
+ * Recent order from customer history
+ */
+export interface CustomerOrderHistory {
+  id: string
+  order_number: string
+  company_name: string
+  order_value: number
+  received_date: string
+  items: HistoricalOrderItem[]
+}
+
+/**
+ * Fetch the last N approved orders from a sender's domain
+ * Used to provide customer context to AI (e.g., "same as last week")
+ *
+ * @param senderEmail - Full email address (e.g., "chef@restaurant.com")
+ * @param organizationId - Organization to search within
+ * @param limit - Max orders to return (default: 2)
+ */
+export async function getCustomerOrderHistory(
+  senderEmail: string,
+  organizationId: string,
+  limit: number = 2
+): Promise<CustomerOrderHistory[]> {
+  const supabase = await createClient()
+
+  // Extract domain from email
+  const domainMatch = senderEmail.match(/@([^\s>]+)/)
+  if (!domainMatch) {
+    return []
+  }
+  const senderDomain = domainMatch[1].toLowerCase()
+
+  // Find approved orders from this sender's domain
+  const { data: orders, error } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      company_name,
+      order_value,
+      received_date,
+      order_items (
+        name,
+        sku,
+        quantity,
+        quantity_unit,
+        unit_price
+      )
+    `)
+    .eq('organization_id', organizationId)
+    .eq('status', 'approved')
+    .ilike('email_from', `%@${senderDomain}`)
+    .order('received_date', { ascending: false })
+    .limit(limit)
+
+  if (error || !orders) {
+    console.error('Failed to fetch customer order history:', error)
+    return []
+  }
+
+  return orders.map(order => ({
+    id: order.id,
+    order_number: order.order_number,
+    company_name: order.company_name,
+    order_value: order.order_value,
+    received_date: order.received_date,
+    items: (order.order_items || []).map((item: any) => ({
+      name: item.name,
+      sku: item.sku,
+      quantity: item.quantity,
+      quantity_unit: item.quantity_unit,
+      unit_price: item.unit_price,
+    })),
+  }))
+}
+
+/**
+ * Format customer order history for injection into AI prompt
+ * Minimal context - just the data, no instructions
+ */
+export function formatCustomerHistoryForPrompt(history: CustomerOrderHistory[]): string {
+  if (history.length === 0) return ''
+
+  const formatted = history.map((order, i) => {
+    const itemsStr = order.items.map(item =>
+      `- ${item.quantity} ${item.quantity_unit} ${item.name}${item.sku ? ` (${item.sku})` : ''} @ $${item.unit_price.toFixed(2)}`
+    ).join('\n')
+
+    return `Order ${i + 1} (${order.received_date}):
+${itemsStr}
+Total: $${order.order_value.toFixed(2)}`
+  }).join('\n\n')
+
+  return `
+--- CUSTOMER ORDER HISTORY ---
+This sender's recent approved orders:
+
+${formatted}
+--- END HISTORY ---`
+}
+
 /**
  * Data needed to save an order as a learning example
  */

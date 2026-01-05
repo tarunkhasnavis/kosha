@@ -12,7 +12,7 @@ interface OrderSummary {
   contactName?: string
   items: OrderItem[]
   orderValue: number
-  expectedDeliveryDate?: string
+  expectedDate?: string
 }
 
 /**
@@ -79,8 +79,8 @@ function generateOrderSummary(order: OrderSummary): string {
   lines.push('─'.repeat(50))
   lines.push(`TOTAL: ${formatCurrency(order.orderValue)}`)
 
-  if (order.expectedDeliveryDate) {
-    lines.push(`DELIVERY: ${formatDate(order.expectedDeliveryDate)}`)
+  if (order.expectedDate) {
+    lines.push(`DELIVERY: ${formatDate(order.expectedDate)}`)
   }
 
   return lines.join('\n')

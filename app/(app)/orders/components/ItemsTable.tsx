@@ -10,13 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { Trash2, Plus, Sparkles } from "lucide-react"
+import { Trash2, Plus } from "lucide-react"
 import type { EditableItem, CompletenessResult } from "@/lib/orders/completeness"
 
 // Re-export for convenience
@@ -67,7 +61,8 @@ function getInferredFieldClass(isInferred: boolean): string {
 }
 
 function getFieldClass(isMissing: boolean, isInferred: boolean): string {
-  // Missing takes priority over inferred
+  // These should be mutually exclusive - a field is either missing OR inferred, never both
+  // If somehow both (shouldn't happen), orange (missing) takes priority as the safer default
   if (isMissing) return getMissingFieldClass(true)
   if (isInferred) return getInferredFieldClass(true)
   return ''
@@ -87,29 +82,13 @@ interface ItemRowProps {
 }
 
 function InferredFieldWrapper({
-  isInferred,
   children
 }: {
   isInferred: boolean
   children: React.ReactNode
 }) {
-  if (!isInferred) return <>{children}</>
-
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="relative">
-            {children}
-            <Sparkles className="absolute -top-1 -right-1 h-3 w-3 text-violet-500" />
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          <p>Kosha agent inferred this value</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
+  // Just render children - purple highlight is applied via CSS classes on the input
+  return <>{children}</>
 }
 
 function ItemRow({ item, itemIndex, missingFields, inferredFields, onUpdate, onDelete }: ItemRowProps) {
@@ -221,7 +200,6 @@ export function ItemsTable({
 }: ItemsTableProps) {
   const itemsNeedingAttention = completeness?.itemMissingFields.size ?? 0
   const safeInferredFields = inferredFields ?? []
-  const hasInferredItems = safeInferredFields.some(f => f.startsWith('items['))
 
   return (
     <div className="space-y-3">
@@ -229,19 +207,11 @@ export function ItemsTable({
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
           Items
         </h3>
-        <div className="flex gap-2">
-          {hasInferredItems && (
-            <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-300 text-xs">
-              <Sparkles className="h-3 w-3 mr-1" />
-              AI inferred some values
-            </Badge>
-          )}
-          {itemsNeedingAttention > 0 && (
-            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
-              {itemsNeedingAttention} item{itemsNeedingAttention > 1 ? 's' : ''} need attention
-            </Badge>
-          )}
-        </div>
+        {itemsNeedingAttention > 0 && (
+          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
+            {itemsNeedingAttention} item{itemsNeedingAttention > 1 ? 's' : ''} need attention
+          </Badge>
+        )}
       </div>
 
       <div className="border rounded-lg overflow-hidden">

@@ -17,7 +17,7 @@ import { processEmailWithAI } from './parser'
 import { processAllAttachments, isSupportedAttachment } from './attachments'
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
-import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails } from '@/lib/orders/queries'
+import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
 import { getOrgRequiredFields, validateOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
 import { createClient } from '@/utils/supabase/server'
 import { retrieveSimilarExamples, type OrderExample } from '@/lib/ai/embeddings'
@@ -40,6 +40,9 @@ interface OrgConfig {
   productCatalog: ProductCatalogItem[]
 }
 
+// Max products to include in AI prompt (to avoid token limit issues)
+const MAX_CATALOG_SIZE = 300
+
 async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
   const supabase = await createClient()
 
@@ -58,10 +61,19 @@ async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
       .order('sku', { ascending: true })
   ])
 
+  const allProducts = (productsResult.data || []) as ProductCatalogItem[]
+
+  // If catalog is too large, don't pass it to AI (user will manually assign SKUs)
+  const productCatalog = allProducts.length <= MAX_CATALOG_SIZE ? allProducts : []
+
+  if (allProducts.length > MAX_CATALOG_SIZE) {
+    console.log(`⚠️ Product catalog too large (${allProducts.length} products), skipping AI catalog matching`)
+  }
+
   return {
     requiredFields: getOrgRequiredFields(orgResult.data?.required_order_fields),
     systemPrompt: orgResult.data?.system_prompt || null,
-    productCatalog: (productsResult.data || []) as ProductCatalogItem[],
+    productCatalog,
   }
 }
 
@@ -98,6 +110,9 @@ async function createNewOrder(
   // Use AI-extracted received date or fallback to email date
   const receivedDate = aiResult.receivedDate || email.date
 
+  // Use AI-extracted expected date or fallback to received date (ASAP = same day)
+  const expectedDate = aiResult.expectedDate || receivedDate
+
   // Gmail web uses a different ID format than the API, so we link to a search that opens the email directly
   // Using "in:anywhere" ensures it finds the email even if archived/in other folders
   const searchQuery = `in:anywhere rfc822msgid:${email.messageId}`
@@ -112,7 +127,7 @@ async function createNewOrder(
     order_value: aiResult.orderValue,
     item_count: aiResult.itemCount,
     received_date: receivedDate,
-    expected_delivery_date: aiResult.expectedDeliveryDate,
+    expected_date: expectedDate,
     notes: aiResult.notes,
     billing_address: aiResult.billingAddress,
     phone: aiResult.phone,
@@ -214,13 +229,16 @@ async function updateExistingOrder(
     ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
   ]
 
+  // Use AI-extracted expected date or fallback to email date (ASAP = same day)
+  const expectedDate = aiResult.expectedDate || email.date
+
   try {
     // 1. Update order fields (including org-specific fields in custom_fields)
     await updateOrderFields(existingOrderId, {
       order_value: aiResult.orderValue,
       item_count: aiResult.itemCount,
       status: newStatus,
-      expected_delivery_date: aiResult.expectedDeliveryDate || null,
+      expected_date: expectedDate,
       notes: aiResult.notes || null,
       billing_address: aiResult.billingAddress || null,
       phone: aiResult.phone || null,
@@ -370,14 +388,29 @@ export async function handleEmailOrder(
     ragExamples = []
   }
 
+  // Step 6: Fetch customer order history (last 2 approved orders from this sender)
+  let customerHistory: CustomerOrderHistory[] = []
+  try {
+    customerHistory = await getCustomerOrderHistory(email.from, organizationId, 2)
+    if (customerHistory.length > 0) {
+      console.log(`📋 Found ${customerHistory.length} previous orders from this customer`)
+    }
+  } catch (error) {
+    console.error('Customer history fetch failed (continuing without history):', error)
+    customerHistory = []
+  }
+
+  // Format customer history for prompt injection
+  const customerHistoryPrompt = formatCustomerHistoryForPrompt(customerHistory)
+
   let aiResult: ParsedOrderData | null
 
   if (existingOrder) {
     // This is a reply to an existing order - fetch thread context
     const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
 
-    // Process email with full thread context, attachments, org fields, org prompt, product catalog, and RAG examples
-    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples)
+    // Process email with full thread context, attachments, org fields, org prompt, product catalog, RAG examples, and customer history
+    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt)
 
     if (!aiResult) {
       // If AI can't extract order from thread, log and skip
@@ -389,8 +422,8 @@ export async function handleEmailOrder(
     const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId, orgRequiredFields)
     return { ...result, action: 'updated_order' }
   } else {
-    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, and RAG examples)
-    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples)
+    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, RAG examples, and customer history)
+    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt)
 
     if (!aiResult) {
       // Not an order email, skip

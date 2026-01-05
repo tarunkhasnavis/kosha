@@ -19,6 +19,13 @@ import {
 } from "@/components/ui/collapsible"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Loader2,
   Mail,
   Send,
@@ -42,7 +49,8 @@ import { ItemsTable } from "./ItemsTable"
  */
 export interface OrderFieldsWithOrgFields {
   notes?: string
-  expected_delivery_date?: string
+  expected_date?: string
+  ship_via?: string
   orgFields?: Record<string, string | number | null>
 }
 
@@ -73,6 +81,7 @@ export function OrderEditModal({
   const [originalItems, setOriginalItems] = useState<EditableItem[]>([])
   const [notes, setNotes] = useState("")
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined)
+  const [shipVia, setShipVia] = useState<string>("")
   const [orgFieldValues, setOrgFieldValues] = useState<Record<string, string | number | null>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [savingAction, setSavingAction] = useState<string | null>(null)
@@ -104,7 +113,8 @@ export function OrderEditModal({
       setItems(mappedItems)
       setOriginalItems(mappedItems)
       setNotes(order.notes || "")
-      setDeliveryDate(order.expected_delivery_date ? new Date(order.expected_delivery_date) : undefined)
+      setDeliveryDate(order.expected_date ? new Date(order.expected_date) : undefined)
+      setShipVia(order.ship_via || "")
 
       // Initialize org field values from order.custom_fields
       const initialOrgFields: Record<string, string | number | null> = {}
@@ -202,7 +212,7 @@ export function OrderEditModal({
     setSavingAction("save")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSave(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
+      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues })
       onClose()
     } finally {
       setIsSaving(false)
@@ -216,7 +226,7 @@ export function OrderEditModal({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues })
       onClose()
     } finally {
       setIsSaving(false)
@@ -232,7 +242,7 @@ export function OrderEditModal({
     setSavingAction("continue")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_delivery_date: deliveryDateStr, orgFields: orgFieldValues })
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues })
 
       // Show the continuation dialog with the result
       setContinueDialogData({
@@ -289,7 +299,7 @@ export function OrderEditModal({
     try {
       // Items already saved, just need to approve
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_delivery_date: deliveryDateStr })
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined })
       setShowContinueDialog(false)
       onClose()
     } finally {
@@ -512,14 +522,26 @@ export function OrderEditModal({
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
               Order Details
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>Expected Delivery Date</Label>
+                <Label>Expected Date</Label>
                 <DatePicker
                   selected={deliveryDate}
                   onSelect={setDeliveryDate}
-                  placeholder="Select delivery date"
+                  placeholder="Select date"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Ship Via</Label>
+                <Select value={shipVia} onValueChange={setShipVia}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Delivery">Delivery</SelectItem>
+                    <SelectItem value="Customer Pickup">Customer Pickup</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Received Date</Label>

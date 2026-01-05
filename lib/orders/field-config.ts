@@ -36,8 +36,27 @@ Extract these fields and include them in the "orgFields" object:
 ${fieldsList}
 
 Search the entire email (body, notes, comments, signatures) for these values.
-Format: { ${exampleFields} }
+IMPORTANT: If a value is not found, use null (not "N/A", "unknown", or "-"). Missing values will be flagged for clarification.
+Format: { ${exampleFields} } or null if not found
 `
+}
+
+/**
+ * Check if a value is empty or a placeholder (N/A, unknown, etc.)
+ */
+function isEmptyOrPlaceholder(value: unknown): boolean {
+  if (value === null || value === undefined || value === '') {
+    return true
+  }
+
+  // Check for placeholder strings
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    const placeholders = ['n/a', 'na', 'unknown', 'not found', 'not provided', 'none', 'null', '-', '--']
+    return placeholders.includes(normalized)
+  }
+
+  return false
 }
 
 /**
@@ -51,7 +70,7 @@ export function validateOrgRequiredFields(
 
   for (const field of orgFields.filter(f => f.required)) {
     const value = order[field.field]
-    if (value === null || value === undefined || value === '') {
+    if (isEmptyOrPlaceholder(value)) {
       missingFields.push(field.label)
     }
   }

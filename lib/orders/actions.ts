@@ -42,7 +42,7 @@ export async function approveOrder(orderId: string) {
       company_name,
       contact_name,
       order_value,
-      expected_delivery_date,
+      expected_date,
       order_items (
         id,
         name,
@@ -106,7 +106,7 @@ export async function approveOrder(orderId: string) {
             total: item.total,
           })),
           orderValue: order.order_value,
-          expectedDeliveryDate: order.expected_delivery_date || undefined,
+          expectedDate: order.expected_date || undefined,
         },
         organization.name || 'Our Team'
       )
@@ -149,7 +149,7 @@ export async function approveOrder(orderId: string) {
           total: item.total,
         })),
         contactName: order.contact_name,
-        expectedDeliveryDate: order.expected_delivery_date,
+        expectedDate: order.expected_date,
       }
 
       // Determine if order was edited by comparing item counts or values
@@ -201,7 +201,7 @@ export async function rejectOrder(orderId: string, reason?: string) {
       company_name,
       contact_name,
       order_value,
-      expected_delivery_date,
+      expected_date,
       order_items (
         id,
         name,
@@ -249,7 +249,7 @@ export async function rejectOrder(orderId: string, reason?: string) {
             total: item.total,
           })),
           orderValue: order.order_value,
-          expectedDeliveryDate: order.expected_delivery_date || undefined,
+          expectedDate: order.expected_date || undefined,
         },
         organization.name || 'Our Team',
         reason
@@ -405,7 +405,7 @@ export interface CreateOrderInput {
   order_value: number
   item_count: number
   received_date: string
-  expected_delivery_date?: string
+  expected_date?: string
   notes?: string
   billing_address?: string
   phone?: string
@@ -436,7 +436,7 @@ export async function createOrder(input: CreateOrderInput) {
     order_value: input.order_value,
     item_count: input.item_count,
     received_date: input.received_date,
-    expected_delivery_date: input.expected_delivery_date || null,
+    expected_date: input.expected_date || null,
     notes: input.notes || null,
     billing_address: input.billing_address || null,
     phone: input.phone || null,
@@ -453,7 +453,7 @@ export async function createOrder(input: CreateOrderInput) {
   // Extract org-specific fields (any fields not in the base set)
   const baseFieldKeys = new Set([
     'order_number', 'company_name', 'source', 'status', 'order_value',
-    'item_count', 'received_date', 'expected_delivery_date', 'notes',
+    'item_count', 'received_date', 'expected_date', 'notes',
     'billing_address', 'phone', 'payment_method', 'contact_name',
     'contact_email', 'ship_via', 'organization_id', 'email_from', 'email_url',
     'inferred_fields'
@@ -492,7 +492,7 @@ export async function updateOrderFields(
     order_value?: number
     item_count?: number
     status?: OrderStatus
-    expected_delivery_date?: string | null
+    expected_date?: string | null
     notes?: string | null
     billing_address?: string | null
     phone?: string | null
@@ -552,7 +552,8 @@ export async function saveOrderChanges(
   items: EditableItemInput[],
   orderFields: {
     notes?: string
-    expected_delivery_date?: string
+    expected_date?: string
+    ship_via?: string
     orgFields?: Record<string, string | number | null>
   }
 ) {
@@ -572,7 +573,8 @@ export async function saveOrderChanges(
     order_value: orderValue,
     item_count: itemCount,
     notes: orderFields.notes || null,
-    expected_delivery_date: orderFields.expected_delivery_date || null,
+    expected_date: orderFields.expected_date || null,
+    ship_via: orderFields.ship_via || null,
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -637,7 +639,8 @@ export async function saveAndAnalyzeOrder(
   items: EditableItemInput[],
   orderFields: {
     notes?: string
-    expected_delivery_date?: string
+    expected_date?: string
+    ship_via?: string
     orgFields?: Record<string, string | number | null>
   }
 ): Promise<SaveAndAnalyzeResult> {
@@ -710,7 +713,8 @@ export async function saveAndAnalyzeOrder(
     order_value: orderValue,
     item_count: itemCount,
     notes: orderFields.notes || null,
-    expected_delivery_date: orderFields.expected_delivery_date || null,
+    expected_date: orderFields.expected_date || null,
+    ship_via: orderFields.ship_via || null,
     status: newStatus,
   }
 
@@ -768,7 +772,8 @@ export async function saveAndApproveOrder(
   items: EditableItemInput[],
   orderFields: {
     notes?: string
-    expected_delivery_date?: string
+    expected_date?: string
+    ship_via?: string
     orgFields?: Record<string, string | number | null>
   }
 ) {
@@ -788,7 +793,8 @@ export async function saveAndApproveOrder(
     order_value: orderValue,
     item_count: itemCount,
     notes: orderFields.notes || null,
-    expected_delivery_date: orderFields.expected_delivery_date || null,
+    expected_date: orderFields.expected_date || null,
+    ship_via: orderFields.ship_via || null,
     status: 'approved',
   }
 

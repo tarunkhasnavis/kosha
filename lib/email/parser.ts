@@ -46,7 +46,7 @@ export interface ParsedOrderData {
   orderValue: number               // AI extracts from email total or calculates from items
   itemCount: number                // Number of items (we calculate: items.length)
   receivedDate?: string            // OPTIONAL - when order was placed (AI extracts, fallback to email.date)
-  expectedDeliveryDate?: string    // OPTIONAL - when customer wants delivery (null/empty = ASAP)
+  expectedDate?: string            // OPTIONAL - when customer wants pickup OR delivery (null/empty = ASAP)
   notes?: string                   // OPTIONAL - any special instructions or notes
   billingAddress?: string          // OPTIONAL - customer's billing/delivery address
   phone?: string                   // OPTIONAL - customer's phone number
@@ -81,7 +81,7 @@ interface RawAIResponse {
   orderNumber?: string             // Customer's PO/order number if found
   orderValue?: number              // AI extracts or calculates
   receivedDate?: string            // When order was placed (fallback to email date if not found)
-  expectedDeliveryDate?: string    // When customer wants delivery (null = ASAP)
+  expectedDate?: string            // When customer wants pickup OR delivery (null = ASAP)
   notes?: string                   // Special instructions
   billingAddress?: string          // Customer's address
   phone?: string                   // Customer's phone
@@ -115,6 +115,7 @@ interface RawAIResponse {
  * @param orgSystemPrompt - Optional: Organization-specific AI instructions from DB
  * @param productCatalog - Optional: Organization's product catalog for SKU/price matching
  * @param ragExamples - Optional: Similar past orders retrieved via RAG for few-shot learning
+ * @param customerHistoryPrompt - Optional: Formatted customer order history for context
  */
 export async function processEmailWithAI(
   email: ParsedEmail,
@@ -128,7 +129,8 @@ export async function processEmailWithAI(
   orgRequiredFields?: OrgRequiredField[],
   orgSystemPrompt?: string | null,
   productCatalog?: ProductCatalogItem[],
-  ragExamples?: OrderExample[]
+  ragExamples?: OrderExample[],
+  customerHistoryPrompt?: string
 ): Promise<ParsedOrderData | null> {
   // Build email context with thread history if available
   let emailContext = ''
@@ -202,103 +204,104 @@ ${email.body}
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant that extracts order information from emails sent by restaurant/food service customers.
+          content: `You extract order information from emails received by a food distributor.
 
-CRITICAL - IDENTIFYING THE CUSTOMER:
-- You are processing emails received by a food distributor/vendor (the recipient of the email)
-- The CUSTOMER is the person/company PLACING THE ORDER, NOT the recipient/vendor
-- Email greetings like "Hello, [Name]!" or "Dear [Name]" address the VENDOR - this is NEVER the customer
-- Many emails come from automated ordering systems - the vendor name in greetings is YOUR organization
+CUSTOMER IDENTIFICATION:
+- The CUSTOMER is placing the order, NOT the email recipient (that's the vendor)
+- Greetings like "Hello, [Name]!" address the vendor - NEVER use as customer name
+- Find customer in: attachments (Bill To/Ship To/Customer), subject line, or sender info
 
-WHERE TO FIND THE CUSTOMER NAME (priority order):
-  1. ATTACHMENTS: Look for "Bill To:", "Sold To:", "Ship To:", "Customer:", "Buyer:", or company letterhead - THIS IS PRIMARY
-  2. Email subject line: Often contains the customer/store name (e.g., "PO from Acme Foods")
-  3. Email sender info if from customer directly (not an automated system)
+EXTRACTION:
+- Search EVERYWHERE: email body, Note: field, attachments, subject line
 
-DO NOT use as customer name:
-- Names in greetings ("Hello, [Name]!")
-- The vendor's own organization name
-- Generic system/gateway names
+NOTES FIELD - VERY IMPORTANT:
+- The "notes" output should ONLY contain special instructions, comments, or the "Note:" field from the email
+- DO NOT put the entire email body in notes - that's wrong
+- Look for explicit "Note:", "Notes:", "Special Instructions:", "Comments:" labels
+- Example: If email has "Note: 3400347 – Richard Jacob will be picking this up 12/9 if possible!"
+  → notes: "3400347 – Richard Jacob will be picking this up 12/9 if possible!"
+- If no explicit notes/comments section exists, leave notes as null
 
-EMAIL THREADS:
-- Previous emails provide context (original order, clarification requests)
-- The LATEST email contains the most recent information
-- COMBINE all information from the thread to build the complete order
-- If a reply provides missing information, add it to the original items
+PARSING NOTE CONTENT:
+- The Note: field often contains MULTIPLE pieces of info - parse ALL of them:
+  - Example: "3400347 – Richard Jacob will be picking this up 12/9 if possible!"
+    → orgFields.liquor_license: "3400347" (the number at the start)
+    → expectedDate: "2025-12-09" (from "12/9" - this is the pickup/delivery date!)
+    → shipVia: "Customer Pickup" (from "picking this up")
+    → contactName: "Richard Jacob" (person picking up)
+    → notes: "3400347 – Richard Jacob will be picking this up 12/9 if possible!" (preserve original)
+  - Numbers at start of notes are often license/account numbers → extract to org fields
+  - "pickup/picking up/will pick up" → shipVia: "Customer Pickup"
+  - Ship via: "delivery/deliver to/ship to" → "Delivery"
 
-EXTRACTION TASK:
-1. Determine if this email contains an order (items with quantities)
-2. Extract: company name, contact person, contact email, order/PO number, items (name, SKU, quantity, unit, price, total), order value, received date, expected delivery date, ship via, notes, billing address, phone, payment method
-3. Assess completeness: Do ALL items have name + quantity?
-4. If incomplete, generate a friendly clarification email
+EXPECTED DATE - CRITICAL:
+- expectedDate is when the customer WANTS their order (pickup OR delivery date)
+- Look for dates in notes like "picking up 12/9" or "deliver by Friday"
+- Parse ANY date mentioned for pickup/delivery: "12/9", "tomorrow", "Monday", "next week"
+- Use the email's year context (if email is from Dec 2025, "12/9" means 2025-12-09)
+- IMPORTANT: The date in the email header (e.g., "December 8, 2025" or "[Order #123] (December 8, 2025)") is the RECEIVED DATE, NOT the expected date!
+- If the Note says "picking this up 12/9" and email date is Dec 8, then expectedDate = 12/9 (one day AFTER received date)
+- Only leave expectedDate as null if NO pickup/delivery date info exists anywhere in notes or body
 
-SHIP VIA DETECTION:
-- "pickup", "picking up", "will pick up" → "Customer Pickup"
-- "delivery", "deliver to", "ship to" → "Delivery"
-- If unclear → null
+THREADS: Combine info from all emails. Latest email has most recent updates.
+
+ATTACHMENTS: Often contain the item list - extract ALL items. Prioritize over email body. Excel data provided as JSON.
+
+ITEMS:
+- Split "10 lbs" → quantity: 10, quantityUnit: "lbs"
+- No unit specified → quantityUnit: "each"
+- If quantity missing but has total price + SKU in catalog: calculate quantity = total ÷ catalog unit_price, add "items[N].quantity" to inferredFields
+- If quantity cannot be determined → quantity: 0, quantityUnit: "unknown", add to missingInfo, isComplete = false
+- IMPORTANT: "Case of 12" or "Pack of 6" in a product NAME is NOT the quantity - it describes the product packaging
+- When quantity is missing/0, set unitPrice to the total (treat as 1 unit) rather than inventing a price${generateOrgFieldPromptInstructions(orgRequiredFields || [])}${productCatalog && productCatalog.length > 0 ? `
+
+PRODUCT CATALOG (match items to get SKU/price):
+${productCatalog.map(p => `${p.sku} | ${p.name} | $${p.unit_price.toFixed(2)}`).join('\n')}` : ''}
+
+INFERENCE TRACKING (inferredFields array) - UI highlights these in purple:
+ADD to inferredFields when you:
+- CALCULATE a value (e.g., quantity from price ÷ catalog unit price)
+- DERIVE information not explicitly stated (e.g., shipVia from "I'll pick it up")
+- GUESS/INFER from patterns without explicit labels (e.g., matching "chicken breast" to SKU-001)
+- Make ASSUMPTIONS (e.g., assuming billing address from signature)
+
+DO NOT add when you:
+- EXTRACT text exactly as written (e.g., "10 lbs" → quantity: 10, quantityUnit: "lbs")
+- FORMAT visible text (e.g., parsing "12/9" into a full date using the email's year)
+- COPY exact catalog values for matched products (SKU, unit_price from catalog lookup)
+- READ explicit labeled fields (e.g., "PO#: 12345" → orderNumber: "12345")
+
+IMPORTANT: inferredFields and missingInfo are MUTUALLY EXCLUSIVE for any field:
+- If you INFER a value → add to inferredFields, NOT to missingInfo (you populated it)
+- If you CANNOT determine a value → add to missingInfo, NOT to inferredFields (it's empty/missing)
 
 RESPONSE FORMAT (JSON):
 {
   "isOrder": true/false,
-  "companyName": "Company Name",
+  "companyName": "Company Name" or null,
   "contactName": "Chef John" or null,
   "contactEmail": "chef@restaurant.com" or null,
   "orderNumber": "PO-12345" or null,
   "orderValue": 150.50,
-  "receivedDate": "2024-12-09" or null,
-  "expectedDeliveryDate": "2024-12-10" or null,
+  "receivedDate": "YYYY-MM-DD" or null,  // When order was PLACED (email date/header date)
+  "expectedDate": "YYYY-MM-DD" or null,  // When customer WANTS pickup/delivery - from notes like "12/9" or "Friday" (NOT the email header date!)
   "shipVia": "Customer Pickup" or "Delivery" or null,
-  "notes": "Leave at back door" or null,
+  "notes": "Only explicit Note:/Comments: content here, NOT the email body" or null,
   "billingAddress": "123 Main St, City, State" or null,
   "phone": "555-1234" or null,
   "paymentMethod": "Net 30" or null,
-  "orgFields": { "field_name": "value" } or null,
+  "orgFields": {} or null,
   "items": [{"name": "Product", "sku": "SKU-001" or null, "quantity": 10, "quantityUnit": "lbs", "unitPrice": 5.99 or null, "total": 59.90 or null}],
   "isComplete": true/false,
-  "missingInfo": ["Unit price for Product", "Delivery date"],
+  "missingInfo": ["Quantity for Item X", "Unit price for Y"],
   "clarificationEmail": "Thanks for your order! Could you please confirm..." or null,
-  "inferredFields": ["items[0].sku", "ship_via"] or []
+  "inferredFields": ["items[0].sku", "ship_via"]
 }
 
 RULES:
 - Not an order (question, complaint, inquiry) → {"isOrder": false}
-- Split quantity and unit: "10 lbs" → quantity: 10, quantityUnit: "lbs"
-- No unit specified → quantityUnit: "each"
-- MISSING QUANTITIES: Set quantity to 0, quantityUnit to "unknown", add to missingInfo, set isComplete = false
-- NEVER assume quantity 1 - this causes order errors
-- Parse dates intelligently ("tomorrow", "Monday", etc.)
 - isComplete = true only if ALL items have name + quantity > 0
-- Generate clarificationEmail only if isComplete = false
-
-ATTACHMENTS:
-- Often contain the detailed itemized order list - extract ALL items
-- Email body may just say "see attached" with actual items in attachment
-- PRIORITIZE attachment data for items over email body
-- Use email body for contact info, delivery instructions
-- Excel data provided as JSON - extract ALL rows${generateOrgFieldPromptInstructions(orgRequiredFields || [])}${productCatalog && productCatalog.length > 0 ? `
-
-PRODUCT CATALOG - Use this to fill in missing SKU/price:
-${productCatalog.map(p => `SKU: ${p.sku} | Name: ${p.name} | Price: $${p.unit_price.toFixed(2)}`).join('\n')}
-
-CATALOG MATCHING RULES:
-- If an item name closely matches a catalog product, use the catalog SKU and price
-- Catalog matches are HIGH CONFIDENCE - do NOT add to inferredFields
-- Only add to inferredFields when making pattern-based guesses without explicit text` : ''}
-
-INFERENCE TRACKING:
-Track which fields required logical leaps vs explicit extraction in "inferredFields" array.
-
-ADD to inferredFields when:
-- You guess a field from patterns (e.g., 6-digit number → liquor license without label)
-- You infer ship_via from context clues without explicit "pickup" or "delivery" text
-- You match a product name loosely (not exact match) to fill in SKU
-
-DO NOT add to inferredFields:
-- Fields with explicit text labels (e.g., "Liquor License: 123456")
-- Exact catalog matches (SKU or name matches exactly)
-- Prices filled from catalog (catalog is source of truth)
-
-Format: ["items[0].sku", "items[1].unit_price", "liquor_license", "ship_via"]${orgSystemPrompt ? `\n\n--- ORGANIZATION-SPECIFIC INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}${ragExamples && ragExamples.length > 0 ? formatExamplesForPrompt(ragExamples) : ''}`,
+- If isComplete = false, generate clarificationEmail asking for the missing info${orgSystemPrompt ? `\n\n--- ORGANIZATION INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}${customerHistoryPrompt || ''}${ragExamples && ragExamples.length > 0 ? formatExamplesForPrompt(ragExamples) : ''}`,
         },
         {
           role: 'user',
@@ -345,7 +348,7 @@ Format: ["items[0].sku", "items[1].unit_price", "liquor_license", "ship_via"]${o
       orderValue: parsed.orderValue ?? 0,
       itemCount: items.length,
       receivedDate: parsed.receivedDate || undefined,
-      expectedDeliveryDate: parsed.expectedDeliveryDate || undefined,
+      expectedDate: parsed.expectedDate || undefined,
       notes: parsed.notes || undefined,
       billingAddress: parsed.billingAddress || undefined,
       phone: parsed.phone || undefined,

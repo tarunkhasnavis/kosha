@@ -385,7 +385,7 @@ function drawMetaRow(ctx: DrawContext, order: Order): number {
   // Meta row with columns
   const columns = [
     { label: 'P.O NO.', value: order.order_number || '', x: PAGE.MARGIN_LEFT },
-    { label: 'DELIVERY DATE', value: formatDate(order.expected_delivery_date) || '', x: PAGE.MARGIN_LEFT + 130 },
+    { label: 'DELIVERY DATE', value: formatDate(order.expected_date) || '', x: PAGE.MARGIN_LEFT + 130 },
     { label: 'SHIP VIA', value: order.ship_via || '', x: PAGE.MARGIN_LEFT + 280 },
   ]
 

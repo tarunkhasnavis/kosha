@@ -43,7 +43,7 @@ const RESERVED_FIELD_NAMES = new Set([
   'id', 'created_at', 'updated_at', 'organization_id',
   // Existing order fields
   'order_number', 'company_name', 'source', 'status',
-  'order_value', 'item_count', 'received_date', 'expected_delivery_date',
+  'order_value', 'item_count', 'received_date', 'expected_date',
   'notes', 'billing_address', 'phone', 'payment_method',
   'contact_name', 'contact_email', 'ship_via', 'email_from', 'email_url',
   'clarification_message', 'custom_fields', 'items',

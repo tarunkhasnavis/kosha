@@ -26,6 +26,8 @@ import {
   Download,
   Archive,
   ArchiveRestore,
+  Truck,
+  UserCheck,
   type LucideIcon,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
@@ -416,12 +418,22 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
           </div>
         </div>
 
-        {/* Timestamp */}
-        <div className="text-xs text-muted-foreground">
+        {/* Timestamp & Delivery Info */}
+        <div className="text-xs text-muted-foreground space-y-1">
           <div className="flex items-center gap-2">
             <Clock className="h-3 w-3" />
             <span>Received: {new Date(order.received_date).toLocaleString()}</span>
           </div>
+          {order.ship_via && (
+            <div className="flex items-center gap-2">
+              {order.ship_via === "Customer Pickup" ? (
+                <UserCheck className="h-3 w-3" />
+              ) : (
+                <Truck className="h-3 w-3" />
+              )}
+              <span>{order.ship_via}</span>
+            </div>
+          )}
         </div>
 
         {/* Status-specific Actions */}
