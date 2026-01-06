@@ -116,6 +116,7 @@ interface RawAIResponse {
  * @param productCatalog - Optional: Organization's product catalog for SKU/price matching
  * @param ragExamples - Optional: Similar past orders retrieved via RAG for few-shot learning
  * @param customerHistoryPrompt - Optional: Formatted customer order history for context
+ * @param organizationName - Optional: Organization name for email signature
  */
 export async function processEmailWithAI(
   email: ParsedEmail,
@@ -130,7 +131,8 @@ export async function processEmailWithAI(
   orgSystemPrompt?: string | null,
   productCatalog?: ProductCatalogItem[],
   ragExamples?: OrderExample[],
-  customerHistoryPrompt?: string
+  customerHistoryPrompt?: string,
+  organizationName?: string | null
 ): Promise<ParsedOrderData | null> {
   // Build email context with thread history if available
   let emailContext = ''
@@ -301,7 +303,29 @@ RESPONSE FORMAT (JSON):
 RULES:
 - Not an order (question, complaint, inquiry) → {"isOrder": false}
 - isComplete = true only if ALL items have name + quantity > 0
-- If isComplete = false, generate clarificationEmail asking for the missing info${orgSystemPrompt ? `\n\n--- ORGANIZATION INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}${customerHistoryPrompt || ''}${ragExamples && ragExamples.length > 0 ? formatExamplesForPrompt(ragExamples) : ''}`,
+- If isComplete = false, generate clarificationEmail asking for the missing info
+
+CLARIFICATION EMAIL FORMAT (only if isComplete = false):
+The clarificationEmail MUST follow this EXACT format:
+1. Start with greeting: "Hi [contactName from email or 'there']!"
+2. Thank them for their order
+3. List ALL missing required information (item details AND org-specific fields)
+4. Ask them to reply with the details
+5. End with: "Thank you,\\n${organizationName || 'Our Team'}"
+
+Example:
+"Hi [Name]!
+
+Thanks for your order! To process it, we need the following information:
+
+- Unit price for Salmon Fillet
+- Quantity unit for Chicken Breast
+- Your liquor license number
+
+Could you please reply with these details?
+
+Thank you,
+${organizationName || 'Our Team'}"${orgSystemPrompt ? `\n\n--- ORGANIZATION INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}${customerHistoryPrompt || ''}${ragExamples && ragExamples.length > 0 ? formatExamplesForPrompt(ragExamples) : ''}`,
         },
         {
           role: 'user',
@@ -388,6 +412,8 @@ export interface OrderCompletenessResult {
  * @param orderData - Additional order fields to check (e.g., liquor_license)
  * @param orgRequiredFields - Organization-specific required fields
  * @param orgSystemPrompt - Organization-specific AI instructions from DB
+ * @param contactName - Customer contact name for email greeting
+ * @param organizationName - Organization name for email signature
  */
 export async function analyzeOrderCompleteness(
   items: Array<{
@@ -402,7 +428,9 @@ export async function analyzeOrderCompleteness(
   originalMissingInfo?: string[],
   orderData?: Record<string, unknown>,
   orgRequiredFields?: OrgRequiredField[],
-  orgSystemPrompt?: string | null
+  orgSystemPrompt?: string | null,
+  contactName?: string,
+  organizationName?: string
 ): Promise<OrderCompletenessResult> {
   try {
     // Build the items summary for the AI
@@ -423,6 +451,10 @@ export async function analyzeOrderCompleteness(
       }).join('\n')
       orgFieldsSummary = `\nOrganization-specific fields:\n${fieldValues}`
     }
+
+    // Build greeting and signature for the clarification email
+    const greetingName = contactName || 'there'
+    const signatureName = organizationName || 'Our Team'
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -454,15 +486,31 @@ Return JSON in this format:
 {
   "isComplete": true/false,
   "missingInfo": ["List of what's missing or unclear"],
-  "clarificationEmail": "Friendly email asking for missing info (only if incomplete)"
+  "clarificationEmail": "The full email body (only if incomplete)"
 }
 
-The clarificationEmail should:
-- Be friendly and professional
-- Specifically mention what information is missing
-- Ask them to reply with the missing details
-- NOT include a greeting with recipient name (we don't know their name)
-- Keep it concise (2-3 sentences max)${orgSystemPrompt ? `\n\n--- ORGANIZATION-SPECIFIC INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}`,
+The clarificationEmail MUST follow this EXACT format:
+1. Start with a greeting: "Hi ${greetingName}!"
+2. Thank them for their order
+3. Clearly list ALL missing required information (including any organization-specific required fields like liquor license, etc.)
+4. Ask them to reply with the missing details
+5. End with: "Thank you,\\n${signatureName}"
+
+Example format:
+"Hi ${greetingName}!
+
+Thanks for your order! To process it, we need the following information:
+
+- Unit price for Salmon Fillet
+- Quantity unit for Chicken Breast (lbs, cases, etc.)
+- Your liquor license number
+
+Could you please reply with these details?
+
+Thank you,
+${signatureName}"
+
+Keep the email friendly, professional, and concise.${orgSystemPrompt ? `\n\n--- ORGANIZATION-SPECIFIC INSTRUCTIONS ---\n${orgSystemPrompt}` : ''}`,
         },
         {
           role: 'user',

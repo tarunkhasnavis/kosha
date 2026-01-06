@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { motion } from "framer-motion"
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,21 @@ import {
   type EditableItem,
 } from "@/lib/orders/completeness"
 import { ItemsTable } from "./ItemsTable"
+import { durations, easings } from "@/lib/motion"
+
+// Staggered section animation variants
+const sectionVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.05,
+      duration: durations.base,
+      ease: easings.easeOut,
+    },
+  }),
+}
 
 /**
  * Extended order fields type that includes org-specific fields
@@ -332,28 +348,28 @@ export function OrderEditModal({
   if (showContinueDialog && continueDialogData) {
     return (
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg p-6">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="text-lg font-semibold text-slate-900">
               {continueDialogData.isComplete ? "Order Complete" : "Still Missing Information"}
             </DialogTitle>
           </DialogHeader>
 
           <div className="py-4 space-y-4">
             {continueDialogData.isComplete ? (
-              <p className="text-muted-foreground">
+              <p className="text-sm text-slate-500">
                 The order now has all required information and is ready for approval.
               </p>
             ) : (
               <>
-                <p className="text-muted-foreground">
+                <p className="text-sm text-slate-500">
                   The order is still missing some information. Review and send the clarification request below.
                 </p>
                 <Collapsible defaultOpen>
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent">
+                    <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent text-slate-700">
                       <span className="text-sm font-medium">Clarification Email</span>
-                      <ChevronDown className="h-4 w-4" />
+                      <ChevronDown className="h-4 w-4 text-slate-400" />
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="mt-2">
@@ -361,7 +377,7 @@ export function OrderEditModal({
                       value={editableClarificationMessage}
                       onChange={(e) => setEditableClarificationMessage(e.target.value)}
                       rows={5}
-                      className="text-sm"
+                      className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none"
                       placeholder="Enter clarification message..."
                     />
                   </CollapsibleContent>
@@ -370,37 +386,37 @@ export function OrderEditModal({
             )}
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t">
+          <div className="flex justify-end gap-2 pt-4 border-t border-slate-200/60">
             {continueDialogData.isComplete ? (
               <>
-                <Button variant="outline" onClick={handleLater}>
+                <Button variant="outline" onClick={handleLater} className="h-10 px-4 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50">
                   Review Later
                 </Button>
                 <Button
-                  className="bg-green-600 hover:bg-green-700"
+                  className="h-10 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm"
                   onClick={handleApproveFromDialog}
                   disabled={isSaving}
                 >
                   {savingAction === "approve" ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   ) : null}
                   Approve Now
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="outline" onClick={handleLater}>
+                <Button variant="outline" onClick={handleLater} className="h-10 px-4 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50">
                   Send Later
                 </Button>
                 <Button
-                  className="bg-orange-600 hover:bg-orange-700"
+                  className="h-10 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
                   onClick={handleSendFromDialog}
                   disabled={isRequestingInfo || !editableClarificationMessage}
                 >
                   {isRequestingInfo ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   ) : (
-                    <Send className="h-4 w-4 mr-1" />
+                    <Send className="h-4 w-4 mr-1.5" />
                   )}
                   Send Request
                 </Button>
@@ -414,127 +430,145 @@ export function OrderEditModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-7">
         <DialogHeader>
-          <div className="flex flex-col gap-1">
-            <DialogTitle className="text-2xl font-semibold">{order.order_number}</DialogTitle>
-            <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <DialogTitle className="text-xl font-semibold text-slate-900">{order.order_number}</DialogTitle>
               <Badge
                 variant="outline"
-                className={`w-fit ${
+                className={`text-xs font-medium px-2.5 py-0.5 rounded-full border-0 ${
                   order.status === "waiting_review"
-                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                    ? "bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending-text))]"
                     : order.status === "awaiting_clarification"
-                    ? "bg-orange-50 text-orange-700 border-orange-200"
+                    ? "bg-[hsl(var(--status-needs-info-bg))] text-[hsl(var(--status-needs-info-text))]"
                     : order.status === "approved"
-                    ? "bg-green-50 text-green-700 border-green-200"
-                    : "bg-gray-50 text-gray-700"
+                    ? "bg-[hsl(var(--status-approved-bg))] text-[hsl(var(--status-approved-text))]"
+                    : "bg-[hsl(var(--status-archived-bg))] text-[hsl(var(--status-archived-text))]"
                 }`}
               >
                 {order.status === "waiting_review"
                   ? "Pending Review"
                   : order.status === "awaiting_clarification"
                   ? "Needs Info"
+                  : order.status === "approved"
+                  ? "Approved"
                   : order.status.replace("_", " ")}
               </Badge>
-              {/* Completeness Indicator */}
-              {completeness && (
-                <span
-                  className={`text-sm font-medium ${
-                    completeness.percentage === 100
-                      ? "text-green-600"
-                      : completeness.percentage >= 70
-                      ? "text-yellow-600"
-                      : "text-orange-600"
-                  }`}
-                >
-                  {completeness.percentage}% Complete
-                </span>
-              )}
             </div>
+            {/* Completeness Indicator */}
+            {completeness && (
+              <span
+                className={`text-sm font-medium ${
+                  completeness.percentage === 100
+                    ? (order.status === "approved" ? "text-emerald-600" : "text-blue-600")
+                    : completeness.percentage >= 70
+                    ? "text-amber-600"
+                    : "text-orange-600"
+                }`}
+              >
+                {completeness.percentage}% Complete
+              </span>
+            )}
           </div>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="space-y-5 pt-2">
           {/* Customer Info (read-only) */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Customer
-              </h3>
-              {/* Show missing customer fields indicator */}
-              {completeness && completeness.missingRequiredFields.some(f =>
-                f === 'Company Name'
-              ) && (
-                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
-                  Missing Info
-                </Badge>
-              )}
-            </div>
-            <div className={`bg-gray-50 rounded-lg p-4 ${
-              !order.company_name ? 'border-2 border-orange-400' : ''
-            }`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className={`font-medium text-lg ${!order.company_name ? 'text-orange-600' : ''}`}>
-                    {order.company_name || "Unknown Company"}
-                    {!order.company_name && (
-                      <span className="ml-2 text-xs font-normal text-orange-500">(missing)</span>
-                    )}
-                  </p>
-                  {order.contact_name && (
-                    <p className="text-sm text-muted-foreground">
-                      {order.contact_name}
-                      {order.contact_email && ` (${order.contact_email})`}
-                    </p>
-                  )}
-                  {order.phone && (
-                    <p className="text-sm text-muted-foreground">{order.phone}</p>
-                  )}
-                </div>
-                {order.email_url && (
-                  <a
-                    href={order.email_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline shrink-0"
-                  >
-                    <Mail className="h-3 w-3" />
-                    <span>View Email</span>
-                  </a>
+          <motion.div
+            className="bg-white border border-slate-200/60 rounded-xl p-4"
+            custom={0}
+            initial="hidden"
+            animate="visible"
+            variants={sectionVariants}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                  Customer
+                </h3>
+                {/* Show missing customer fields indicator */}
+                {completeness && completeness.missingRequiredFields.some(f =>
+                  f === 'Company Name'
+                ) && (
+                  <span className="inline-flex items-center gap-1 text-xs text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
+                    <span className="w-1 h-1 rounded-full bg-orange-500"></span>
+                    Missing
+                  </span>
                 )}
               </div>
+              {order.email_url && (
+                <a
+                  href={order.email_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  <Mail className="h-3 w-3" />
+                  <span>View Email</span>
+                </a>
+              )}
             </div>
-          </div>
+            <div className={`${!order.company_name ? 'text-orange-700' : 'text-slate-900'}`}>
+              <p className="font-medium">
+                {order.company_name || "Unknown Company"}
+                {!order.company_name && (
+                  <span className="ml-2 text-xs font-normal text-orange-500">(required)</span>
+                )}
+              </p>
+              {order.contact_name && (
+                <p className="text-sm text-slate-500 mt-0.5">
+                  {order.contact_name}
+                  {order.contact_email && ` · ${order.contact_email}`}
+                </p>
+              )}
+              {order.phone && (
+                <p className="text-sm text-slate-500">{order.phone}</p>
+              )}
+            </div>
+          </motion.div>
 
           {/* Items Table */}
-          <ItemsTable
-            items={items}
-            completeness={completeness}
-            inferredFields={order.inferred_fields}
-            onUpdateItem={updateItem}
-            onDeleteItem={deleteItem}
-            onAddItem={addItem}
-          />
+          <motion.div
+            custom={1}
+            initial="hidden"
+            animate="visible"
+            variants={sectionVariants}
+          >
+            <ItemsTable
+              items={items}
+              completeness={completeness}
+              inferredFields={order.inferred_fields}
+              onUpdateItem={updateItem}
+              onDeleteItem={deleteItem}
+              onAddItem={addItem}
+            />
+          </motion.div>
 
           {/* Order Details */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <motion.div
+            className="bg-white border border-slate-200/60 rounded-xl p-4"
+            custom={2}
+            initial="hidden"
+            animate="visible"
+            variants={sectionVariants}
+          >
+            <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-4">
               Order Details
             </h3>
             <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Expected Date</Label>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600">Expected Date</Label>
                 <DatePicker
                   selected={deliveryDate}
                   onSelect={setDeliveryDate}
                   placeholder="Select date"
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Ship Via</Label>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600">Ship Via</Label>
                 <Select value={shipVia} onValueChange={setShipVia}>
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -543,35 +577,42 @@ export function OrderEditModal({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Received Date</Label>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600">Received Date</Label>
                 <Input
                   value={new Date(order.received_date).toLocaleDateString()}
                   disabled
-                  className="bg-gray-50"
+                  className="bg-slate-100/50 border-slate-200 text-slate-500"
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+            <div className="space-y-1.5 mt-4">
+              <Label htmlFor="notes" className="text-xs text-slate-600">Notes</Label>
               <Textarea
                 id="notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add any notes about this order..."
                 rows={3}
+                className="bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none"
               />
             </div>
-          </div>
+          </motion.div>
 
           {/* Additional Info - Org-Specific Required Fields (below Order Details) */}
           {orgRequiredFields.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            <motion.div
+              className="bg-white border border-slate-200/60 rounded-xl p-4"
+              custom={3}
+              initial="hidden"
+              animate="visible"
+              variants={sectionVariants}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                   Additional Info
                 </h3>
-                {/* Show indicator if any org fields need attention - styled like Items section */}
+                {/* Show indicator if any org fields need attention */}
                 {(() => {
                   const missingOrgFields = orgRequiredFields.filter(f => {
                     if (!f.required) return false
@@ -579,9 +620,10 @@ export function OrderEditModal({
                     return value === null || value === undefined || value === ''
                   })
                   return missingOrgFields.length > 0 ? (
-                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-xs">
+                    <span className="inline-flex items-center gap-1 text-xs text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
+                      <span className="w-1 h-1 rounded-full bg-orange-500"></span>
                       {missingOrgFields.length} field{missingOrgFields.length > 1 ? 's' : ''} need{missingOrgFields.length === 1 ? 's' : ''} attention
-                    </Badge>
+                    </span>
                   ) : null
                 })()}
               </div>
@@ -591,10 +633,10 @@ export function OrderEditModal({
                   const displayValue = value !== null && value !== undefined ? String(value) : ''
                   const isMissing = field.required && (!displayValue || displayValue === '')
                   return (
-                    <div key={field.field} className="space-y-1">
-                      <Label className={isMissing ? 'text-orange-600' : ''}>
+                    <div key={field.field} className="space-y-1.5">
+                      <Label className={`text-xs ${isMissing ? 'text-orange-700' : 'text-slate-600'}`}>
                         {field.label}
-                        {field.required && <span className="text-red-500 ml-1">*</span>}
+                        {field.required && <span className="text-orange-500 ml-0.5">*</span>}
                       </Label>
                       <Input
                         type={field.type === 'number' ? 'number' : 'text'}
@@ -608,37 +650,45 @@ export function OrderEditModal({
                             [field.field]: newValue
                           }))
                         }}
-                        className={isMissing ? 'border-orange-400' : ''}
+                        className={`bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 ${isMissing ? 'border-orange-200 bg-orange-50/30' : ''}`}
                         placeholder={`Enter ${field.label.toLowerCase()}`}
                       />
                       {isMissing && (
-                        <p className="text-xs text-orange-500">Required field</p>
+                        <p className="text-[11px] text-orange-600">Required</p>
                       )}
                     </div>
                   )
                 })}
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Order Total */}
-          <div className="border-t pt-4">
+          <motion.div
+            className="bg-white border border-slate-200/60 rounded-xl p-4"
+            custom={4}
+            initial="hidden"
+            animate="visible"
+            variants={sectionVariants}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold">Order Total</span>
-              <span className="text-2xl font-bold">${calculateOrderTotal().toFixed(2)}</span>
+              <div>
+                <span className="text-sm font-medium text-slate-600">Order Total</span>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {items.length} item{items.length !== 1 ? "s" : ""}
+                </p>
+              </div>
+              <span className="text-2xl font-semibold text-slate-900">${calculateOrderTotal().toFixed(2)}</span>
             </div>
-            <p className="text-sm text-muted-foreground">
-              {items.length} item{items.length !== 1 ? "s" : ""}
-            </p>
-          </div>
+          </motion.div>
 
           {/* Dirty State Warning - Only show for "Needs Info" orders when items changed */}
           {isNeedsInfo && isDirty && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
-              <div className="text-sm text-orange-800">
-                <p className="font-medium">You've made changes.</p>
-                <p className="text-orange-700">A new clarification email will be generated based on your edits when you save.</p>
+            <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-slate-700">You've made changes</p>
+                <p className="text-slate-500 mt-0.5">A new clarification email will be generated based on your edits when you save.</p>
               </div>
             </div>
           )}
@@ -649,22 +699,22 @@ export function OrderEditModal({
               <CollapsibleTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="w-full justify-between px-3 py-2 h-auto bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg"
+                  className="w-full justify-between px-4 py-3 h-auto bg-white hover:bg-slate-50 border border-slate-200/60 rounded-xl"
                 >
-                  <span className="text-sm font-medium text-orange-800">View / Edit Clarification Email</span>
+                  <span className="text-sm font-medium text-slate-600">View / Edit Clarification Email</span>
                   {isEmailSectionOpen ? (
-                    <ChevronDown className="h-4 w-4 text-orange-600" />
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-orange-600" />
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
                   )}
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
+              <CollapsibleContent className="mt-3">
                 <Textarea
                   value={editableClarificationMessage}
                   onChange={(e) => setEditableClarificationMessage(e.target.value)}
                   rows={5}
-                  className="text-sm"
+                  className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none"
                   placeholder="Enter clarification message..."
                 />
               </CollapsibleContent>
@@ -672,8 +722,8 @@ export function OrderEditModal({
           )}
 
           {/* Actions - Simplified per status */}
-          <div className="flex items-center justify-between border-t pt-4">
-            <Button variant="outline" onClick={onClose} disabled={isSaving}>
+          <div className="flex items-center justify-between pt-5 mt-2 border-t border-slate-200/60">
+            <Button variant="outline" onClick={onClose} disabled={isSaving} className="h-10 px-4 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-700">
               Cancel
             </Button>
             <div className="flex items-center gap-2">
@@ -682,19 +732,19 @@ export function OrderEditModal({
                 <>
                   {hasClarificationMessage ? (
                     <Button
-                      className="bg-orange-600 hover:bg-orange-700 text-white"
+                      className="h-10 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
                       onClick={handleRequestInfo}
                       disabled={isSaving || isRequestingInfo || !editableClarificationMessage.trim()}
                     >
                       {isRequestingInfo ? (
-                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                       ) : (
-                        <Send className="h-4 w-4 mr-1" />
+                        <Send className="h-4 w-4 mr-1.5" />
                       )}
                       Request Info
                     </Button>
                   ) : (
-                    <Button disabled variant="secondary">
+                    <Button disabled variant="secondary" className="h-10 px-4 rounded-xl">
                       Request Sent
                     </Button>
                   )}
@@ -704,12 +754,12 @@ export function OrderEditModal({
               {/* Needs Info - Dirty State: Save & Continue button */}
               {isNeedsInfo && isDirty && onSaveAndAnalyze && (
                 <Button
-                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                  className="h-10 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
                   onClick={handleSaveAndContinue}
                   disabled={isSaving}
                 >
                   {savingAction === "continue" ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   ) : null}
                   Save & Continue
                 </Button>
@@ -718,15 +768,15 @@ export function OrderEditModal({
               {/* Pending Review: Save and Save & Approve */}
               {isPendingReview && (
                 <>
-                  <Button variant="outline" onClick={handleSave} disabled={isSaving}>
+                  <Button variant="outline" onClick={handleSave} disabled={isSaving} className="h-10 px-4 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50">
                     {savingAction === "save" ? (
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                     ) : null}
                     Save
                   </Button>
-                  <Button onClick={handleSaveAndApprove} disabled={isSaving}>
+                  <Button onClick={handleSaveAndApprove} disabled={isSaving} className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-sm">
                     {savingAction === "approve" ? (
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                     ) : null}
                     Save & Approve
                   </Button>
@@ -735,9 +785,9 @@ export function OrderEditModal({
 
               {/* Approved: Only Save button */}
               {isApproved && (
-                <Button onClick={handleSave} disabled={isSaving}>
+                <Button onClick={handleSave} disabled={isSaving} className="h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-sm">
                   {savingAction === "save" ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   ) : null}
                   Save Changes
                 </Button>

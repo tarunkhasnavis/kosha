@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/server'
-import { getOrganizationId } from '@/lib/organizations/queries'
+import { getUserOrganization } from '@/lib/organizations/queries'
 import { OrdersList } from './OrdersList'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
@@ -9,8 +9,9 @@ export default async function OrdersPage() {
   // Auth handled by (app)/layout.tsx
   const supabase = await createClient()
 
-  // Get user's organization ID
-  const orgId = await getOrganizationId()
+  // Get user's organization info
+  const org = await getUserOrganization()
+  const orgId = org?.id
 
   if (!orgId) {
     return (
@@ -54,20 +55,33 @@ export default async function OrdersPage() {
   // Fetch order_items for all orders using the foreign key relationship
   const orderIds = orders?.map(o => o.id) || []
 
+  // Fetch active (non-deleted) items
   const { data: orderItems, error: itemsError } = await supabase
     .from('order_items')
     .select('*')
     .in('order_id', orderIds)
+    .or('deleted.is.null,deleted.eq.false')
 
   if (itemsError) {
     console.error('Failed to fetch order items:', itemsError)
   }
 
-  // Fetch latest clarification_message for each order from order_emails
-  // We need to get the most recent email's clarification_message for orders awaiting clarification
+  // Fetch deleted items separately
+  const { data: deletedOrderItems, error: deletedItemsError } = await supabase
+    .from('order_items')
+    .select('*')
+    .in('order_id', orderIds)
+    .eq('deleted', true)
+
+  if (deletedItemsError) {
+    console.error('Failed to fetch deleted order items:', deletedItemsError)
+  }
+
+  // Fetch email data for each order from order_emails
+  // We need: latest clarification_message and the original email (oldest email with body, from, date)
   const { data: orderEmails, error: emailsError } = await supabase
     .from('order_emails')
-    .select('order_id, changes_made')
+    .select('order_id, changes_made, email_body, email_from, email_date, created_at')
     .in('order_id', orderIds)
     .order('created_at', { ascending: false })
 
@@ -75,22 +89,37 @@ export default async function OrdersPage() {
     console.error('Failed to fetch order emails:', emailsError)
   }
 
-  // Build a map of order_id -> latest clarification_message
+  // Build maps for order_id -> latest clarification_message and original email data
   const clarificationMap = new Map<string, string | null>()
+  const originalEmailMap = new Map<string, { body: string | null, from: string | null, date: string | null }>()
+
   orderEmails?.forEach(email => {
-    // Only set if we haven't seen this order yet (first = most recent due to ordering)
+    // Only set clarification if we haven't seen this order yet (first = most recent due to ordering)
     if (!clarificationMap.has(email.order_id)) {
       const changesMade = email.changes_made as { clarification_message?: string } | null
       clarificationMap.set(email.order_id, changesMade?.clarification_message || null)
     }
+    // Always update original email - last one processed will be the oldest (due to desc order)
+    originalEmailMap.set(email.order_id, {
+      body: email.email_body || null,
+      from: email.email_from || null,
+      date: email.email_date || null,
+    })
   })
 
-  // Join order_items and clarification_message to their respective orders
-  const ordersWithItems = orders?.map(order => ({
-    ...order,
-    items: orderItems?.filter(item => item.order_id === order.id) || [],
-    clarification_message: clarificationMap.get(order.id) || null,
-  })) || []
+  // Join order_items, clarification_message, and original email data to their respective orders
+  const ordersWithItems = orders?.map(order => {
+    const originalEmail = originalEmailMap.get(order.id)
+    return {
+      ...order,
+      items: orderItems?.filter(item => item.order_id === order.id) || [],
+      deletedItems: deletedOrderItems?.filter(item => item.order_id === order.id) || [],
+      clarification_message: clarificationMap.get(order.id) || null,
+      original_email_body: originalEmail?.body || null,
+      original_email_from: originalEmail?.from || null,
+      original_email_date: originalEmail?.date || null,
+    }
+  }) || []
 
   const stats = {
     waitingReview: ordersWithItems?.filter(o => o.status === 'waiting_review').length || 0,
@@ -100,5 +129,11 @@ export default async function OrdersPage() {
     processingTime: '2 min'
   }
 
-  return <OrdersList initialOrders={ordersWithItems} initialStats={stats} orgRequiredFields={orgRequiredFields} />
+  return (
+    <OrdersList
+      initialOrders={ordersWithItems}
+      initialStats={stats}
+      orgRequiredFields={orgRequiredFields}
+    />
+  )
 }

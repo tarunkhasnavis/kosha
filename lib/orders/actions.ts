@@ -24,7 +24,7 @@ import { saveOrderExample } from '@/lib/ai/embeddings'
 // USER-FACING SERVER ACTIONS (UI interactions)
 // ============================================
 
-export async function approveOrder(orderId: string) {
+export async function approveOrder(orderId: string, customEmailMessage?: string) {
   const supabase = await createClient()
 
   // Get organization for email signature
@@ -90,7 +90,8 @@ export async function approveOrder(orderId: string) {
   try {
     const threadInfo = await getOrderThreadInfo(orderId)
     if (threadInfo) {
-      const emailBody = generateApprovalEmail(
+      // Use custom email message if provided, otherwise generate default
+      const emailBody = customEmailMessage || generateApprovalEmail(
         {
           orderNumber: order.order_number,
           companyName: order.company_name || undefined,
@@ -555,7 +556,8 @@ export async function saveOrderChanges(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
-  }
+  },
+  deletedItemIds?: string[]
 ) {
   const organizationId = await getOrganizationId()
   if (!organizationId) {
@@ -593,8 +595,9 @@ export async function saveOrderChanges(
     throw new Error(`Failed to update order: ${error.message}`)
   }
 
-  // Convert editable items to order item inputs
+  // Convert editable items to order item inputs (include id for updates)
   const orderItemInputs: OrderItemInput[] = items.map(item => ({
+    id: item.isNew ? undefined : item.id,  // Only include id for existing items
     name: item.name,
     sku: item.sku || undefined,
     quantity: item.quantity,
@@ -603,8 +606,8 @@ export async function saveOrderChanges(
     total: item.total,
   }))
 
-  // Replace all items with the edited ones
-  await replaceOrderItems(orderId, orderItemInputs, organizationId)
+  // Replace all items with the edited ones (soft-delete removed items)
+  await replaceOrderItems(orderId, orderItemInputs, organizationId, deletedItemIds)
 
   // TODO: For "awaiting_clarification" orders, re-evaluate completeness with AI
   // and update status + clarification_message accordingly
@@ -642,7 +645,8 @@ export async function saveAndAnalyzeOrder(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
-  }
+  },
+  deletedItemIds?: string[]
 ): Promise<SaveAndAnalyzeResult> {
   const organizationId = await getOrganizationId()
   if (!organizationId) {
@@ -662,15 +666,16 @@ export async function saveAndAnalyzeOrder(
     throw new Error('Failed to fetch order')
   }
 
-  // Get organization's required fields config and system prompt
+  // Get organization's required fields config, system prompt, and name
   const { data: orgData } = await supabase
     .from('organizations')
-    .select('required_order_fields, system_prompt')
+    .select('name, required_order_fields, system_prompt')
     .eq('id', organizationId)
     .single()
 
   const orgRequiredFields = getOrgRequiredFields(orgData?.required_order_fields)
   const orgSystemPrompt = orgData?.system_prompt || null
+  const organizationName = orgData?.name || undefined
 
   // Calculate new totals from items
   const orderValue = items.reduce((sum, item) => sum + item.total, 0)
@@ -702,7 +707,9 @@ export async function saveAndAnalyzeOrder(
     undefined, // originalMissingInfo - not available here
     mergedOrderData, // order data with user's org field edits
     orgRequiredFields,
-    orgSystemPrompt
+    orgSystemPrompt,
+    currentOrder.contact_name || undefined, // contactName for email greeting
+    organizationName // organizationName for email signature
   )
 
   // Determine new status based on completeness
@@ -733,8 +740,9 @@ export async function saveAndAnalyzeOrder(
     throw new Error(`Failed to update order: ${updateError.message}`)
   }
 
-  // Convert editable items to order item inputs
+  // Convert editable items to order item inputs (include id for updates)
   const orderItemInputs: OrderItemInput[] = items.map(item => ({
+    id: item.isNew ? undefined : item.id,  // Only include id for existing items
     name: item.name,
     sku: item.sku || undefined,
     quantity: item.quantity,
@@ -743,8 +751,8 @@ export async function saveAndAnalyzeOrder(
     total: item.total,
   }))
 
-  // Replace all items with the edited ones
-  await replaceOrderItems(orderId, orderItemInputs, organizationId)
+  // Replace all items with the edited ones (soft-delete removed items)
+  await replaceOrderItems(orderId, orderItemInputs, organizationId, deletedItemIds)
 
   // If incomplete, update the clarification message in order_emails
   if (!analysisResult.isComplete && analysisResult.clarificationEmail) {
@@ -775,7 +783,9 @@ export async function saveAndApproveOrder(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
-  }
+  },
+  customApprovalEmail?: string,
+  deletedItems?: EditableItemInput[]
 ) {
   const organizationId = await getOrganizationId()
   if (!organizationId) {
@@ -813,8 +823,9 @@ export async function saveAndApproveOrder(
     throw new Error(`Failed to save and approve order: ${error.message}`)
   }
 
-  // Convert editable items to order item inputs
+  // Convert editable items to order item inputs (include id for updates)
   const orderItemInputs: OrderItemInput[] = items.map(item => ({
+    id: item.isNew ? undefined : item.id,  // Only include id for existing items
     name: item.name,
     sku: item.sku || undefined,
     quantity: item.quantity,
@@ -823,9 +834,314 @@ export async function saveAndApproveOrder(
     total: item.total,
   }))
 
-  // Replace all items with the edited ones
-  await replaceOrderItems(orderId, orderItemInputs, organizationId)
+  // Extract IDs from deleted items
+  const deletedItemIds = deletedItems
+    ?.filter(item => !item.isNew && item.id)
+    .map(item => item.id) || []
+
+  // Replace all items with the edited ones (soft-delete removed items)
+  await replaceOrderItems(orderId, orderItemInputs, organizationId, deletedItemIds)
+
+  // Send approval email (non-blocking - don't fail if email fails)
+  try {
+    const organization = await getUserOrganization()
+    const threadInfo = await getOrderThreadInfo(orderId)
+
+    if (threadInfo && organization) {
+      // Get updated order for email (with new items)
+      const { data: updatedOrder } = await supabase
+        .from('orders')
+        .select(`
+          order_number,
+          company_name,
+          contact_name,
+          order_value,
+          expected_date,
+          order_items (
+            id,
+            name,
+            sku,
+            quantity,
+            quantity_unit,
+            unit_price,
+            total
+          )
+        `)
+        .eq('id', orderId)
+        .single()
+
+      if (updatedOrder) {
+        // Convert deleted items for email if provided
+        const deletedItemsForEmail = deletedItems
+          ? deletedItems.map(item => ({
+              id: item.id || '',
+              order_id: orderId,
+              name: item.name,
+              sku: item.sku || '',
+              quantity: item.quantity,
+              quantity_unit: item.quantity_unit,
+              unit_price: parseFloat(item.unit_price) || 0,
+              total: item.total,
+            }))
+          : undefined
+
+        // Use custom email if provided, otherwise generate default
+        const emailBody = customApprovalEmail || generateApprovalEmail(
+          {
+            orderNumber: updatedOrder.order_number,
+            companyName: updatedOrder.company_name || undefined,
+            contactName: updatedOrder.contact_name || undefined,
+            items: (updatedOrder.order_items || []).map((item: any) => ({
+              id: item.id,
+              order_id: orderId,
+              name: item.name,
+              sku: item.sku,
+              quantity: item.quantity,
+              quantity_unit: item.quantity_unit,
+              unit_price: item.unit_price,
+              total: item.total,
+            })),
+            deletedItems: deletedItemsForEmail,
+            orderValue: updatedOrder.order_value,
+            expectedDate: updatedOrder.expected_date || undefined,
+          },
+          organization.name || 'Our Team'
+        )
+
+        const result = await sendGmailReply(
+          threadInfo.threadId,
+          emailBody,
+          `Re: ${threadInfo.subject}`,
+          threadInfo.organizationId
+        )
+
+        if (result.success) {
+          console.log(`✅ Sent approval email for order ${orderId} (messageId: ${result.messageId})`)
+        } else {
+          console.error(`⚠️ Failed to send approval email: ${result.error}`)
+        }
+      }
+    }
+  } catch (emailError) {
+    console.error('Error sending approval email:', emailError)
+    // Don't throw - order is still approved
+  }
 
   revalidatePath('/orders')
   return { success: true }
+}
+
+// ============================================
+// MANUAL ORDER CREATION (UI form submission)
+// ============================================
+
+/**
+ * Input type for manually creating an order from the UI
+ */
+export interface ManualOrderInput {
+  company_name: string
+  contact_name?: string
+  contact_email?: string
+  phone?: string
+  expected_date?: string
+  ship_via?: string
+  notes?: string
+  items: {
+    name: string
+    sku?: string
+    quantity: number
+    quantity_unit: string
+    unit_price: number
+  }[]
+}
+
+/**
+ * Manually create a new order from the UI
+ * Used when user clicks "Add Order" button
+ */
+export async function createManualOrder(input: ManualOrderInput) {
+  const organizationId = await getOrganizationId()
+  if (!organizationId) {
+    return { error: 'No organization found' }
+  }
+
+  const supabase = await createClient()
+
+  // Generate order number (ORD-YYYYMMDD-XXXX format)
+  const today = new Date()
+  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '')
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase()
+  const orderNumber = `ORD-${dateStr}-${randomSuffix}`
+
+  // Calculate totals
+  const orderValue = input.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0)
+  const itemCount = input.items.length
+
+  try {
+    // Create the order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        company_name: input.company_name,
+        contact_name: input.contact_name || null,
+        contact_email: input.contact_email || null,
+        phone: input.phone || null,
+        source: 'spreadsheet', // Manual entry treated as spreadsheet source
+        status: 'waiting_review',
+        order_value: orderValue,
+        item_count: itemCount,
+        received_date: today.toISOString(),
+        expected_date: input.expected_date || null,
+        ship_via: input.ship_via || null,
+        notes: input.notes || null,
+        organization_id: organizationId,
+        email_from: 'manual-entry',
+      })
+      .select()
+      .single()
+
+    if (orderError) {
+      console.error('Failed to create order:', orderError)
+      return { error: `Failed to create order: ${orderError.message}` }
+    }
+
+    // Create order items
+    const orderItems = input.items.map(item => ({
+      order_id: order.id,
+      organization_id: organizationId,
+      name: item.name,
+      sku: item.sku || null,
+      quantity: item.quantity,
+      quantity_unit: item.quantity_unit,
+      unit_price: item.unit_price,
+      total: item.quantity * item.unit_price,
+    }))
+
+    const { error: itemsError } = await supabase
+      .from('order_items')
+      .insert(orderItems)
+
+    if (itemsError) {
+      console.error('Failed to create order items:', itemsError)
+      // Rollback the order
+      await supabase.from('orders').delete().eq('id', order.id)
+      return { error: `Failed to create order items: ${itemsError.message}` }
+    }
+
+    revalidatePath('/orders')
+    return { order }
+  } catch (err) {
+    console.error('Error creating manual order:', err)
+    return { error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================
+// APPROVAL EMAIL PREVIEW
+// ============================================
+
+/**
+ * Generate a preview of the approval email that would be sent.
+ * Used by the UI to show an editable email before approving.
+ *
+ * @param orderId - The order ID to fetch details for
+ * @param uiItems - Optional current items from UI state (if user has made edits)
+ * @param deletedItems - Optional deleted items from UI state (to include in email)
+ */
+export async function generateApprovalEmailPreview(
+  orderId: string,
+  uiItems?: EditableItemInput[],
+  deletedItems?: EditableItemInput[]
+): Promise<string | null> {
+  const supabase = await createClient()
+
+  // Get organization for email signature
+  const organization = await getUserOrganization()
+  if (!organization) {
+    return null
+  }
+
+  // Get order details with items
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      company_name,
+      contact_name,
+      order_value,
+      expected_date,
+      order_items (
+        id,
+        name,
+        sku,
+        quantity,
+        quantity_unit,
+        unit_price,
+        total
+      )
+    `)
+    .eq('id', orderId)
+    .single()
+
+  if (orderError || !order) {
+    console.error('Failed to fetch order for email preview:', orderError)
+    return null
+  }
+
+  // Use UI items if provided, otherwise use database items
+  const itemsForEmail = uiItems
+    ? uiItems.map(item => ({
+        id: item.id || '',
+        order_id: orderId,
+        name: item.name,
+        sku: item.sku || '',
+        quantity: item.quantity,
+        quantity_unit: item.quantity_unit,
+        unit_price: parseFloat(item.unit_price) || 0,
+        total: item.total,
+      }))
+    : (order.order_items || []).map((item: any) => ({
+        id: item.id,
+        order_id: orderId,
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+        quantity_unit: item.quantity_unit,
+        unit_price: item.unit_price,
+        total: item.total,
+      }))
+
+  // Convert deleted items if provided
+  const deletedItemsForEmail = deletedItems
+    ? deletedItems.map(item => ({
+        id: item.id || '',
+        order_id: orderId,
+        name: item.name,
+        sku: item.sku || '',
+        quantity: item.quantity,
+        quantity_unit: item.quantity_unit,
+        unit_price: parseFloat(item.unit_price) || 0,
+        total: item.total,
+      }))
+    : undefined
+
+  // Calculate order value from UI items if provided
+  const orderValue = uiItems
+    ? uiItems.reduce((sum, item) => sum + item.total, 0)
+    : order.order_value
+
+  return generateApprovalEmail(
+    {
+      orderNumber: order.order_number,
+      companyName: order.company_name || undefined,
+      contactName: order.contact_name || undefined,
+      items: itemsForEmail,
+      deletedItems: deletedItemsForEmail,
+      orderValue: orderValue,
+      expectedDate: order.expected_date || undefined,
+    },
+    organization.name || 'Our Team'
+  )
 }

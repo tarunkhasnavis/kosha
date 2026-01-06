@@ -38,6 +38,7 @@ interface OrgConfig {
   requiredFields: OrgRequiredField[]
   systemPrompt: string | null
   productCatalog: ProductCatalogItem[]
+  organizationName: string | null
 }
 
 // Max products to include in AI prompt (to avoid token limit issues)
@@ -50,7 +51,7 @@ async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
   const [orgResult, productsResult] = await Promise.all([
     supabase
       .from('organizations')
-      .select('required_order_fields, system_prompt')
+      .select('name, required_order_fields, system_prompt')
       .eq('id', organizationId)
       .single(),
     supabase
@@ -74,6 +75,7 @@ async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
     requiredFields: getOrgRequiredFields(orgResult.data?.required_order_fields),
     systemPrompt: orgResult.data?.system_prompt || null,
     productCatalog,
+    organizationName: orgResult.data?.name || null,
   }
 }
 
@@ -355,9 +357,9 @@ export async function handleEmailOrder(
     return { success: true, orderId: existingOrderId, action: 'already_processed' }
   }
 
-  // Step 2: Fetch organization's config (required fields + system prompt + product catalog)
+  // Step 2: Fetch organization's config (required fields + system prompt + product catalog + name)
   const orgConfig = await fetchOrgConfig(organizationId)
-  const { requiredFields: orgRequiredFields, systemPrompt: orgSystemPrompt, productCatalog } = orgConfig
+  const { requiredFields: orgRequiredFields, systemPrompt: orgSystemPrompt, productCatalog, organizationName } = orgConfig
 
   // Step 3: Process attachments if present (attachment data should already be in email)
   let processedAttachments: ProcessedAttachment[] = []
@@ -409,8 +411,8 @@ export async function handleEmailOrder(
     // This is a reply to an existing order - fetch thread context
     const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
 
-    // Process email with full thread context, attachments, org fields, org prompt, product catalog, RAG examples, and customer history
-    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt)
+    // Process email with full thread context, attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name
+    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
 
     if (!aiResult) {
       // If AI can't extract order from thread, log and skip
@@ -422,8 +424,8 @@ export async function handleEmailOrder(
     const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId, orgRequiredFields)
     return { ...result, action: 'updated_order' }
   } else {
-    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, RAG examples, and customer history)
-    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt)
+    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name)
+    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
 
     if (!aiResult) {
       // Not an order email, skip

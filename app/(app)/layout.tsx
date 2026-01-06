@@ -8,7 +8,7 @@ export default async function AuthenticatedLayout({
   children: React.ReactNode
 }) {
   // Protect all pages in this layout - runs once for the entire section
-  await requireAuth()
+  const user = await requireAuth()
 
   // Get user's organization for display
   const org = await getUserOrganization()
@@ -24,6 +24,8 @@ export default async function AuthenticatedLayout({
         isOverride={org?.isOverride}
         currentOrgId={org?.id}
         allOrganizations={allOrgs}
+        userId={user?.id}
+        userEmail={user?.email}
       />
       {children}
     </>

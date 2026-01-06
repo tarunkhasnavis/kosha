@@ -141,7 +141,7 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
             placeholder="Search by SKU or name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-10 bg-white/60"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -149,8 +149,11 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
             <Upload className="h-4 w-4 mr-2" />
             Import CSV
           </Button>
-          <Button onClick={() => setShowAddModal(true)}>
-            <Plus className="h-4 w-4 mr-2" />
+          <Button
+            onClick={() => setShowAddModal(true)}
+            className="h-10 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium shadow-sm gap-0 leading-none"
+          >
+            <Plus className="h-3.5 w-3.5 -mt-px" />
             Add Product
           </Button>
         </div>
@@ -177,8 +180,11 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
                   <Upload className="h-4 w-4 mr-2" />
                   Import CSV
                 </Button>
-                <Button onClick={() => setShowAddModal(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button
+                  onClick={() => setShowAddModal(true)}
+                  className="h-10 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium shadow-sm gap-0 leading-none"
+                >
+                  <Plus className="h-3.5 w-3.5 -mt-px" />
                   Add Product
                 </Button>
               </div>

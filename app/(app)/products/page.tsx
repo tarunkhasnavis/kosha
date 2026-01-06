@@ -27,18 +27,22 @@ export default async function ProductsPage() {
 
   if (!orgId) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Card className="max-w-md mx-4">
-          <CardContent className="pt-6 pb-6 text-center">
-            <div className="flex justify-center mb-4">
-              <AlertCircle className="h-12 w-12 text-orange-500" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">No Organization Found</h2>
-            <p className="text-muted-foreground">
-              You need to be part of an organization to view products.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-screen bg-[#F7F8FA]">
+        <main className="flex-1 overflow-y-auto pl-60">
+          <div className="w-full px-6 lg:px-8 py-8 flex items-center justify-center min-h-[calc(100vh-4rem)]">
+            <Card className="max-w-md">
+              <CardContent className="pt-6 pb-6 text-center">
+                <div className="flex justify-center mb-4">
+                  <AlertCircle className="h-12 w-12 text-orange-500" />
+                </div>
+                <h2 className="text-xl font-semibold mb-2">No Organization Found</h2>
+                <p className="text-slate-500">
+                  You need to be part of an organization to view products.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
       </div>
     )
   }
@@ -46,13 +50,13 @@ export default async function ProductsPage() {
   const products = await getProducts(orgId)
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="p-6 ml-64">
-        <div className="max-w-7xl mx-auto">
+    <div className="flex min-h-screen bg-[#F7F8FA]">
+      <main className="flex-1 overflow-y-auto pl-60">
+        <div className="w-full px-6 lg:px-8 py-8">
           {/* Page Header */}
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-gray-900">Products</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-[28px] font-semibold text-slate-900 tracking-tight">Products</h1>
+            <p className="text-[14px] text-slate-500 mt-1">
               Master catalog of products and SKUs for order processing
             </p>
           </div>
@@ -60,7 +64,7 @@ export default async function ProductsPage() {
           {/* Products List */}
           <ProductsList initialProducts={products} />
         </div>
-      </div>
+      </main>
     </div>
   )
 }

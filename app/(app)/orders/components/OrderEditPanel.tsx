@@ -1,0 +1,1428 @@
+"use client"
+
+import { useState, useEffect, useMemo } from "react"
+import { motion } from "framer-motion"
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import * as VisuallyHidden from "@radix-ui/react-visually-hidden"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
+import { DatePicker } from "@/components/ui/date-picker"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Loader2,
+  Mail,
+  Send,
+  ChevronDown,
+  ChevronRight,
+  X,
+  AlertTriangle,
+  Maximize2,
+  Minimize2,
+  CheckCircle,
+  MessageSquare,
+  Voicemail,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react"
+import type { Order } from "@/types/orders"
+import type { SaveAndAnalyzeResult } from "@/lib/orders/actions"
+import { generateApprovalEmailPreview } from "@/lib/orders/actions"
+import type { OrgRequiredField } from "@/lib/orders/field-config"
+import {
+  calculateCompleteness,
+  hasItemsChanged,
+  generateTempId,
+  type EditableItem,
+} from "@/lib/orders/completeness"
+import { ItemsTable } from "./ItemsTable"
+import { durations, easings } from "@/lib/motion"
+import { cn } from "@/lib/utils"
+
+// Panel modes for different widths
+export type PanelMode = "peek" | "full"
+
+const PANEL_WIDTHS: Record<PanelMode, number | string> = {
+  peek: "66vw",
+  full: "100vw",
+}
+
+// Staggered section animation variants
+const sectionVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.05,
+      duration: durations.base,
+      ease: easings.easeOut,
+    },
+  }),
+}
+
+/**
+ * Extended order fields type that includes org-specific fields
+ */
+export interface OrderFieldsWithOrgFields {
+  notes?: string
+  expected_date?: string
+  ship_via?: string
+  orgFields?: Record<string, string | number | null>
+}
+
+interface OrderEditPanelProps {
+  order: Order | null
+  isOpen: boolean
+  mode: PanelMode
+  onClose: () => void
+  onModeChange: (mode: PanelMode) => void
+  onSave: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields, deletedItems?: EditableItem[]) => Promise<void>
+  onSaveAndApprove: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields, customApprovalEmail?: string, deletedItems?: EditableItem[]) => Promise<void>
+  onSaveAndAnalyze?: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields, deletedItems?: EditableItem[]) => Promise<SaveAndAnalyzeResult>
+  onRequestInfo?: (orderId: string, clarificationMessage: string) => Promise<void>
+  onSaveClarificationMessage?: (orderId: string, clarificationMessage: string) => Promise<void>
+  orgRequiredFields: OrgRequiredField[]
+}
+
+export function OrderEditPanel({
+  order,
+  isOpen,
+  mode,
+  onClose,
+  onModeChange,
+  onSave,
+  onSaveAndApprove,
+  onSaveAndAnalyze,
+  onRequestInfo,
+  onSaveClarificationMessage,
+  orgRequiredFields,
+}: OrderEditPanelProps) {
+  const [items, setItems] = useState<EditableItem[]>([])
+  const [deletedItems, setDeletedItems] = useState<EditableItem[]>([])
+  const [originalItems, setOriginalItems] = useState<EditableItem[]>([])
+  const [notes, setNotes] = useState("")
+  const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined)
+  const [shipVia, setShipVia] = useState<string>("")
+  const [orgFieldValues, setOrgFieldValues] = useState<Record<string, string | number | null>>({})
+  const [isSaving, setIsSaving] = useState(false)
+  const [savingAction, setSavingAction] = useState<string | null>(null)
+  const [isRequestingInfo, setIsRequestingInfo] = useState(false)
+  const [isEmailSectionOpen, setIsEmailSectionOpen] = useState(false)
+  const [editableClarificationMessage, setEditableClarificationMessage] = useState("")
+  const [isApprovalEmailSectionOpen, setIsApprovalEmailSectionOpen] = useState(false)
+  const [editableApprovalEmail, setEditableApprovalEmail] = useState("")
+  const [isLoadingApprovalEmail, setIsLoadingApprovalEmail] = useState(false)
+
+  // Inline continuation result (replaces dialog)
+  const [continueResult, setContinueResult] = useState<{
+    isComplete: boolean
+    clarificationMessage?: string
+  } | null>(null)
+
+  // Initialize form when order changes
+  useEffect(() => {
+    if (order) {
+      const mappedItems = order.items?.map((item) => ({
+        id: item.id,
+        name: item.name,
+        sku: item.sku || "",
+        quantity: item.quantity,
+        quantity_unit: item.quantity_unit || "each",
+        unit_price: String(item.unit_price),
+        total: item.total,
+        isNew: false,
+      })) || []
+
+      // Map deleted items from DB
+      const mappedDeletedItems = order.deletedItems?.map((item) => ({
+        id: item.id,
+        name: item.name,
+        sku: item.sku || "",
+        quantity: item.quantity,
+        quantity_unit: item.quantity_unit || "each",
+        unit_price: String(item.unit_price),
+        total: item.total,
+        isNew: false,
+      })) || []
+
+      setItems(mappedItems)
+      setDeletedItems(mappedDeletedItems)
+      setOriginalItems(mappedItems)
+      setNotes(order.notes || "")
+      setDeliveryDate(order.expected_date ? new Date(order.expected_date) : undefined)
+      setShipVia(order.ship_via || "")
+
+      // Initialize org field values from order.custom_fields
+      const initialOrgFields: Record<string, string | number | null> = {}
+      const customFields = order.custom_fields || {}
+      for (const field of orgRequiredFields) {
+        const value = customFields[field.field]
+        initialOrgFields[field.field] = value ?? null
+      }
+      setOrgFieldValues(initialOrgFields)
+
+      setIsEmailSectionOpen(false)
+      setIsApprovalEmailSectionOpen(false)
+      setEditableApprovalEmail("")
+      setContinueResult(null)
+      setEditableClarificationMessage(order.clarification_message || "")
+    }
+  }, [order, orgRequiredFields])
+
+  // Auto-load approval email in full mode for pending review orders
+  useEffect(() => {
+    if (mode === "full" && order?.status === "waiting_review" && !editableApprovalEmail && !isLoadingApprovalEmail) {
+      const loadApprovalEmail = async () => {
+        setIsLoadingApprovalEmail(true)
+        try {
+          const preview = await generateApprovalEmailPreview(order.id, items, deletedItems)
+          if (preview) {
+            setEditableApprovalEmail(preview)
+          }
+        } catch (error) {
+          console.error('Failed to generate approval email preview:', error)
+        } finally {
+          setIsLoadingApprovalEmail(false)
+        }
+      }
+      loadApprovalEmail()
+    }
+  }, [mode, order?.status, order?.id, editableApprovalEmail, isLoadingApprovalEmail])
+
+  // Compute dirty state - checks items, notes, dates, and org fields
+  const isDirty = useMemo(() => {
+    if (!order) return false
+
+    // Check if items changed
+    if (hasItemsChanged(items, originalItems)) return true
+
+    // Check if notes changed
+    if (notes !== (order.notes || "")) return true
+
+    // Check if delivery date changed
+    const originalDeliveryDate = order.expected_date ? new Date(order.expected_date) : undefined
+    const deliveryDateChanged = deliveryDate?.toDateString() !== originalDeliveryDate?.toDateString()
+    if (deliveryDateChanged) return true
+
+    // Check if ship via changed
+    if (shipVia !== (order.ship_via || "")) return true
+
+    // Check if org fields changed
+    const customFields = order.custom_fields || {}
+    for (const field of orgRequiredFields) {
+      const originalValue = customFields[field.field] ?? null
+      const currentValue = orgFieldValues[field.field]
+      if (currentValue !== originalValue) return true
+    }
+
+    return false
+  }, [order, items, originalItems, notes, deliveryDate, shipVia, orgFieldValues, orgRequiredFields])
+
+  // Check if clarification message was edited
+  const isClarificationMessageDirty = useMemo(() => {
+    if (!order) return false
+    const originalMessage = order.clarification_message || ""
+    return editableClarificationMessage !== originalMessage
+  }, [order, editableClarificationMessage])
+
+  // Compute completeness
+  const completeness = useMemo(() => {
+    if (!order) return null
+    return calculateCompleteness(order, items, orgRequiredFields)
+  }, [order, items, orgRequiredFields])
+
+  if (!order) return null
+
+  // Calculate line total
+  const calculateLineTotal = (quantity: number, unitPrice: string): number => {
+    const qty = quantity || 0
+    const price = parseFloat(unitPrice) || 0
+    return qty * price
+  }
+
+  // Calculate order total
+  const calculateOrderTotal = (): number => {
+    return items.reduce((sum, item) => {
+      return sum + calculateLineTotal(item.quantity, item.unit_price)
+    }, 0)
+  }
+
+  // Update item field
+  const updateItem = (id: string, field: keyof EditableItem, value: string | number) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const updated = { ...item, [field]: value }
+        if (field === "quantity" || field === "unit_price") {
+          const newQty = field === "quantity" ? (value as number) : item.quantity
+          const newPrice = field === "unit_price" ? (value as string) : item.unit_price
+          updated.total = calculateLineTotal(newQty, newPrice)
+        }
+        return updated
+      })
+    )
+  }
+
+  // Add new item
+  const addItem = () => {
+    setItems((prev) => [
+      ...prev,
+      {
+        id: generateTempId(),
+        name: "",
+        sku: "",
+        quantity: 1,
+        quantity_unit: "each",
+        unit_price: "0",
+        total: 0,
+        isNew: true,
+      },
+    ])
+  }
+
+  // Delete item - moves item to deletedItems list instead of removing completely
+  const deleteItem = (id: string) => {
+    const itemToDelete = items.find((item) => item.id === id)
+    if (itemToDelete) {
+      // Only track non-new items (items that exist in the database)
+      if (!itemToDelete.isNew) {
+        setDeletedItems((prev) => [...prev, itemToDelete])
+      }
+      setItems((prev) => prev.filter((item) => item.id !== id))
+    }
+  }
+
+  // Restore a deleted item back to the items list
+  const restoreItem = (id: string) => {
+    const itemToRestore = deletedItems.find((item) => item.id === id)
+    if (itemToRestore) {
+      setDeletedItems((prev) => prev.filter((item) => item.id !== id))
+      setItems((prev) => [...prev, itemToRestore])
+    }
+  }
+
+  // Handle save
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSavingAction("save")
+    try {
+      const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
+      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, deletedItems)
+      onClose()
+    } finally {
+      setIsSaving(false)
+      setSavingAction(null)
+    }
+  }
+
+  // Handle save and approve
+  const handleSaveAndApprove = async () => {
+    setIsSaving(true)
+    setSavingAction("approve")
+    try {
+      const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
+      // Pass custom approval email if user edited it, otherwise undefined to use default
+      const customEmail = editableApprovalEmail.trim() || undefined
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, customEmail, deletedItems)
+      onClose()
+    } finally {
+      setIsSaving(false)
+      setSavingAction(null)
+    }
+  }
+
+  // Handle loading approval email preview when section is opened
+  const handleApprovalEmailSectionToggle = async (open: boolean) => {
+    setIsApprovalEmailSectionOpen(open)
+    if (open && !editableApprovalEmail && order) {
+      setIsLoadingApprovalEmail(true)
+      try {
+        const preview = await generateApprovalEmailPreview(order.id, items, deletedItems)
+        if (preview) {
+          setEditableApprovalEmail(preview)
+        }
+      } catch (error) {
+        console.error('Failed to generate approval email preview:', error)
+      } finally {
+        setIsLoadingApprovalEmail(false)
+      }
+    }
+  }
+
+  // Handle Save & Continue (for dirty "needs info" orders)
+  const handleSaveAndContinue = async () => {
+    if (!onSaveAndAnalyze) return
+
+    setIsSaving(true)
+    setSavingAction("continue")
+    try {
+      const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, deletedItems)
+
+      // Show inline result instead of dialog
+      setContinueResult({
+        isComplete: result.isComplete,
+        clarificationMessage: result.clarificationMessage,
+      })
+      setEditableClarificationMessage(result.clarificationMessage || "")
+      setOriginalItems([...items])
+    } finally {
+      setIsSaving(false)
+      setSavingAction(null)
+    }
+  }
+
+  // Handle Request Info (send clarification email)
+  const handleRequestInfo = async () => {
+    if (!onRequestInfo || !editableClarificationMessage) return
+
+    setIsRequestingInfo(true)
+    try {
+      await onRequestInfo(order.id, editableClarificationMessage)
+      onClose()
+    } catch (error) {
+      console.error("Failed to send clarification request:", error)
+    } finally {
+      setIsRequestingInfo(false)
+    }
+  }
+
+  // Handle Approve from inline continue result
+  const handleApproveFromContinue = async () => {
+    setIsSaving(true)
+    setSavingAction("approve")
+    try {
+      const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined }, undefined, deletedItems)
+      setContinueResult(null)
+      onClose()
+    } finally {
+      setIsSaving(false)
+      setSavingAction(null)
+    }
+  }
+
+  // Handle Send from inline continue result
+  const handleSendFromContinue = async () => {
+    if (!onRequestInfo || !editableClarificationMessage) return
+
+    setIsRequestingInfo(true)
+    try {
+      await onRequestInfo(order.id, editableClarificationMessage)
+      setContinueResult(null)
+      onClose()
+    } catch (error) {
+      console.error("Failed to send clarification request:", error)
+    } finally {
+      setIsRequestingInfo(false)
+    }
+  }
+
+  // Handle dismiss continue result
+  const handleDismissContinueResult = async () => {
+    if (isClarificationMessageDirty && onSaveClarificationMessage && order) {
+      try {
+        await onSaveClarificationMessage(order.id, editableClarificationMessage)
+      } catch (error) {
+        console.error('Failed to save clarification message:', error)
+      }
+    }
+    setContinueResult(null)
+  }
+
+  const isNeedsInfo = order.status === "awaiting_clarification"
+  const isPendingReview = order.status === "waiting_review"
+  const isApproved = order.status === "approved"
+  const isArchived = order.status === "archived"
+  const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
+
+  // Completeness color class
+  const completenessColorClass = completeness
+    ? completeness.percentage === 100
+      ? order.status === "approved" ? "text-emerald-600" : "text-blue-600"
+      : completeness.percentage >= 70
+      ? "text-amber-600"
+      : "text-[hsl(var(--attention-600))]"
+    : ""
+
+  return (
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side="right"
+        hideCloseButton
+        className={cn(
+          "p-0 flex flex-col",
+          "border-l border-slate-200/60",
+          "shadow-[-20px_0_50px_rgba(15,23,42,0.08)]"
+        )}
+        style={{ width: PANEL_WIDTHS[mode] }}
+      >
+        {/* Accessibility: Hidden title for screen readers */}
+        <VisuallyHidden.Root>
+          <SheetTitle>Edit Order {order.order_number}</SheetTitle>
+        </VisuallyHidden.Root>
+
+        {/* Panel Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/60 shrink-0 bg-white">
+          {/* Left: Order info */}
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {order.order_number}
+            </h2>
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs font-medium px-2.5 py-0.5 rounded-full border-0",
+                order.status === "waiting_review"
+                  ? "bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending-text))]"
+                  : order.status === "awaiting_clarification"
+                  ? "bg-[hsl(var(--status-needs-info-bg))] text-[hsl(var(--status-needs-info-text))]"
+                  : order.status === "approved"
+                  ? "bg-[hsl(var(--status-approved-bg))] text-[hsl(var(--status-approved-text))]"
+                  : "bg-[hsl(var(--status-archived-bg))] text-[hsl(var(--status-archived-text))]"
+              )}
+            >
+              {order.status === "waiting_review"
+                ? "Pending Review"
+                : order.status === "awaiting_clarification"
+                ? "Needs Info"
+                : order.status === "approved"
+                ? "Approved"
+                : order.status.replace("_", " ")}
+            </Badge>
+            {/* Completeness indicator */}
+            {completeness && (
+              <span className={cn("text-sm font-medium", completenessColorClass)}>
+                {completeness.percentage}% Complete
+              </span>
+            )}
+            {/* Source indicator */}
+            {order.source === "email" && <Mail className="h-4 w-4 text-slate-400" />}
+            {order.source === "text" && <MessageSquare className="h-4 w-4 text-slate-400" />}
+            {order.source === "voicemail" && <Voicemail className="h-4 w-4 text-slate-400" />}
+            {order.source === "spreadsheet" && <FileSpreadsheet className="h-4 w-4 text-slate-400" />}
+            {order.source === "pdf" && <FileText className="h-4 w-4 text-slate-400" />}
+          </div>
+
+          {/* Right: Action buttons + Controls */}
+          <div className="flex items-center gap-2">
+            {/* Action buttons (non-archived) */}
+            {!isArchived && !continueResult && (
+              <>
+                {/* Needs Info - Clean State: Request Info button */}
+                {isNeedsInfo && !isDirty && (
+                  <>
+                    {hasClarificationMessage ? (
+                      <Button
+                        size="sm"
+                        className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
+                        onClick={handleRequestInfo}
+                        disabled={isSaving || isRequestingInfo || !editableClarificationMessage.trim()}
+                      >
+                        {isRequestingInfo ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Request Info
+                      </Button>
+                    ) : (
+                      <Button disabled variant="secondary" size="sm" className="h-8 px-3 rounded-lg">
+                        Request Sent
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* Needs Info - Dirty State: Save & Continue button */}
+                {isNeedsInfo && isDirty && onSaveAndAnalyze && (
+                  <Button
+                    size="sm"
+                    className="h-8 px-3 rounded-lg bg-[hsl(var(--action))] hover:bg-[hsl(var(--action))]/90 text-white shadow-sm"
+                    onClick={handleSaveAndContinue}
+                    disabled={isSaving}
+                  >
+                    {savingAction === "continue" ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : null}
+                    Save & Continue
+                  </Button>
+                )}
+
+                {/* Pending Review: Save and Save & Approve */}
+                {isPendingReview && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="h-8 px-3 rounded-lg border-slate-200 text-slate-600 hover:bg-slate-50"
+                    >
+                      {savingAction === "save" ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : null}
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveAndApprove}
+                      disabled={isSaving}
+                      className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                    >
+                      {savingAction === "approve" ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : null}
+                      Save & Approve
+                    </Button>
+                  </>
+                )}
+
+                {/* Approved: Only Save button */}
+                {isApproved && (
+                  <Button
+                    size="sm"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-sm"
+                  >
+                    {savingAction === "save" ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : null}
+                    Save Changes
+                  </Button>
+                )}
+              </>
+            )}
+
+            {/* Divider between actions and controls */}
+            {!isArchived && !continueResult && (
+              <div className="w-px h-6 bg-slate-200 mx-1" />
+            )}
+
+            {/* Fullscreen toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onModeChange(mode === "full" ? "peek" : "full")}
+              className="h-8 w-8 text-slate-400 hover:text-slate-600"
+            >
+              {mode === "full" ? (
+                <Minimize2 className="h-4 w-4" />
+              ) : (
+                <Maximize2 className="h-4 w-4" />
+              )}
+            </Button>
+
+            {/* Close */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="h-8 w-8 text-slate-400 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Panel Body - Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {/* Inline Continue Result Banner - Always full width at top */}
+          {continueResult && (
+            <div className={cn(
+              "rounded-xl p-4 mb-5",
+              continueResult.isComplete
+                ? "bg-emerald-50 border border-emerald-200/60"
+                : "bg-amber-50 border border-amber-200/60"
+            )}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  {continueResult.isComplete ? (
+                    <CheckCircle className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                  )}
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      {continueResult.isComplete ? "Order Complete" : "Still Missing Information"}
+                    </p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {continueResult.isComplete
+                        ? "Ready for approval"
+                        : "Review the clarification message below"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDismissContinueResult}
+                    className="h-8 text-xs"
+                  >
+                    {continueResult.isComplete ? "Review Later" : "Send Later"}
+                  </Button>
+                  {continueResult.isComplete ? (
+                    <Button
+                      size="sm"
+                      onClick={handleApproveFromContinue}
+                      disabled={isSaving}
+                      className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {savingAction === "approve" && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                      Approve Now
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={handleSendFromContinue}
+                      disabled={isRequestingInfo || !editableClarificationMessage}
+                      className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {isRequestingInfo ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Send className="h-3 w-3 mr-1" />
+                      )}
+                      Send Request
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {/* Clarification message editor when not complete */}
+              {!continueResult.isComplete && (
+                <div className="mt-4">
+                  <Textarea
+                    value={editableClarificationMessage}
+                    onChange={(e) => setEditableClarificationMessage(e.target.value)}
+                    rows={4}
+                    className="text-sm bg-white border-amber-200 focus:ring-2 focus:ring-amber-200 focus:border-amber-300 resize-none"
+                    placeholder="Enter clarification message..."
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Two-column layout when expanded, single column when peek */}
+          {mode === "full" ? (
+            /* FULL MODE: Two-column grid layout */
+            <div className="grid grid-cols-2 gap-6">
+              {/* LEFT COLUMN: Customer Info + Clarification/Approval Email */}
+              <div className="space-y-5">
+                {/* Customer Info (read-only) */}
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={0}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                        Customer
+                      </h3>
+                      {completeness && completeness.missingRequiredFields.some(f =>
+                        f === 'Company Name'
+                      ) && (
+                        <span className="text-xs text-[hsl(var(--attention-700))] bg-[hsl(var(--attention-100))] px-2 py-0.5 rounded-full">
+                          Missing
+                        </span>
+                      )}
+                    </div>
+                    {order.email_url && (
+                      <a
+                        href={order.email_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                      >
+                        <Mail className="h-3 w-3" />
+                        <span>View Inbox</span>
+                      </a>
+                    )}
+                  </div>
+                  <div className={`${!order.company_name ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
+                    <p className="font-medium">
+                      {order.company_name || "Unknown Company"}
+                      {!order.company_name && (
+                        <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
+                      )}
+                    </p>
+                    {order.contact_name && (
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {order.contact_name}
+                        {order.contact_email && ` · ${order.contact_email}`}
+                      </p>
+                    )}
+                    {order.phone && (
+                      <p className="text-sm text-slate-500">{order.phone}</p>
+                    )}
+                  </div>
+                </motion.div>
+
+                {/* Original Email Section */}
+                {order.original_email_body && (
+                  <motion.div
+                    className="bg-white border border-slate-200/60 rounded-xl p-4"
+                    custom={1}
+                    initial="hidden"
+                    animate="visible"
+                    variants={sectionVariants}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                        Original Email
+                      </h3>
+                    </div>
+                    {/* Email metadata: From and Date */}
+                    <div className="flex items-center justify-between mb-3 text-sm">
+                      <div className="text-slate-500">
+                        <span className="text-slate-400">From: </span>
+                        <span>{order.original_email_from || 'Unknown'}</span>
+                      </div>
+                      {order.original_email_date && (
+                        <div className="text-slate-400">
+                          {new Date(order.original_email_date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })} at {new Date(order.original_email_date).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div className="bg-slate-50 rounded-lg p-3 max-h-96 overflow-y-auto">
+                      <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans">
+                        {order.original_email_body}
+                      </pre>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Clarification Email Section */}
+                {isNeedsInfo && hasClarificationMessage && !continueResult && (
+                  <motion.div
+                    className="bg-white border border-slate-200/60 rounded-xl p-4"
+                    custom={2}
+                    initial="hidden"
+                    animate="visible"
+                    variants={sectionVariants}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                        Clarification Email
+                      </h3>
+                    </div>
+                    {isDirty ? (
+                      <div className="bg-amber-50 border border-amber-200/60 rounded-lg p-3 flex items-start gap-3">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                        <div className="text-sm">
+                          <p className="font-medium text-slate-700">You've made changes</p>
+                          <p className="text-slate-500 mt-0.5">A new clarification email will be generated based on your edits when you save.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={editableClarificationMessage}
+                        onChange={(e) => setEditableClarificationMessage(e.target.value)}
+                        rows={12}
+                        className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none"
+                        placeholder="Enter clarification message..."
+                      />
+                    )}
+                  </motion.div>
+                )}
+
+                {/* Approval Email Section */}
+                {isPendingReview && (
+                  <motion.div
+                    className="bg-white border border-slate-200/60 rounded-xl p-4"
+                    custom={2}
+                    initial="hidden"
+                    animate="visible"
+                    variants={sectionVariants}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                        Approval Email
+                      </h3>
+                    </div>
+                    {isLoadingApprovalEmail ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                        <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={editableApprovalEmail}
+                        onChange={(e) => setEditableApprovalEmail(e.target.value)}
+                        rows={12}
+                        className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
+                        placeholder="Approval email content..."
+                      />
+                    )}
+                  </motion.div>
+                )}
+              </div>
+
+              {/* RIGHT COLUMN: Items, Order Details, Additional Info, Total */}
+              <div className="space-y-5">
+              {/* Items Table */}
+              <motion.div
+                custom={mode === "full" ? 0 : 1}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <ItemsTable
+                  items={items}
+                  deletedItems={deletedItems}
+                  completeness={completeness}
+                  inferredFields={order.inferred_fields}
+                  readOnly={isArchived}
+                  onUpdateItem={updateItem}
+                  onDeleteItem={deleteItem}
+                  onRestoreItem={restoreItem}
+                  onAddItem={addItem}
+                />
+              </motion.div>
+
+              {/* Order Details */}
+              <motion.div
+                className="bg-white border border-slate-200/60 rounded-xl p-4"
+                custom={mode === "full" ? 1 : 2}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-4">
+                  Order Details
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Expected Date</Label>
+                    <DatePicker
+                      selected={deliveryDate}
+                      onSelect={setDeliveryDate}
+                      placeholder="Select date"
+                      disabled={isArchived}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Ship Via</Label>
+                    <Select value={shipVia} onValueChange={setShipVia} disabled={isArchived}>
+                      <SelectTrigger className={cn(
+                        "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
+                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                      )}>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Delivery">Delivery</SelectItem>
+                        <SelectItem value="Customer Pickup">Customer Pickup</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Received Date</Label>
+                    <Input
+                      value={new Date(order.received_date).toLocaleDateString()}
+                      disabled
+                      className="bg-slate-100/50 border-slate-200 text-slate-500"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5 mt-4">
+                  <Label htmlFor="notes" className="text-xs text-slate-600">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder={isArchived ? "" : "Add any notes about this order..."}
+                    rows={3}
+                    disabled={isArchived}
+                    className={cn(
+                      "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none",
+                      isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                    )}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Additional Info - Org-Specific Required Fields */}
+              {orgRequiredFields.length > 0 && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={mode === "full" ? 2 : 3}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Additional Info
+                    </h3>
+                    {!isArchived && (() => {
+                      const missingOrgFields = orgRequiredFields.filter(f => {
+                        if (!f.required) return false
+                        const value = orgFieldValues[f.field]
+                        return value === null || value === undefined || value === ''
+                      })
+                      return missingOrgFields.length > 0 ? (
+                        <span className="text-xs text-[hsl(var(--attention-700))] bg-[hsl(var(--attention-100))] px-2 py-0.5 rounded-full">
+                          {missingOrgFields.length} field{missingOrgFields.length > 1 ? 's' : ''} need{missingOrgFields.length === 1 ? 's' : ''} attention
+                        </span>
+                      ) : null
+                    })()}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {orgRequiredFields.map((field) => {
+                      const value = orgFieldValues[field.field]
+                      const displayValue = value !== null && value !== undefined ? String(value) : ''
+                      const isMissing = !isArchived && field.required && (!displayValue || displayValue === '')
+                      return (
+                        <div key={field.field} className="space-y-1.5">
+                          <Label className={`text-xs ${isMissing ? 'text-[hsl(var(--attention-700))]' : 'text-slate-600'}`}>
+                            {field.label}
+                            {!isArchived && field.required && <span className="text-[hsl(var(--attention-500))] ml-0.5">*</span>}
+                          </Label>
+                          <Input
+                            type={field.type === 'number' ? 'number' : 'text'}
+                            value={displayValue}
+                            onChange={(e) => {
+                              const newValue = field.type === 'number'
+                                ? (e.target.value === '' ? null : Number(e.target.value))
+                                : e.target.value
+                              setOrgFieldValues(prev => ({
+                                ...prev,
+                                [field.field]: newValue
+                              }))
+                            }}
+                            disabled={isArchived}
+                            className={cn(
+                              "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
+                              isMissing && "border-[hsl(var(--attention-200))] bg-[hsl(var(--attention-50))]/50",
+                              isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                            )}
+                            placeholder={isArchived ? "" : `Enter ${field.label.toLowerCase()}`}
+                          />
+                          {isMissing && (
+                            <p className="text-[11px] text-[hsl(var(--attention-600))]">Required</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Order Total */}
+              <motion.div
+                className="bg-white border border-slate-200/60 rounded-xl p-4"
+                custom={3}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-slate-600">Order Total</span>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {items.length} item{items.length !== 1 ? "s" : ""}
+                      {deletedItems.length > 0 && (
+                        <span className="text-slate-400"> · {deletedItems.length} removed</span>
+                      )}
+                    </p>
+                  </div>
+                  <span className="text-2xl font-semibold text-slate-900">${calculateOrderTotal().toFixed(2)}</span>
+                </div>
+
+                {/* Deleted Items Summary */}
+                {deletedItems.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-100">
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Removed from order</p>
+                    <div className="space-y-1">
+                      {deletedItems.map((item) => (
+                        <div key={item.id} className="flex justify-between text-sm">
+                          <span className="text-slate-400">{item.name}</span>
+                          <span className="text-slate-400">-${item.total.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+              </div>
+            </div>
+          ) : (
+            /* PEEK MODE: Single column with logical order */
+            <div className="space-y-5">
+              {/* Customer Info (read-only) */}
+              <motion.div
+                className="bg-white border border-slate-200/60 rounded-xl p-4"
+                custom={0}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Customer
+                    </h3>
+                    {completeness && completeness.missingRequiredFields.some(f =>
+                      f === 'Company Name'
+                    ) && (
+                      <span className="text-xs text-[hsl(var(--attention-700))] bg-[hsl(var(--attention-100))] px-2 py-0.5 rounded-full">
+                        Missing
+                      </span>
+                    )}
+                  </div>
+                  {order.email_url && (
+                    <a
+                      href={order.email_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                    >
+                      <Mail className="h-3 w-3" />
+                      <span>View Inbox</span>
+                    </a>
+                  )}
+                </div>
+                <div className={`${!order.company_name ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
+                  <p className="font-medium">
+                    {order.company_name || "Unknown Company"}
+                    {!order.company_name && (
+                      <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
+                    )}
+                  </p>
+                  {order.contact_name && (
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      {order.contact_name}
+                      {order.contact_email && ` · ${order.contact_email}`}
+                    </p>
+                  )}
+                  {order.phone && (
+                    <p className="text-sm text-slate-500">{order.phone}</p>
+                  )}
+                </div>
+              </motion.div>
+
+              {/* Items Table */}
+              <motion.div
+                custom={1}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <ItemsTable
+                  items={items}
+                  deletedItems={deletedItems}
+                  completeness={completeness}
+                  inferredFields={order.inferred_fields}
+                  readOnly={isArchived}
+                  onUpdateItem={updateItem}
+                  onDeleteItem={deleteItem}
+                  onRestoreItem={restoreItem}
+                  onAddItem={addItem}
+                />
+              </motion.div>
+
+              {/* Order Details */}
+              <motion.div
+                className="bg-white border border-slate-200/60 rounded-xl p-4"
+                custom={2}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-4">
+                  Order Details
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Expected Date</Label>
+                    <DatePicker
+                      selected={deliveryDate}
+                      onSelect={setDeliveryDate}
+                      placeholder="Select date"
+                      disabled={isArchived}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Ship Via</Label>
+                    <Select value={shipVia} onValueChange={setShipVia} disabled={isArchived}>
+                      <SelectTrigger className={cn(
+                        "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
+                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                      )}>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Delivery">Delivery</SelectItem>
+                        <SelectItem value="Customer Pickup">Customer Pickup</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Received Date</Label>
+                    <Input
+                      value={new Date(order.received_date).toLocaleDateString()}
+                      disabled
+                      className="bg-slate-100/50 border-slate-200 text-slate-500"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5 mt-4">
+                  <Label htmlFor="notes-peek" className="text-xs text-slate-600">Notes</Label>
+                  <Textarea
+                    id="notes-peek"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder={isArchived ? "" : "Add any notes about this order..."}
+                    rows={3}
+                    disabled={isArchived}
+                    className={cn(
+                      "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none",
+                      isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                    )}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Additional Info - Org-Specific Required Fields */}
+              {orgRequiredFields.length > 0 && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={3}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Additional Info
+                    </h3>
+                    {!isArchived && (() => {
+                      const missingOrgFields = orgRequiredFields.filter(f => {
+                        if (!f.required) return false
+                        const value = orgFieldValues[f.field]
+                        return value === null || value === undefined || value === ''
+                      })
+                      return missingOrgFields.length > 0 ? (
+                        <span className="text-xs text-[hsl(var(--attention-700))] bg-[hsl(var(--attention-100))] px-2 py-0.5 rounded-full">
+                          {missingOrgFields.length} field{missingOrgFields.length > 1 ? 's' : ''} need{missingOrgFields.length === 1 ? 's' : ''} attention
+                        </span>
+                      ) : null
+                    })()}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {orgRequiredFields.map((field) => {
+                      const value = orgFieldValues[field.field]
+                      const displayValue = value !== null && value !== undefined ? String(value) : ''
+                      const isMissing = !isArchived && field.required && (!displayValue || displayValue === '')
+                      return (
+                        <div key={field.field} className="space-y-1.5">
+                          <Label className={`text-xs ${isMissing ? 'text-[hsl(var(--attention-700))]' : 'text-slate-600'}`}>
+                            {field.label}
+                            {!isArchived && field.required && <span className="text-[hsl(var(--attention-500))] ml-0.5">*</span>}
+                          </Label>
+                          <Input
+                            type={field.type === 'number' ? 'number' : 'text'}
+                            value={displayValue}
+                            onChange={(e) => {
+                              const newValue = field.type === 'number'
+                                ? (e.target.value === '' ? null : Number(e.target.value))
+                                : e.target.value
+                              setOrgFieldValues(prev => ({
+                                ...prev,
+                                [field.field]: newValue
+                              }))
+                            }}
+                            disabled={isArchived}
+                            className={cn(
+                              "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
+                              isMissing && "border-[hsl(var(--attention-200))] bg-[hsl(var(--attention-50))]/50",
+                              isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                            )}
+                            placeholder={isArchived ? "" : `Enter ${field.label.toLowerCase()}`}
+                          />
+                          {isMissing && (
+                            <p className="text-[11px] text-[hsl(var(--attention-600))]">Required</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Order Total */}
+              <motion.div
+                className="bg-white border border-slate-200/60 rounded-xl p-4"
+                custom={4}
+                initial="hidden"
+                animate="visible"
+                variants={sectionVariants}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-slate-600">Order Total</span>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {items.length} item{items.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <span className="text-2xl font-semibold text-slate-900">${calculateOrderTotal().toFixed(2)}</span>
+                </div>
+
+                {/* Deleted Items Summary */}
+                {deletedItems.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-100">
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Removed from order</p>
+                    <div className="space-y-1">
+                      {deletedItems.map((item) => (
+                        <div key={item.id} className="flex justify-between text-sm">
+                          <span className="text-slate-400">{item.name}</span>
+                          <span className="text-slate-400">-${item.total.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Clarification Email Section - At bottom in peek mode */}
+              {isNeedsInfo && hasClarificationMessage && !continueResult && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={5}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Clarification Email
+                    </h3>
+                    {!isDirty && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsEmailSectionOpen(!isEmailSectionOpen)}
+                        className="h-6 px-2 text-xs text-slate-500 hover:text-slate-700"
+                      >
+                        {isEmailSectionOpen ? "Close" : "View & Edit"}
+                      </Button>
+                    )}
+                  </div>
+                  {isDirty ? (
+                    <div className="bg-amber-50 border border-amber-200/60 rounded-lg p-3 flex items-start gap-3">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                      <div className="text-sm">
+                        <p className="font-medium text-slate-700">You've made changes</p>
+                        <p className="text-slate-500 mt-0.5">A new clarification email will be generated based on your edits when you save.</p>
+                      </div>
+                    </div>
+                  ) : isEmailSectionOpen ? (
+                    <Textarea
+                      value={editableClarificationMessage}
+                      onChange={(e) => setEditableClarificationMessage(e.target.value)}
+                      rows={8}
+                      className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none"
+                      placeholder="Enter clarification message..."
+                    />
+                  ) : (
+                    <div className="relative">
+                      <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans max-h-24 overflow-hidden">
+                        {editableClarificationMessage || "No clarification message"}
+                      </pre>
+                      {editableClarificationMessage && editableClarificationMessage.length > 200 && (
+                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent" />
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Approval Email Section - At bottom in peek mode */}
+              {isPendingReview && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={5}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Approval Email
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleApprovalEmailSectionToggle(!isApprovalEmailSectionOpen)}
+                      className="h-6 px-2 text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      {isApprovalEmailSectionOpen ? "Close" : "View & Edit"}
+                    </Button>
+                  </div>
+                  {isApprovalEmailSectionOpen ? (
+                    isLoadingApprovalEmail ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                        <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={editableApprovalEmail}
+                        onChange={(e) => setEditableApprovalEmail(e.target.value)}
+                        rows={10}
+                        className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
+                        placeholder="Approval email content..."
+                      />
+                    )
+                  ) : isLoadingApprovalEmail ? (
+                    <div className="flex items-center py-4">
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                      <span className="ml-2 text-sm text-slate-500">Loading...</span>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans max-h-24 overflow-hidden">
+                        {editableApprovalEmail || "Click View & Edit to see approval email preview"}
+                      </pre>
+                      {editableApprovalEmail && editableApprovalEmail.length > 200 && (
+                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent" />
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </div>
+          )}
+        </div>
+
+      </SheetContent>
+    </Sheet>
+  )
+}

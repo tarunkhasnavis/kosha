@@ -4,19 +4,18 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import Image from "next/image"
 import { Young_Serif } from "next/font/google"
 import {
   ShoppingCart,
   Package,
-  Building2,
-  LogOut,
-  Settings,
   ChevronDown,
   Shield,
   Check,
   Loader2,
-  HelpCircle,
+  MessageCircleWarning,
+  Settings,
+  LogOut,
+  Building2,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -27,19 +26,15 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { createClient } from "@/utils/supabase/client"
 import { switchOrganization } from "@/lib/organizations/actions"
+import { ReportIssueModal } from "@/components/ReportIssueModal"
+import { createClient } from "@/utils/supabase/client"
 
 const youngSerif = Young_Serif({ weight: "400", subsets: ["latin"] })
 
 const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
   { name: "Products", href: "/products", icon: Package },
-]
-
-const footerNavigation = [
-  { name: "Help & Support", href: "/help", icon: HelpCircle },
-  { name: "Settings", href: "/settings", icon: Settings },
 ]
 
 interface Organization {
@@ -55,6 +50,8 @@ interface MainNavProps {
   isOverride?: boolean
   currentOrgId?: string | null
   allOrganizations?: Organization[]
+  userId?: string | null
+  userEmail?: string | null
 }
 
 export function MainNav({
@@ -63,16 +60,13 @@ export function MainNav({
   isOverride,
   currentOrgId,
   allOrganizations = [],
+  userId,
+  userEmail,
 }: MainNavProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [isSwitching, setIsSwitching] = useState(false)
-
-  const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  const [isReportIssueOpen, setIsReportIssueOpen] = useState(false)
 
   const handleSwitchOrg = async (orgId: string | null) => {
     setIsSwitching(true)
@@ -84,13 +78,12 @@ export function MainNav({
   return (
     <nav className="fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-[rgba(15,23,42,0.06)] flex flex-col">
       {/* Logo */}
-      <div className="h-16 flex items-center px-6">
-        <Link href="/orders" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="Kosha Logo" width={28} height={28} className="h-7 w-7" />
-          <span className={`text-xl text-slate-900 ${youngSerif.className}`}>kosha</span>
+      <div className="h-16 flex items-end pb-3 px-6">
+        <Link href="/orders">
+          <span className={`text-[22px] text-slate-900 ${youngSerif.className}`}>kosha</span>
         </Link>
         {isSuperAdmin && (
-          <Badge variant="outline" className="ml-2 text-xs bg-purple-50 text-purple-700 border-purple-200">
+          <Badge variant="outline" className="ml-3 text-xs bg-purple-50 text-purple-700 border-purple-200">
             <Shield className="h-3 w-3 mr-1" />
             Admin
           </Badge>
@@ -165,15 +158,12 @@ export function MainNav({
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "relative flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-150",
+                  "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-150",
                   isActive
                     ? "bg-slate-100 text-slate-900"
                     : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
                 )}
               >
-                {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 rounded-full" />
-                )}
                 <item.icon className="h-5 w-5" />
                 {item.name}
               </Link>
@@ -182,70 +172,63 @@ export function MainNav({
         </div>
       </div>
 
+      {/* Organization Name - above divider */}
+      {organizationName && (
+        <div className="mx-3 pb-3">
+          <div className="flex items-center gap-2.5 px-3 py-2">
+            <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
+            <span className="text-[14px] font-semibold text-slate-700 truncate">
+              {organizationName}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Footer Navigation */}
-      <div className="px-3 pb-2 border-t border-[rgba(15,23,42,0.06)] pt-3">
+      <div className="mx-3 px-0 pb-3 border-t border-[rgba(15,23,42,0.06)] pt-3">
         <div className="space-y-1">
-          {footerNavigation.map((item) => {
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150",
-                  isActive
-                    ? "bg-slate-100 text-slate-900"
-                    : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.name}
-              </Link>
-            )
-          })}
+          <Link
+            href="/settings"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150",
+              pathname === "/settings" || pathname?.startsWith("/settings/")
+                ? "bg-slate-100 text-slate-900"
+                : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+            )}
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </Link>
+          <button
+            onClick={() => setIsReportIssueOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150 text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+          >
+            <MessageCircleWarning className="h-4 w-4" />
+            Report an issue
+          </button>
+          <button
+            onClick={async () => {
+              const supabase = createClient()
+              await supabase.auth.signOut()
+              router.push('/login')
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-lg transition-all duration-150 text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </div>
       </div>
 
-      {/* Organization Dropdown at Bottom */}
-      {organizationName && (
-        <div className="p-3 border-t border-[rgba(15,23,42,0.06)]">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors duration-150">
-                <div className={cn(
-                  "p-1.5 rounded-md",
-                  isOverride ? "bg-purple-100" : "bg-slate-100"
-                )}>
-                  <Building2 className={cn(
-                    "h-4 w-4",
-                    isOverride ? "text-purple-700" : "text-slate-600"
-                  )} />
-                </div>
-                <span className="flex-1 text-left text-sm font-medium text-slate-900 truncate">
-                  {organizationName}
-                </span>
-                <ChevronDown className="h-4 w-4 text-slate-400" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="w-56">
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-                  <Settings className="h-4 w-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleSignOut}
-                className="flex items-center gap-2 text-red-600 focus:text-red-600 cursor-pointer"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
+      {/* Report Issue Modal */}
+      <ReportIssueModal
+        isOpen={isReportIssueOpen}
+        onClose={() => setIsReportIssueOpen(false)}
+        userId={userId}
+        userEmail={userEmail}
+        orgId={currentOrgId}
+        orgName={organizationName}
+      />
     </nav>
   )
 }

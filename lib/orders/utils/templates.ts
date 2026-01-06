@@ -11,6 +11,7 @@ interface OrderSummary {
   companyName?: string
   contactName?: string
   items: OrderItem[]
+  deletedItems?: OrderItem[]
   orderValue: number
   expectedDate?: string
 }
@@ -52,35 +53,37 @@ function getFirstName(contactName?: string, companyName?: string): string {
 
 /**
  * Generate order summary section for emails
- * Uses a clean table-like format for better readability
+ * Uses a clean format with bullet points for better readability
  */
 function generateOrderSummary(order: OrderSummary): string {
   const lines: string[] = []
 
   // Header
   lines.push(`ORDER #${order.orderNumber}`)
-  lines.push('─'.repeat(50))
   lines.push('')
 
-  // Items list - cleaner format with quantity on its own line
-  for (let i = 0; i < order.items.length; i++) {
-    const item = order.items[i]
-    lines.push(`${item.name}`)
-    lines.push(`    ${item.quantity} ${item.quantity_unit} × ${formatCurrency(item.unit_price)} = ${formatCurrency(item.total)}`)
-
-    // Add spacing between items (except after last item)
-    if (i < order.items.length - 1) {
-      lines.push('')
-    }
+  // Items list with bullet points
+  lines.push('Items in your order:')
+  for (const item of order.items) {
+    lines.push(`  • ${item.name} — ${item.quantity} ${item.quantity_unit} × ${formatCurrency(item.unit_price)} = ${formatCurrency(item.total)}`)
   }
 
-  // Footer section
+  // Total
   lines.push('')
-  lines.push('─'.repeat(50))
-  lines.push(`TOTAL: ${formatCurrency(order.orderValue)}`)
+  lines.push(`Order Total: ${formatCurrency(order.orderValue)}`)
 
   if (order.expectedDate) {
-    lines.push(`DELIVERY: ${formatDate(order.expectedDate)}`)
+    lines.push(`Delivery Date: ${formatDate(order.expectedDate)}`)
+  }
+
+  // Deleted items section (if any)
+  if (order.deletedItems && order.deletedItems.length > 0) {
+    lines.push('')
+    lines.push('')
+    lines.push('The following items were removed from your original order:')
+    for (const item of order.deletedItems) {
+      lines.push(`  • ${item.name} — ${item.quantity} ${item.quantity_unit} × ${formatCurrency(item.unit_price)}`)
+    }
   }
 
   return lines.join('\n')

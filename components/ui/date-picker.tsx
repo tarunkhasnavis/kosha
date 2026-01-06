@@ -11,9 +11,25 @@ interface DatePickerProps {
   onSelect?: (date: Date | undefined) => void
   placeholder?: string
   className?: string
+  disabled?: boolean
 }
 
-export function DatePicker({ selected, onSelect, placeholder = "Pick a date", className }: DatePickerProps) {
+export function DatePicker({ selected, onSelect, placeholder = "Pick a date", className, disabled }: DatePickerProps) {
+  if (disabled) {
+    return (
+      <Button
+        variant={"outline"}
+        disabled
+        className={cn(
+          "w-full justify-start text-left font-normal bg-slate-50 text-slate-500 cursor-not-allowed",
+          className
+        )}
+      >
+        {selected ? format(selected, "PPP") : <span>{placeholder}</span>}
+      </Button>
+    )
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>

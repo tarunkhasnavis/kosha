@@ -12,6 +12,7 @@ const envSchema = z.object({
     .length(64)
     .regex(/^[0-9a-f]{64}$/i),
   DATABASE_URL: z.string().url().optional(),
+  RESEND_API_KEY: z.string().min(1),
 })
 
 export type Env = z.infer<typeof envSchema>

@@ -17,12 +17,17 @@ export interface Order {
   contact_name?: string
   contact_email?: string
   items?: OrderItem[]
+  deletedItems?: OrderItem[]  // Items that were soft-deleted from the order
   email_url?: string
   clarification_message?: string | null  // Pending clarification message to send (null = already sent)
+  approval_email_message?: string | null  // Custom approval email to send (null = use default template)
   ship_via?: string  // Delivery method: 'Delivery' or 'Customer Pickup' (empty = not specified)
   custom_fields?: Record<string, string | number | null>  // Org-specific fields (e.g., liquor_license)
   pdf_downloaded_at?: string | null  // Timestamp when PDF was last downloaded
   inferred_fields?: string[]  // Fields where AI made logical leaps (e.g., "items[0].sku", "liquor_license")
+  original_email_body?: string | null  // Original email content from the first email in the thread
+  original_email_from?: string | null  // Sender of the original email
+  original_email_date?: string | null  // Date/time the original email was sent
 }
 
 export interface OrderItem {
@@ -36,6 +41,7 @@ export interface OrderItem {
   total: number
   created_at?: string
   organization_id?: string
+  deleted?: boolean  // Whether item was removed from order (soft delete)
 }
 
 export interface OrderStats {

@@ -69,10 +69,20 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "slide-in-from-right-smooth": {
+          from: { transform: "translateX(100%)", opacity: "0.5" },
+          to: { transform: "translateX(0)", opacity: "1" },
+        },
+        "slide-out-to-right-smooth": {
+          from: { transform: "translateX(0)", opacity: "1" },
+          to: { transform: "translateX(100%)", opacity: "0.5" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "slide-in-right": "slide-in-from-right-smooth 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+        "slide-out-right": "slide-out-to-right-smooth 0.25s cubic-bezier(0.32, 0.72, 0, 1)",
       },
     },
   },
