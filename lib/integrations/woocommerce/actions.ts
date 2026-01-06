@@ -8,6 +8,7 @@ export interface WooCommerceSettingsData {
   consumerKey: string
   consumerSecret: string
   enabled: boolean
+  orderNotificationEmail: string // Email address WooCommerce sends order notifications from
 }
 
 export interface WooCommerceSettingsResult {
@@ -39,6 +40,7 @@ export async function getWooCommerceSettings(
     consumerKey: data.credentials?.consumerKey || '',
     consumerSecret: data.credentials?.consumerSecret || '',
     enabled: data.enabled,
+    orderNotificationEmail: data.config?.orderNotificationEmail || '',
   }
 }
 
@@ -52,6 +54,7 @@ export async function saveWooCommerceSettings(
     consumerKey: string
     consumerSecret: string
     enabled: boolean
+    orderNotificationEmail: string
   }
 ): Promise<WooCommerceSettingsResult> {
   const supabase = await createClient()
@@ -76,7 +79,10 @@ export async function saveWooCommerceSettings(
     const { error } = await supabase
       .from('organization_integrations')
       .update({
-        config: { baseUrl: settings.baseUrl },
+        config: {
+          baseUrl: settings.baseUrl,
+          orderNotificationEmail: settings.orderNotificationEmail,
+        },
         credentials: {
           consumerKey: settings.consumerKey,
           consumerSecret: settings.consumerSecret,
@@ -95,7 +101,10 @@ export async function saveWooCommerceSettings(
     const { error } = await supabase.from('organization_integrations').insert({
       organization_id: organizationId,
       type: 'woocommerce',
-      config: { baseUrl: settings.baseUrl },
+      config: {
+        baseUrl: settings.baseUrl,
+        orderNotificationEmail: settings.orderNotificationEmail,
+      },
       credentials: {
         consumerKey: settings.consumerKey,
         consumerSecret: settings.consumerSecret,

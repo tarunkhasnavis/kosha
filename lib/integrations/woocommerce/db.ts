@@ -14,6 +14,7 @@ interface IntegrationRow {
   enabled: boolean
   config: {
     baseUrl: string
+    orderNotificationEmail?: string
     skuMappings?: SkuMapping[]
   }
   credentials: {
@@ -51,6 +52,7 @@ export async function getWooCommerceConfig(
       baseUrl: row.config.baseUrl,
       consumerKey: row.credentials.consumerKey,
       consumerSecret: row.credentials.consumerSecret,
+      orderNotificationEmail: row.config.orderNotificationEmail,
     },
     skuMappings: row.config.skuMappings || [],
   }

@@ -20,15 +20,22 @@ interface OrderItem {
  *
  * Flow:
  * 1. Get WooCommerce config for the organization
- * 2. Map order items to WooCommerce product IDs using SKU mappings
- * 3. Fetch current stock for those products (API call 1)
- * 4. Calculate new stock (current - ordered quantity)
- * 5. Batch update stock in WooCommerce (API call 2)
+ * 2. Check if order came from WooCommerce (skip if so)
+ * 3. Map order items to WooCommerce product IDs using SKU mappings
+ * 4. Fetch current stock for those products (API call 1)
+ * 5. Calculate new stock (current - ordered quantity)
+ * 6. Batch update stock in WooCommerce (API call 2)
+ *
+ * @param organizationId - The organization ID
+ * @param orderId - The order ID
+ * @param items - Order items to sync
+ * @param senderEmail - Original email sender (used to skip orders from WooCommerce)
  */
 export async function onOrderCompleted(
   organizationId: string,
   orderId: string,
-  items: OrderItem[]
+  items: OrderItem[],
+  senderEmail?: string
 ): Promise<WooCommerceResult> {
   // 1. Get config - if not configured, silently skip
   const integration = await getWooCommerceConfig(organizationId)
@@ -41,7 +48,24 @@ export async function onOrderCompleted(
 
   const { config, skuMappings } = integration
 
-  // 2. Map order items to WooCommerce product IDs
+  // 2. Check if order came from WooCommerce notification email
+  // If so, skip sync - inventory already updated in WooCommerce
+  if (senderEmail && config.orderNotificationEmail) {
+    const normalizedSender = senderEmail.toLowerCase().trim()
+    const normalizedNotificationEmail = config.orderNotificationEmail.toLowerCase().trim()
+
+    if (normalizedSender === normalizedNotificationEmail) {
+      console.log(
+        `[WooCommerce] Order ${orderId}: Skipped - order originated from WooCommerce (${senderEmail})`
+      )
+      return {
+        success: true,
+        message: 'Order from WooCommerce - inventory sync skipped',
+      }
+    }
+  }
+
+  // 3. Map order items to WooCommerce product IDs
   const itemsToUpdate: Array<{ productId: number; quantity: number }> = []
 
   for (const item of items) {
@@ -61,7 +85,7 @@ export async function onOrderCompleted(
     }
   }
 
-  // 3. Fetch current stock (API call 1)
+  // 4. Fetch current stock (API call 1)
   const productIds = itemsToUpdate.map((i) => i.productId)
   let currentProducts
   try {
@@ -73,7 +97,7 @@ export async function onOrderCompleted(
     }
   }
 
-  // 4. Calculate new stock quantities
+  // 5. Calculate new stock quantities
   const stockUpdates = itemsToUpdate
     .map((item) => {
       const product = currentProducts.find((p) => p.id === item.productId)
@@ -97,7 +121,7 @@ export async function onOrderCompleted(
     }
   }
 
-  // 5. Batch update stock (API call 2)
+  // 6. Batch update stock (API call 2)
   const result = await batchUpdateStock(config, stockUpdates)
 
   if (result.success) {

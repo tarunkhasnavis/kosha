@@ -9,6 +9,7 @@ export interface WooCommerceConfig {
   baseUrl: string
   consumerKey: string
   consumerSecret: string
+  orderNotificationEmail?: string // Email address that WooCommerce sends order notifications from (e.g., info@store.com). Orders from this sender will skip inventory sync since they're already reflected in WooCommerce.
 }
 
 export interface WooCommerceProduct {

@@ -70,6 +70,16 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
 
   // Trigger integrations (non-blocking - don't fail if integration fails)
   try {
+    // Get original email sender for integration context
+    // This helps integrations like WooCommerce skip orders that originated from their platform
+    const { data: originalEmail } = await supabase
+      .from('order_emails')
+      .select('email_from')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+
     const integrationItems = (order.order_items || []).map((item: any) => ({
       sku: item.sku,
       name: item.name,
@@ -78,7 +88,8 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
     const integrationResults = await triggerOrderCompleted(
       organization.id,
       orderId,
-      integrationItems
+      integrationItems,
+      { senderEmail: originalEmail?.email_from || undefined }
     )
     console.log(`[Integrations] Order ${orderId}:`, integrationResults)
   } catch (integrationError) {

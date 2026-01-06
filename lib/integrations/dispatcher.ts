@@ -15,6 +15,10 @@ interface OrderItem {
   quantity: number
 }
 
+interface OrderContext {
+  senderEmail?: string // Original email sender - used to skip integrations for certain sources
+}
+
 interface IntegrationResults {
   woocommerce?: { success: boolean; message?: string; error?: string }
   // Add more integrations here as needed
@@ -25,17 +29,23 @@ interface IntegrationResults {
  *
  * This is the ONLY function you need to call from your order completion flow.
  * It handles all integrations and returns results for each.
+ *
+ * @param organizationId - The organization ID
+ * @param orderId - The order ID
+ * @param items - Order items to sync
+ * @param context - Additional context like sender email (for skipping certain integrations)
  */
 export async function triggerOrderCompleted(
   organizationId: string,
   orderId: string,
-  items: OrderItem[]
+  items: OrderItem[],
+  context?: OrderContext
 ): Promise<IntegrationResults> {
   const results: IntegrationResults = {}
 
   // WooCommerce integration
   try {
-    results.woocommerce = await wooCommerceSync(organizationId, orderId, items)
+    results.woocommerce = await wooCommerceSync(organizationId, orderId, items, context?.senderEmail)
   } catch (error) {
     results.woocommerce = {
       success: false,

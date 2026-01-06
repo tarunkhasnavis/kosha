@@ -45,6 +45,7 @@ export function WooCommerceSettings({ organizationId }: WooCommerceSettingsProps
     consumerKey: '',
     consumerSecret: '',
     enabled: true,
+    orderNotificationEmail: '',
   })
 
   // Load existing settings
@@ -142,6 +143,7 @@ export function WooCommerceSettings({ organizationId }: WooCommerceSettingsProps
         consumerKey: '',
         consumerSecret: '',
         enabled: true,
+        orderNotificationEmail: '',
       })
       setHasExisting(false)
       setConnectionStatus('none')
@@ -264,6 +266,22 @@ export function WooCommerceSettings({ organizationId }: WooCommerceSettingsProps
             >
               Learn more <ExternalLink className="h-3 w-3" />
             </a>
+          </p>
+        </div>
+
+        {/* Order Notification Email */}
+        <div className="space-y-2">
+          <Label htmlFor="orderNotificationEmail">Order Notification Email</Label>
+          <Input
+            id="orderNotificationEmail"
+            type="email"
+            placeholder="orders@your-store.com"
+            value={formData.orderNotificationEmail}
+            onChange={(e) => setFormData({ ...formData, orderNotificationEmail: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            The email address WooCommerce sends order confirmations from. Orders received from this
+            sender will skip inventory sync (since they&apos;re already in WooCommerce).
           </p>
         </div>
 
