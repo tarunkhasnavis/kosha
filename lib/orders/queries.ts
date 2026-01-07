@@ -68,6 +68,8 @@ export async function saveEmailAuditLog(input: EmailAuditInput) {
 
 /**
  * Check if an email has already been processed (idempotency check)
+ *
+ * @deprecated Use claimEmailForProcessing() instead for proper idempotency
  */
 export async function checkEmailAlreadyProcessed(
   gmailMessageId: string
@@ -85,6 +87,120 @@ export async function checkEmailAlreadyProcessed(
   }
 
   return { processed: true, orderId: data.order_id }
+}
+
+/**
+ * Claim an email for processing using INSERT ... ON CONFLICT DO NOTHING
+ * This is the idempotency gate - only proceed if we successfully inserted.
+ *
+ * Returns:
+ * - { claimed: true, claimId } - We got the lock, proceed with processing
+ * - { claimed: false, existingOrderId } - Already processed, return early
+ */
+export async function claimEmailForProcessing(
+  gmailMessageId: string,
+  gmailThreadId: string,
+  organizationId: string,
+  emailFrom: string,
+  emailSubject: string,
+  emailTo: string,
+  emailDate: string,
+  emailBody: string
+): Promise<{ claimed: boolean; claimId?: string; existingOrderId?: string }> {
+  const supabase = await createClient()
+
+  // Try to insert a placeholder record. If it already exists, we'll get nothing back.
+  // Using upsert with onConflict to handle the unique constraint on gmail_message_id
+  const { data, error } = await supabase
+    .from('order_emails')
+    .insert({
+      organization_id: organizationId,
+      gmail_message_id: gmailMessageId,
+      gmail_thread_id: gmailThreadId,
+      email_from: emailFrom,
+      email_subject: emailSubject,
+      email_to: emailTo,
+      email_date: emailDate,
+      email_body: emailBody,
+      // order_id will be null initially - we'll update it after order creation
+      order_id: null,
+      changes_made: { type: 'processing' }, // Placeholder, will be updated
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    // Check if it's a duplicate key error (23505 is PostgreSQL unique violation)
+    if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('already exists')) {
+      // Email already claimed - fetch the existing record
+      const { data: existing } = await supabase
+        .from('order_emails')
+        .select('id, order_id')
+        .eq('gmail_message_id', gmailMessageId)
+        .single()
+
+      console.log(`📧 Email ${gmailMessageId} already processed, order_id: ${existing?.order_id}`)
+      return { claimed: false, existingOrderId: existing?.order_id || undefined }
+    }
+
+    // Some other error
+    console.error('Failed to claim email for processing:', error)
+    throw new Error(`Failed to claim email: ${error.message}`)
+  }
+
+  console.log(`📧 Claimed email ${gmailMessageId} for processing, claim_id: ${data.id}`)
+  return { claimed: true, claimId: data.id }
+}
+
+/**
+ * Update the email claim record with the order_id after order creation
+ */
+export async function updateEmailClaimWithOrder(
+  claimId: string,
+  orderId: string,
+  changesMade: {
+    type: 'created_order' | 'updated_order' | 'awaiting_clarification'
+    items_added?: any[]
+    items_updated?: any[]
+    missing_info?: string[]
+    order_value?: number
+    status_changed_to?: string
+    clarification_message?: string
+  }
+): Promise<void> {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('order_emails')
+    .update({
+      order_id: orderId,
+      changes_made: changesMade,
+    })
+    .eq('id', claimId)
+
+  if (error) {
+    console.error('Failed to update email claim with order:', error)
+    throw new Error(`Failed to update email claim: ${error.message}`)
+  }
+}
+
+/**
+ * Mark an email claim as "not an order" (so we don't reprocess it)
+ */
+export async function markEmailAsNotOrder(claimId: string): Promise<void> {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('order_emails')
+    .update({
+      changes_made: { type: 'not_an_order' },
+    })
+    .eq('id', claimId)
+
+  if (error) {
+    console.error('Failed to mark email as not order:', error)
+    // Don't throw - this is cleanup, not critical
+  }
 }
 
 /**

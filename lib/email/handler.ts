@@ -17,7 +17,7 @@ import { processEmailWithAI } from './parser'
 import { processAllAttachments, isSupportedAttachment } from './attachments'
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
-import { saveEmailAuditLog, checkEmailAlreadyProcessed, findOrderByThreadId, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
+import { claimEmailForProcessing, updateEmailClaimWithOrder, markEmailAsNotOrder, findOrderByThreadId, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
 import { getOrgRequiredFields, validateOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
 import { createClient } from '@/utils/supabase/server'
 import { retrieveSimilarExamples, type OrderExample } from '@/lib/ai/embeddings'
@@ -81,12 +81,14 @@ async function fetchOrgConfig(organizationId: string): Promise<OrgConfig> {
 
 /**
  * Create a new order from email data
+ * NOTE: claimId is passed in - the email claim was already made before calling this
  */
 async function createNewOrder(
   email: ParsedEmail,
   aiResult: ParsedOrderData,
   organizationId: string,
-  orgRequiredFields: OrgRequiredField[]
+  orgRequiredFields: OrgRequiredField[],
+  claimId: string
 ): Promise<{ success: boolean; orderId: string }> {
   // Validate org-specific required fields - this is the source of truth, NOT the AI
   const orgFieldsValidation = validateOrgRequiredFields(
@@ -150,34 +152,15 @@ async function createNewOrder(
     // 1. Create the order
     const order = await createOrder(orderInput)
 
-    // 2. Save email to audit log IMMEDIATELY after order creation
-    //    This is critical for idempotency - if this fails, we'll have an orphan order
-    //    but at least we won't create duplicates on retry
-    try {
-      await saveEmailAuditLog({
-        order_id: order.id,
-        organization_id: organizationId,
-        gmail_message_id: email.id,
-        gmail_thread_id: email.threadId,
-        email_from: email.from,
-        email_subject: email.subject,
-        email_to: email.to,
-        email_date: email.date,
-        email_body: email.body,
-        changes_made: {
-          type: isActuallyComplete ? 'created_order' : 'awaiting_clarification',
-          items_added: aiResult.items,
-          missing_info: allMissingInfo,
-          order_value: aiResult.orderValue,
-          clarification_message: aiResult.clarificationEmail,
-        },
-      })
-    } catch (emailLogError) {
-      // If email log fails with duplicate key, the email was already processed
-      // This shouldn't happen often since we check first, but handles race conditions
-      console.error('Email audit log failed (possible duplicate):', emailLogError)
-      // Don't throw - the order was created successfully
-    }
+    // 2. Update the email claim with the order_id
+    //    The claim was already inserted before AI processing, now we link it to the order
+    await updateEmailClaimWithOrder(claimId, order.id, {
+      type: isActuallyComplete ? 'created_order' : 'awaiting_clarification',
+      items_added: aiResult.items,
+      missing_info: allMissingInfo,
+      order_value: aiResult.orderValue,
+      clarification_message: aiResult.clarificationEmail,
+    })
 
     // 3. Create order items
     if (aiResult.items.length > 0) {
@@ -205,13 +188,15 @@ async function createNewOrder(
 
 /**
  * Update an existing order with new information from a reply email
+ * NOTE: claimId is passed in - the email claim was already made before calling this
  */
 async function updateExistingOrder(
   existingOrderId: string,
   email: ParsedEmail,
   aiResult: ParsedOrderData,
   organizationId: string,
-  orgRequiredFields: OrgRequiredField[]
+  orgRequiredFields: OrgRequiredField[],
+  claimId: string
 ): Promise<{ success: boolean; orderId: string }> {
   // Validate org-specific required fields - this is the source of truth, NOT the AI
   const orgFieldsValidation = validateOrgRequiredFields(
@@ -252,33 +237,16 @@ async function updateExistingOrder(
       inferred_fields: aiResult.inferredFields || [],
     })
 
-    // 2. Save email to audit log IMMEDIATELY after order update
-    //    This is critical for idempotency
-    try {
-      await saveEmailAuditLog({
-        order_id: existingOrderId,
-        organization_id: organizationId,
-        gmail_message_id: email.id,
-        gmail_thread_id: email.threadId,
-        email_from: email.from,
-        email_subject: email.subject,
-        email_to: email.to,
-        email_date: email.date,
-        email_body: email.body,
-        changes_made: {
-          type: 'updated_order',
-          items_updated: aiResult.items,
-          missing_info: allMissingInfo,
-          order_value: aiResult.orderValue,
-          status_changed_to: newStatus,
-          clarification_message: aiResult.clarificationEmail,
-        },
-      })
-    } catch (emailLogError) {
-      // If email log fails with duplicate key, the email was already processed
-      console.error('Email audit log failed (possible duplicate):', emailLogError)
-      // Don't throw - the order was updated successfully
-    }
+    // 2. Update the email claim with the order_id
+    //    The claim was already inserted before AI processing, now we link it to the order
+    await updateEmailClaimWithOrder(claimId, existingOrderId, {
+      type: 'updated_order',
+      items_updated: aiResult.items,
+      missing_info: allMissingInfo,
+      order_value: aiResult.orderValue,
+      status_changed_to: newStatus,
+      clarification_message: aiResult.clarificationEmail,
+    })
 
     // 3. Replace order items
     if (aiResult.items.length > 0) {
@@ -334,13 +302,18 @@ async function processAttachmentsForAI(
 /**
  * Main handler: Process email and create/update order in database
  *
- * This is a high-level orchestrator that:
- * 1. Checks for idempotency (already processed) - BEFORE AI processing to save costs
- * 2. Processes attachments for AI (PDFs, Excel, images)
- * 3. Runs AI extraction on email body + attachments
- * 4. Checks if email is a reply to existing order
- * 5. Creates new order OR updates existing order
- * 6. Uses atomic DB operations from orders.ts, orderItems.ts, orderEmails.ts
+ * IDEMPOTENCY: Uses claim-first approach where we INSERT into order_emails
+ * BEFORE any processing. If the insert fails (duplicate), we return immediately.
+ * This prevents duplicate orders from race conditions or Pub/Sub retries.
+ *
+ * Flow:
+ * 1. CLAIM the email (INSERT ... ON CONFLICT DO NOTHING) - this is the idempotency gate
+ * 2. If claim failed → return immediately (already processed)
+ * 3. Process attachments for AI (PDFs, Excel, images)
+ * 4. Run AI extraction on email body + attachments
+ * 5. Check if email is a reply to existing order
+ * 6. Create new order OR update existing order
+ * 7. Update the claim record with order_id
  *
  * @param email - Parsed email to process (use GmailClient.getEmail() to include attachment data)
  * @param organizationId - Organization ID
@@ -349,92 +322,121 @@ export async function handleEmailOrder(
   email: ParsedEmail,
   organizationId: string
 ): Promise<{ success: boolean; orderId: string; action: string }> {
-  // Step 1: Check if email already processed (idempotency) - BEFORE AI call
-  const { processed, orderId: existingOrderId } = await checkEmailAlreadyProcessed(email.id)
+  // Step 1: CLAIM the email - this is the idempotency gate
+  // If the email was already claimed/processed, return immediately
+  const claimResult = await claimEmailForProcessing(
+    email.id,
+    email.threadId,
+    organizationId,
+    email.from,
+    email.subject,
+    email.to,
+    email.date,
+    email.body
+  )
 
-  if (processed && existingOrderId) {
-    console.log('Email already processed:', email.id)
-    return { success: true, orderId: existingOrderId, action: 'already_processed' }
+  if (!claimResult.claimed) {
+    // Email was already processed - return immediately
+    console.log(`📧 Email already processed: ${email.id}, existing order: ${claimResult.existingOrderId}`)
+    return {
+      success: true,
+      orderId: claimResult.existingOrderId || '',
+      action: 'already_processed'
+    }
   }
 
-  // Step 2: Fetch organization's config (required fields + system prompt + product catalog + name)
-  const orgConfig = await fetchOrgConfig(organizationId)
-  const { requiredFields: orgRequiredFields, systemPrompt: orgSystemPrompt, productCatalog, organizationName } = orgConfig
+  // We got the claim - proceed with processing
+  const claimId = claimResult.claimId!
+  console.log(`📧 Claimed email ${email.id} for processing (claim_id: ${claimId})`)
 
-  // Step 3: Process attachments if present (attachment data should already be in email)
-  let processedAttachments: ProcessedAttachment[] = []
+  try {
+    // Step 2: Fetch organization's config (required fields + system prompt + product catalog + name)
+    const orgConfig = await fetchOrgConfig(organizationId)
+    const { requiredFields: orgRequiredFields, systemPrompt: orgSystemPrompt, productCatalog, organizationName } = orgConfig
 
-  if (email.attachments.length > 0) {
+    // Step 3: Process attachments if present (attachment data should already be in email)
+    let processedAttachments: ProcessedAttachment[] = []
+
+    if (email.attachments.length > 0) {
+      try {
+        processedAttachments = await processAttachmentsForAI(email)
+      } catch (error) {
+        console.error('Error processing attachments:', error)
+        // Continue without attachments - don't fail the entire order
+      }
+    }
+
+    // Step 4: Check if this is a reply to an existing order (thread_id match)
+    const existingOrder = await findOrderByThreadId(email.threadId, organizationId)
+
+    // Step 5: Retrieve similar past orders for RAG (few-shot learning)
+    // Build raw input text for embedding search
+    const rawInputForRAG = `Subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`
+    let ragExamples: OrderExample[] = []
     try {
-      processedAttachments = await processAttachmentsForAI(email)
+      ragExamples = await retrieveSimilarExamples(rawInputForRAG, organizationId)
+      if (ragExamples.length > 0) {
+        console.log(`📚 Found ${ragExamples.length} similar past orders for RAG`)
+      }
     } catch (error) {
-      console.error('Error processing attachments:', error)
-      // Continue without attachments - don't fail the entire order
+      console.error('RAG retrieval failed (continuing without examples):', error)
+      ragExamples = []
     }
-  }
 
-  // Step 4: Check if this is a reply to an existing order (thread_id match)
-  const existingOrder = await findOrderByThreadId(email.threadId, organizationId)
+    // Step 6: Fetch customer order history (last 2 approved orders from this sender)
+    let customerHistory: CustomerOrderHistory[] = []
+    try {
+      customerHistory = await getCustomerOrderHistory(email.from, organizationId, 2)
+      if (customerHistory.length > 0) {
+        console.log(`📋 Found ${customerHistory.length} previous orders from this customer`)
+      }
+    } catch (error) {
+      console.error('Customer history fetch failed (continuing without history):', error)
+      customerHistory = []
+    }
 
-  // Step 5: Retrieve similar past orders for RAG (few-shot learning)
-  // Build raw input text for embedding search
-  const rawInputForRAG = `Subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`
-  let ragExamples: OrderExample[] = []
-  try {
-    ragExamples = await retrieveSimilarExamples(rawInputForRAG, organizationId)
-    if (ragExamples.length > 0) {
-      console.log(`📚 Found ${ragExamples.length} similar past orders for RAG`)
+    // Format customer history for prompt injection
+    const customerHistoryPrompt = formatCustomerHistoryForPrompt(customerHistory)
+
+    let aiResult: ParsedOrderData | null
+
+    if (existingOrder) {
+      // This is a reply to an existing order - fetch thread context
+      const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
+
+      // Process email with full thread context, attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name
+      aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
+
+      if (!aiResult) {
+        // If AI can't extract order from thread, mark claim as failed and skip
+        console.error('AI could not extract order from thread:', email.threadId)
+        await markEmailAsNotOrder(claimId)
+        return { success: false, orderId: existingOrder.id, action: 'extraction_failed' }
+      }
+
+      // UPDATE existing order with full context (pass claimId to link the email)
+      const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId, orgRequiredFields, claimId)
+      return { ...result, action: 'updated_order' }
+    } else {
+      // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name)
+      aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
+
+      if (!aiResult) {
+        // Not an order email - mark claim as "not an order" so we don't reprocess
+        console.log('Email is not an order:', email.subject)
+        await markEmailAsNotOrder(claimId)
+        return { success: false, orderId: '', action: 'not_an_order' }
+      }
+
+      // CREATE new order (pass claimId to link the email)
+      const result = await createNewOrder(email, aiResult, organizationId, orgRequiredFields, claimId)
+      return { ...result, action: 'created_order' }
     }
   } catch (error) {
-    console.error('RAG retrieval failed (continuing without examples):', error)
-    ragExamples = []
-  }
-
-  // Step 6: Fetch customer order history (last 2 approved orders from this sender)
-  let customerHistory: CustomerOrderHistory[] = []
-  try {
-    customerHistory = await getCustomerOrderHistory(email.from, organizationId, 2)
-    if (customerHistory.length > 0) {
-      console.log(`📋 Found ${customerHistory.length} previous orders from this customer`)
-    }
-  } catch (error) {
-    console.error('Customer history fetch failed (continuing without history):', error)
-    customerHistory = []
-  }
-
-  // Format customer history for prompt injection
-  const customerHistoryPrompt = formatCustomerHistoryForPrompt(customerHistory)
-
-  let aiResult: ParsedOrderData | null
-
-  if (existingOrder) {
-    // This is a reply to an existing order - fetch thread context
-    const threadEmails = await fetchThreadEmails(email.threadId, organizationId)
-
-    // Process email with full thread context, attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name
-    aiResult = await processEmailWithAI(email, threadEmails, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
-
-    if (!aiResult) {
-      // If AI can't extract order from thread, log and skip
-      console.error('AI could not extract order from thread:', email.threadId)
-      return { success: false, orderId: existingOrder.id, action: 'extraction_failed' }
-    }
-
-    // UPDATE existing order with full context
-    const result = await updateExistingOrder(existingOrder.id, email, aiResult, organizationId, orgRequiredFields)
-    return { ...result, action: 'updated_order' }
-  } else {
-    // New email - process with AI (no thread context, but with attachments, org fields, org prompt, product catalog, RAG examples, customer history, and org name)
-    aiResult = await processEmailWithAI(email, undefined, processedAttachments, orgRequiredFields, orgSystemPrompt, productCatalog, ragExamples, customerHistoryPrompt, organizationName)
-
-    if (!aiResult) {
-      // Not an order email, skip
-      console.log('Email is not an order:', email.subject)
-      return { success: false, orderId: '', action: 'not_an_order' }
-    }
-
-    // CREATE new order
-    const result = await createNewOrder(email, aiResult, organizationId, orgRequiredFields)
-    return { ...result, action: 'created_order' }
+    // If processing fails after claim, the claim record stays with order_id=null
+    // This is intentional - it prevents retries from creating duplicates
+    // Admin can manually clean up orphaned claims if needed
+    console.error('Error processing email after claim:', error)
+    throw error
   }
 }
