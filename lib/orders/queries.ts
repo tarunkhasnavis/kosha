@@ -264,6 +264,9 @@ export async function fetchThreadEmails(
 /**
  * Get clarification info for an order (thread_id, subject, clarification message)
  * Used for manually sending clarification emails from UI
+ *
+ * NOTE: clarification_message is now stored on the orders table as source of truth.
+ * Thread info still comes from order_emails for sending replies.
  */
 export async function getOrderClarificationInfo(
   orderId: string
@@ -275,70 +278,61 @@ export async function getOrderClarificationInfo(
 } | null> {
   const supabase = await createClient()
 
-  // Get the most recent email for this order that has clarification info
-  const { data, error } = await supabase
+  // Get clarification_message from the order (source of truth)
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select('clarification_message, organization_id')
+    .eq('id', orderId)
+    .single()
+
+  if (orderError || !order) {
+    console.error('Failed to get order for clarification info:', orderError)
+    return null
+  }
+
+  // If no clarification message, return null
+  if (!order.clarification_message) {
+    return null
+  }
+
+  // Get thread info from order_emails for sending the reply
+  const { data: emailData, error: emailError } = await supabase
     .from('order_emails')
-    .select('gmail_thread_id, email_subject, changes_made, organization_id')
+    .select('gmail_thread_id, email_subject')
     .eq('order_id', orderId)
     .order('created_at', { ascending: false })
     .limit(1)
     .single()
 
-  if (error || !data) {
-    console.error('Failed to get order clarification info:', error)
-    return null
-  }
-
-  const changesMade = data.changes_made as any
-  const clarificationMessage = changesMade?.clarification_message
-
-  if (!clarificationMessage) {
+  if (emailError || !emailData) {
+    console.error('Failed to get email thread info:', emailError)
     return null
   }
 
   return {
-    threadId: data.gmail_thread_id,
-    subject: data.email_subject,
-    clarificationMessage,
-    organizationId: data.organization_id,
+    threadId: emailData.gmail_thread_id,
+    subject: emailData.email_subject,
+    clarificationMessage: order.clarification_message,
+    organizationId: order.organization_id,
   }
 }
 
 /**
- * Update the clarification_message in the most recent email for an order
+ * Update the clarification_message on an order
  * Called after AI regenerates a new clarification message based on edits
+ *
+ * NOTE: clarification_message is now stored on the orders table as source of truth.
  */
 export async function updateClarificationMessage(orderId: string, newMessage: string): Promise<void> {
   const supabase = await createClient()
 
-  // Get the most recent email for this order
-  const { data: emailRecord, error: fetchError } = await supabase
-    .from('order_emails')
-    .select('id, changes_made')
-    .eq('order_id', orderId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
+  const { error } = await supabase
+    .from('orders')
+    .update({ clarification_message: newMessage })
+    .eq('id', orderId)
 
-  if (fetchError || !emailRecord) {
-    console.error('Failed to find email record to update clarification:', fetchError)
-    return
-  }
-
-  // Update the changes_made with new clarification_message
-  const changesMade = (emailRecord.changes_made as Record<string, unknown>) || {}
-  const updatedChanges = {
-    ...changesMade,
-    clarification_message: newMessage,
-  }
-
-  const { error: updateError } = await supabase
-    .from('order_emails')
-    .update({ changes_made: updatedChanges })
-    .eq('id', emailRecord.id)
-
-  if (updateError) {
-    console.error('Failed to update clarification message:', updateError)
+  if (error) {
+    console.error('Failed to update clarification message:', error)
   }
 }
 
@@ -377,39 +371,22 @@ export async function getOrderThreadInfo(
 }
 
 /**
- * Clear the clarification_message from the most recent email for an order
+ * Clear the clarification_message from an order
  * Called after successfully sending the clarification email
+ *
+ * NOTE: clarification_message is now stored on the orders table as source of truth.
+ * Setting to null indicates the clarification has been sent.
  */
 export async function clearClarificationMessage(orderId: string): Promise<void> {
   const supabase = await createClient()
 
-  // Get the most recent email for this order
-  const { data: emailRecord, error: fetchError } = await supabase
-    .from('order_emails')
-    .select('id, changes_made')
-    .eq('order_id', orderId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
+  const { error } = await supabase
+    .from('orders')
+    .update({ clarification_message: null })
+    .eq('id', orderId)
 
-  if (fetchError || !emailRecord) {
-    console.error('Failed to find email record to clear clarification:', fetchError)
-    return
-  }
-
-  // Update the changes_made to remove clarification_message
-  const changesMade = emailRecord.changes_made as Record<string, unknown> | null
-  if (changesMade && 'clarification_message' in changesMade) {
-    const { clarification_message, ...restOfChanges } = changesMade
-
-    const { error: updateError } = await supabase
-      .from('order_emails')
-      .update({ changes_made: restOfChanges })
-      .eq('id', emailRecord.id)
-
-    if (updateError) {
-      console.error('Failed to clear clarification message:', updateError)
-    }
+  if (error) {
+    console.error('Failed to clear clarification message:', error)
   }
 }
 

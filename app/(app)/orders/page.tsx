@@ -77,11 +77,11 @@ export default async function OrdersPage() {
     console.error('Failed to fetch deleted order items:', deletedItemsError)
   }
 
-  // Fetch email data for each order from order_emails
-  // We need: latest clarification_message and the original email (oldest email with body, from, date)
+  // Fetch email data for each order from order_emails (for original email display only)
+  // NOTE: clarification_message is now on the orders table directly, not in order_emails
   const { data: orderEmails, error: emailsError } = await supabase
     .from('order_emails')
-    .select('order_id, changes_made, email_body, email_from, email_date, created_at')
+    .select('order_id, email_body, email_from, email_date, created_at')
     .in('order_id', orderIds)
     .order('created_at', { ascending: false })
 
@@ -89,16 +89,10 @@ export default async function OrdersPage() {
     console.error('Failed to fetch order emails:', emailsError)
   }
 
-  // Build maps for order_id -> latest clarification_message and original email data
-  const clarificationMap = new Map<string, string | null>()
+  // Build map for order_id -> original email data (for displaying original email in UI)
   const originalEmailMap = new Map<string, { body: string | null, from: string | null, date: string | null }>()
 
   orderEmails?.forEach(email => {
-    // Only set clarification if we haven't seen this order yet (first = most recent due to ordering)
-    if (!clarificationMap.has(email.order_id)) {
-      const changesMade = email.changes_made as { clarification_message?: string } | null
-      clarificationMap.set(email.order_id, changesMade?.clarification_message || null)
-    }
     // Always update original email - last one processed will be the oldest (due to desc order)
     originalEmailMap.set(email.order_id, {
       body: email.email_body || null,
@@ -107,14 +101,15 @@ export default async function OrdersPage() {
     })
   })
 
-  // Join order_items, clarification_message, and original email data to their respective orders
+  // Join order_items and original email data to their respective orders
+  // NOTE: clarification_message comes directly from the order (source of truth)
   const ordersWithItems = orders?.map(order => {
     const originalEmail = originalEmailMap.get(order.id)
     return {
       ...order,
       items: orderItems?.filter(item => item.order_id === order.id) || [],
       deletedItems: deletedOrderItems?.filter(item => item.order_id === order.id) || [],
-      clarification_message: clarificationMap.get(order.id) || null,
+      // clarification_message is already on order from select('*')
       original_email_body: originalEmail?.body || null,
       original_email_from: originalEmail?.from || null,
       original_email_date: originalEmail?.date || null,

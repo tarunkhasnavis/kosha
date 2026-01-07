@@ -430,6 +430,7 @@ export interface CreateOrderInput {
   email_url?: string
   custom_fields?: Record<string, string | number | null>  // Org-specific fields stored as JSONB
   inferred_fields?: string[]  // Fields where AI made logical leaps (e.g., "items[0].sku", "liquor_license")
+  clarification_message?: string | null  // Pending clarification message (null = already sent or not applicable)
 }
 
 /**
@@ -460,6 +461,7 @@ export async function createOrder(input: CreateOrderInput) {
     email_from: input.email_from,
     email_url: input.email_url || null,
     inferred_fields: input.inferred_fields || null,
+    clarification_message: input.clarification_message || null,
   }
 
   // Extract org-specific fields (any fields not in the base set)
@@ -468,7 +470,7 @@ export async function createOrder(input: CreateOrderInput) {
     'item_count', 'received_date', 'expected_date', 'notes',
     'billing_address', 'phone', 'payment_method', 'contact_name',
     'contact_email', 'ship_via', 'organization_id', 'email_from', 'email_url',
-    'inferred_fields'
+    'inferred_fields', 'clarification_message'
   ])
 
   const orgFields: Record<string, string | number | null> = {}
@@ -514,6 +516,7 @@ export async function updateOrderFields(
     ship_via?: string | null
     custom_fields?: Record<string, string | number | null>  // Org-specific fields
     inferred_fields?: string[] | null  // Fields where AI made logical leaps
+    clarification_message?: string | null  // Pending clarification message (null = already sent)
   }
 ) {
   const supabase = await createClient()
@@ -765,7 +768,7 @@ export async function saveAndAnalyzeOrder(
   // Replace all items with the edited ones (soft-delete removed items)
   await replaceOrderItems(orderId, orderItemInputs, organizationId, deletedItemIds)
 
-  // If incomplete, update the clarification message in order_emails
+  // If incomplete, update the clarification message on the order
   if (!analysisResult.isComplete && analysisResult.clarificationEmail) {
     await updateClarificationMessage(orderId, analysisResult.clarificationEmail)
   } else if (analysisResult.isComplete) {

@@ -32,6 +32,34 @@ function generateOrderNumber(): string {
 }
 
 /**
+ * Generate a default clarification message when AI doesn't provide one
+ * This ensures "Request Info" button is always available for incomplete orders
+ */
+function generateDefaultClarificationMessage(
+  missingInfo: string[],
+  contactName?: string,
+  organizationName?: string
+): string {
+  const greeting = contactName ? `Hi ${contactName}!` : 'Hi there!'
+  const signature = organizationName || 'Our Team'
+
+  const missingList = missingInfo.length > 0
+    ? missingInfo.map(info => `- ${info}`).join('\n')
+    : '- Additional order details'
+
+  return `${greeting}
+
+Thanks for your order! To process it, we need the following information:
+
+${missingList}
+
+Could you please reply with these details?
+
+Thank you,
+${signature}`
+}
+
+/**
  * Fetch organization's required fields config, system prompt, and product catalog
  */
 interface OrgConfig {
@@ -122,6 +150,30 @@ async function createNewOrder(
   const searchQuery = `in:anywhere rfc822msgid:${email.messageId}`
   const emailUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`
 
+  // Determine clarification message for incomplete orders BEFORE creating order
+  // Use AI-generated message if available, otherwise generate a default one
+  let clarificationMessage: string | null = null
+  if (!isActuallyComplete) {
+    clarificationMessage = aiResult.clarificationEmail || null
+    if (!clarificationMessage) {
+      // AI didn't generate a clarification message - create a default one
+      // Fetch org name for the signature
+      const supabase = await createClient()
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', organizationId)
+        .single()
+
+      clarificationMessage = generateDefaultClarificationMessage(
+        allMissingInfo,
+        aiResult.contactName,
+        orgData?.name || undefined
+      )
+      console.log('⚠️ AI did not generate clarification email, using default message')
+    }
+  }
+
   // Build order input with org-specific fields in custom_fields JSONB
   const orderInput: CreateOrderInput = {
     order_number: orderNumber,
@@ -146,10 +198,12 @@ async function createNewOrder(
     custom_fields: aiResult.orgFields || {},
     // Store fields where AI made logical leaps for UI highlighting
     inferred_fields: aiResult.inferredFields || [],
+    // Store clarification message directly on the order (source of truth for UI)
+    clarification_message: clarificationMessage,
   }
 
   try {
-    // 1. Create the order
+    // 1. Create the order (with clarification_message already set)
     const order = await createOrder(orderInput)
 
     // 2. Update the email claim with the order_id
@@ -159,7 +213,7 @@ async function createNewOrder(
       items_added: aiResult.items,
       missing_info: allMissingInfo,
       order_value: aiResult.orderValue,
-      clarification_message: aiResult.clarificationEmail,
+      clarification_message: clarificationMessage || undefined,
     })
 
     // 3. Create order items
@@ -219,8 +273,31 @@ async function updateExistingOrder(
   // Use AI-extracted expected date or fallback to email date (ASAP = same day)
   const expectedDate = aiResult.expectedDate || email.date
 
+  // Determine clarification message for incomplete orders BEFORE updating order
+  // Use AI-generated message if available, otherwise generate a default one
+  let clarificationMessage: string | null = null
+  if (!isActuallyComplete) {
+    clarificationMessage = aiResult.clarificationEmail || null
+    if (!clarificationMessage) {
+      // AI didn't generate a clarification message - create a default one
+      const supabase = await createClient()
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', organizationId)
+        .single()
+
+      clarificationMessage = generateDefaultClarificationMessage(
+        allMissingInfo,
+        aiResult.contactName,
+        orgData?.name || undefined
+      )
+      console.log('⚠️ AI did not generate clarification email for update, using default message')
+    }
+  }
+
   try {
-    // 1. Update order fields (including org-specific fields in custom_fields)
+    // 1. Update order fields (including clarification_message on the order)
     await updateOrderFields(existingOrderId, {
       order_value: aiResult.orderValue,
       item_count: aiResult.itemCount,
@@ -235,6 +312,7 @@ async function updateExistingOrder(
       ship_via: aiResult.shipVia || null,
       custom_fields: aiResult.orgFields || {},
       inferred_fields: aiResult.inferredFields || [],
+      clarification_message: clarificationMessage,
     })
 
     // 2. Update the email claim with the order_id
@@ -245,7 +323,7 @@ async function updateExistingOrder(
       missing_info: allMissingInfo,
       order_value: aiResult.orderValue,
       status_changed_to: newStatus,
-      clarification_message: aiResult.clarificationEmail,
+      clarification_message: clarificationMessage || undefined,
     })
 
     // 3. Replace order items
