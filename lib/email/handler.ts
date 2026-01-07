@@ -139,10 +139,11 @@ async function createNewOrder(
   // Use AI-provided order number or generate one
   const orderNumber = aiResult.orderNumber || generateOrderNumber()
 
-  // Use AI-extracted received date or fallback to email date
-  const receivedDate = aiResult.receivedDate || email.date
+  // Always use the full email timestamp for received_date (when the order was actually received)
+  // This preserves the time component so dates display correctly across timezones
+  const receivedDate = email.date
 
-  // Use AI-extracted expected date or fallback to received date (ASAP = same day)
+  // Use AI-extracted expected date (when customer wants the order) or fallback to received date
   const expectedDate = aiResult.expectedDate || receivedDate
 
   // Gmail web uses a different ID format than the API, so we link to a search that opens the email directly

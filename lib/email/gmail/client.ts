@@ -231,6 +231,21 @@ export class GmailClient {
     const getHeader = (name: string) =>
       headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || ''
 
+    // Normalize the email date to ISO format for consistent storage and display
+    // Gmail Date header is RFC 2822 format (e.g., "Tue, 7 Jan 2025 10:30:00 -0800")
+    const rawDate = getHeader('Date')
+    let normalizedDate = rawDate
+    if (rawDate) {
+      try {
+        const parsed = new Date(rawDate)
+        if (!isNaN(parsed.getTime())) {
+          normalizedDate = parsed.toISOString()
+        }
+      } catch {
+        // Keep raw date if parsing fails
+      }
+    }
+
     return {
       id: message.id,
       threadId: message.threadId,
@@ -238,7 +253,7 @@ export class GmailClient {
       subject: getHeader('Subject'),
       from: getHeader('From'),
       to: getHeader('To'),
-      date: getHeader('Date'),
+      date: normalizedDate,
       body: this.extractBody(message.payload),
       snippet: message.snippet,
       attachments: this.extractAttachments(message.payload),
