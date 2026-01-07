@@ -1,11 +1,12 @@
 import { createClient } from '@/utils/supabase/server'
-import { getOrganizationId } from '@/lib/organizations/queries'
+import { getOrganizationId, isSuperAdmin } from '@/lib/organizations/queries'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
 import { WooCommerceSettings } from './components/WooCommerceSettings'
 import { CustomFieldsSettings } from './components/CustomFieldsSettings'
 import { OrganizationInfoSettings } from './components/OrganizationInfoSettings'
 import { SystemPromptSettings } from './components/SystemPromptSettings'
+import { AdminEmailSync } from './components/AdminEmailSync'
 import { getOrgRequiredFields } from '@/lib/orders/field-config'
 
 // Note: Card and CardContent are still used in the "No Organization Found" error state
@@ -39,6 +40,7 @@ async function getOrganizationData(orgId: string): Promise<OrganizationData | nu
 
 export default async function SettingsPage() {
   const orgId = await getOrganizationId()
+  const isAdmin = await isSuperAdmin()
 
   if (!orgId) {
     return (
@@ -113,6 +115,14 @@ export default async function SettingsPage() {
             <h2 className="text-lg font-medium text-gray-900 mb-4">Integrations</h2>
             <WooCommerceSettings organizationId={orgId} />
           </section>
+
+          {/* Admin Section - Super Admin Only */}
+          {isAdmin && (
+            <section>
+              <h2 className="text-lg font-medium text-gray-900 mb-4">Admin Tools</h2>
+              <AdminEmailSync />
+            </section>
+          )}
         </div>
       </div>
     </div>
