@@ -10,8 +10,27 @@
  */
 
 import * as XLSX from 'xlsx'
-import { pdf } from 'pdf-to-img'
 import type { EmailAttachment } from './gmail/client'
+
+// Dynamic import for pdf-to-img to prevent import-time crashes in serverless environments
+// The library uses pdfjs-dist which requires browser APIs (DOMMatrix, canvas) that don't exist in Node.js
+let pdfToImg: typeof import('pdf-to-img') | null = null
+let pdfImportError: Error | null = null
+
+// Try to import pdf-to-img, but don't crash if it fails
+const loadPdfToImg = async () => {
+  if (pdfToImg !== null || pdfImportError !== null) {
+    return pdfToImg
+  }
+  try {
+    pdfToImg = await import('pdf-to-img')
+    return pdfToImg
+  } catch (error) {
+    pdfImportError = error instanceof Error ? error : new Error(String(error))
+    console.warn('⚠️ pdf-to-img library could not be loaded (likely serverless environment):', pdfImportError.message)
+    return null
+  }
+}
 
 /**
  * Supported attachment types for processing
@@ -78,6 +97,10 @@ function processImage(attachment: EmailAttachment): ProcessedAttachment {
 /**
  * Process a PDF attachment by converting pages to images
  * Uses pdf-to-img to render PDF pages as PNG images
+ *
+ * NOTE: pdf-to-img uses pdfjs-dist which requires browser APIs (DOMMatrix, canvas).
+ * In serverless environments like Vercel, these APIs don't exist, so we gracefully
+ * skip PDF processing with a warning rather than crashing the webhook.
  */
 async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachment> {
   if (!attachment.data) {
@@ -86,11 +109,18 @@ async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachm
   }
 
   try {
+    // Dynamically load pdf-to-img to prevent import-time crashes
+    const pdfModule = await loadPdfToImg()
+    if (!pdfModule) {
+      console.warn(`⚠️ PDF processing skipped for ${attachment.filename}: pdf-to-img library not available in this environment.`)
+      return { filename: attachment.filename, type: 'pdf', images: [] }
+    }
+
     // Convert base64 to Buffer
     const pdfBuffer = Buffer.from(attachment.data, 'base64')
 
     // Convert PDF pages to images using async iterator
-    const pdfDocument = await pdf(pdfBuffer, { scale: 2.0 })
+    const pdfDocument = await pdfModule.pdf(pdfBuffer, { scale: 2.0 })
     const base64Images: string[] = []
 
     // Iterate through pages and convert each to base64
@@ -106,7 +136,17 @@ async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachm
       images: base64Images,
     }
   } catch (error) {
-    console.error(`Failed to process PDF ${attachment.filename}:`, error)
+    // Handle DOMMatrix/canvas errors in serverless environments
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const isDOMError = errorMessage.includes('DOMMatrix') ||
+                       errorMessage.includes('canvas') ||
+                       errorMessage.includes('is not defined')
+
+    if (isDOMError) {
+      console.warn(`⚠️ PDF processing skipped for ${attachment.filename}: Browser APIs not available in serverless environment.`)
+    } else {
+      console.error(`Failed to process PDF ${attachment.filename}:`, error)
+    }
     return { filename: attachment.filename, type: 'pdf', images: [] }
   }
 }
