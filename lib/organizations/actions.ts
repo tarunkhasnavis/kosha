@@ -144,16 +144,23 @@ export async function saveCustomFields(
   // Verify user has access to this organization
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organization_id, role')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.organization_id !== organizationId) {
+  if (!profile) {
     return { success: false, error: 'Access denied' }
   }
 
-  // Only owners and admins can modify settings
-  if (profile.role !== 'owner' && profile.role !== 'admin') {
+  // Super admins can access any organization
+  const isSuperAdmin = profile.is_super_admin === true
+
+  if (!isSuperAdmin && profile.organization_id !== organizationId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Only owners, admins, and super admins can modify settings
+  if (!isSuperAdmin && profile.role !== 'owner' && profile.role !== 'admin') {
     return { success: false, error: 'Insufficient permissions' }
   }
 
@@ -376,16 +383,23 @@ export async function saveSystemPrompt(
   // Verify user has access to this organization
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organization_id, role')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.organization_id !== organizationId) {
+  if (!profile) {
     return { success: false, error: 'Access denied' }
   }
 
-  // Only owners and admins can modify settings
-  if (profile.role !== 'owner' && profile.role !== 'admin') {
+  // Super admins can access any organization
+  const isSuperAdmin = profile.is_super_admin === true
+
+  if (!isSuperAdmin && profile.organization_id !== organizationId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Only owners, admins, and super admins can modify settings
+  if (!isSuperAdmin && profile.role !== 'owner' && profile.role !== 'admin') {
     return { success: false, error: 'Insufficient permissions' }
   }
 
@@ -426,16 +440,23 @@ export async function updateOrganizationInfo(
   // Verify user has access to this organization
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organization_id, role')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.organization_id !== organizationId) {
+  if (!profile) {
     return { success: false, error: 'Access denied' }
   }
 
-  // Only owners and admins can modify settings
-  if (profile.role !== 'owner' && profile.role !== 'admin') {
+  // Super admins can access any organization
+  const isSuperAdmin = profile.is_super_admin === true
+
+  if (!isSuperAdmin && profile.organization_id !== organizationId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Only owners, admins, and super admins can modify settings
+  if (!isSuperAdmin && profile.role !== 'owner' && profile.role !== 'admin') {
     return { success: false, error: 'Insufficient permissions' }
   }
 

@@ -115,8 +115,3 @@
   animation-delay: 1000ms;
 }
 
-/* Ensure sheet/dialog exit animations complete before unmount */
-[data-state="closed"] {
-  animation-fill-mode: forwards;
-  pointer-events: none;
-}

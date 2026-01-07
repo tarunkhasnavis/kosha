@@ -78,12 +78,12 @@ export function MainNav({
   return (
     <nav className="fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-[rgba(15,23,42,0.06)] flex flex-col">
       {/* Logo */}
-      <div className="h-16 flex items-end pb-3 px-6">
+      <div className="h-16 flex items-center justify-between px-6">
         <Link href="/orders">
           <span className={`text-[22px] text-slate-900 ${youngSerif.className}`}>kosha</span>
         </Link>
         {isSuperAdmin && (
-          <Badge variant="outline" className="ml-3 text-xs bg-purple-50 text-purple-700 border-purple-200">
+          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
             <Shield className="h-3 w-3 mr-1" />
             Admin
           </Badge>
@@ -93,22 +93,17 @@ export function MainNav({
       {/* Super Admin Org Switcher */}
       {isSuperAdmin && allOrganizations.length > 0 && (
         <div className="px-3 py-3 border-b border-[rgba(15,23,42,0.06)] bg-purple-50/30">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-300 transition-colors duration-150"
-                disabled={isSwitching}
-              >
-                {isSwitching ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
-                ) : (
-                  <Shield className="h-4 w-4 text-purple-600" />
-                )}
-                <span className="flex-1 text-left text-sm font-medium text-slate-900 truncate">
-                  {isOverride ? organizationName : "Select Organization"}
-                </span>
-                <ChevronDown className="h-4 w-4 text-slate-400" />
-              </button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-300 transition-colors duration-150 cursor-pointer" disabled={isSwitching}>
+              {isSwitching ? (
+                <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+              ) : (
+                <Shield className="h-4 w-4 text-purple-600" />
+              )}
+              <span className="flex-1 text-left text-sm font-medium text-slate-900 truncate">
+                {isOverride ? organizationName : "Select Organization"}
+              </span>
+              <ChevronDown className="h-4 w-4 text-slate-400" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
               <DropdownMenuLabel className="text-xs text-muted-foreground">
