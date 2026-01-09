@@ -187,33 +187,33 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
         )}
       </div>
 
-      {/* Company Name */}
-      <span className="text-sm text-slate-600 truncate w-44 shrink-0">
+      {/* Company Name - can shrink on narrow screens but never hidden */}
+      <span className="text-sm text-slate-600 truncate w-32 lg:w-44 min-w-[80px] shrink">
         {order.company_name || "Unknown Company"}
       </span>
 
-      {/* Received date */}
-      <div className="flex items-center text-slate-500 w-28 shrink-0">
+      {/* Received date - hidden on narrow screens */}
+      <div className="hidden xl:flex items-center text-slate-500 w-28 shrink-0">
         <span className="text-sm">
           {new Date(order.received_date).toLocaleDateString()}
         </span>
       </div>
 
-      {/* Items count */}
-      <span className="text-sm text-slate-500 w-20 shrink-0 -mr-2">
+      {/* Items count - hidden on narrow screens */}
+      <span className="hidden xl:block text-sm text-slate-500 w-20 shrink-0 -mr-2">
         {order.item_count ?? 0} items
       </span>
 
-      {/* Order value */}
-      <span className="text-sm font-medium text-slate-700 w-24 shrink-0 text-right">
+      {/* Order value - hidden below xl */}
+      <span className="hidden xl:block text-sm font-medium text-slate-700 w-24 shrink-0 text-right">
         ${Number(order.order_value)?.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         }) ?? "0.00"}
       </span>
 
-      {/* Completeness */}
-      <div className="flex items-center gap-2 w-24 shrink-0 ml-6">
+      {/* Completeness - hidden on narrow screens */}
+      <div className="hidden xl:flex items-center gap-2 w-24 shrink-0 ml-6">
         {(order.status === "approved" || order.status === "archived") ? (
           <div className="flex items-center gap-1.5">
             <CheckCircle className="h-4 w-4 text-emerald-500" />
@@ -393,71 +393,107 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
           </>
         )}
 
-        {/* Approved: Archive + Download */}
+        {/* Approved: Archive + Download (icon-only below xl breakpoint) */}
         {order.status === "approved" && (
           <>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 px-3 text-xs"
-              disabled={isLoading === "archive"}
-              onClick={handleArchive}
-            >
-              {isLoading === "archive" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Archive className="h-3.5 w-3.5 mr-1" />
-              )}
-              Archive
-            </Button>
-            <Button
-              size="sm"
-              className={`h-8 px-3 text-xs ${
-                isDownloaded
-                  ? "bg-slate-100 hover:bg-slate-200 text-slate-500"
-                  : "bg-slate-500 hover:bg-slate-600 text-white"
-              }`}
-              disabled={isLoading === "download"}
-              onClick={handleDownload}
-            >
-              {isLoading === "download" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : isDownloaded ? (
-                <CheckCheck className="h-3.5 w-3.5 mr-1" />
-              ) : (
-                <Download className="h-3.5 w-3.5 mr-1" />
-              )}
-              {isDownloaded ? "Downloaded" : "Download"}
-            </Button>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0 xl:w-auto xl:px-3"
+                    disabled={isLoading === "archive"}
+                    onClick={handleArchive}
+                  >
+                    {isLoading === "archive" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5 xl:mr-1" />
+                    )}
+                    <span className="hidden xl:inline text-xs">Archive</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="xl:hidden">
+                  <p>Archive</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    className={`h-8 w-8 p-0 xl:w-auto xl:px-3 ${
+                      isDownloaded
+                        ? "bg-slate-100 hover:bg-slate-200 text-slate-500"
+                        : "bg-slate-500 hover:bg-slate-600 text-white"
+                    }`}
+                    disabled={isLoading === "download"}
+                    onClick={handleDownload}
+                  >
+                    {isLoading === "download" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : isDownloaded ? (
+                      <CheckCheck className="h-3.5 w-3.5 xl:mr-1" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5 xl:mr-1" />
+                    )}
+                    <span className="hidden xl:inline text-xs">{isDownloaded ? "Downloaded" : "Download"}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="xl:hidden">
+                  <p>{isDownloaded ? "Download again" : "Download"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         )}
 
-        {/* Archived: Restore + Download */}
+        {/* Archived: Restore + Download (icon-only below xl breakpoint) */}
         {order.status === "archived" && (
           <>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 px-3 text-xs"
-              disabled={isLoading === "unarchive"}
-              onClick={handleUnarchive}
-            >
-              {isLoading === "unarchive" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
-              )}
-              Restore
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 px-3 text-xs"
-              onClick={handleSimpleDownload}
-            >
-              <Download className="h-3.5 w-3.5 mr-1" />
-              Download
-            </Button>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0 xl:w-auto xl:px-3"
+                    disabled={isLoading === "unarchive"}
+                    onClick={handleUnarchive}
+                  >
+                    {isLoading === "unarchive" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ArchiveRestore className="h-3.5 w-3.5 xl:mr-1" />
+                    )}
+                    <span className="hidden xl:inline text-xs">Restore</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="xl:hidden">
+                  <p>Restore</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0 xl:w-auto xl:px-3"
+                    onClick={handleSimpleDownload}
+                  >
+                    <Download className="h-3.5 w-3.5 xl:mr-1" />
+                    <span className="hidden xl:inline text-xs">Download</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="xl:hidden">
+                  <p>Download</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         )}
       </div>
