@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
@@ -36,6 +37,7 @@ import {
   Voicemail,
   FileSpreadsheet,
   FileText,
+  RotateCcw,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 import type { SaveAndAnalyzeResult } from "@/lib/orders/actions"
@@ -46,6 +48,7 @@ import {
   hasItemsChanged,
   generateTempId,
   type EditableItem,
+  type EditedFieldOverrides,
 } from "@/lib/orders/completeness"
 import { ItemsTable } from "./ItemsTable"
 import { durations, easings } from "@/lib/motion"
@@ -81,6 +84,7 @@ export interface OrderFieldsWithOrgFields {
   expected_date?: string
   ship_via?: string
   orgFields?: Record<string, string | number | null>
+  include_notes_in_pdf?: boolean
 }
 
 interface OrderEditPanelProps {
@@ -94,6 +98,7 @@ interface OrderEditPanelProps {
   onSaveAndAnalyze?: (orderId: string, items: EditableItem[], orderFields: OrderFieldsWithOrgFields, deletedItems?: EditableItem[]) => Promise<SaveAndAnalyzeResult>
   onRequestInfo?: (orderId: string, clarificationMessage: string) => Promise<void>
   onSaveClarificationMessage?: (orderId: string, clarificationMessage: string) => Promise<void>
+  onRetry?: (orderId: string) => Promise<{ success: boolean; isComplete: boolean; error?: string }>
   orgRequiredFields: OrgRequiredField[]
 }
 
@@ -108,6 +113,7 @@ export function OrderEditPanel({
   onSaveAndAnalyze,
   onRequestInfo,
   onSaveClarificationMessage,
+  onRetry,
   orgRequiredFields,
 }: OrderEditPanelProps) {
   const [items, setItems] = useState<EditableItem[]>([])
@@ -116,6 +122,7 @@ export function OrderEditPanel({
   const [notes, setNotes] = useState("")
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined)
   const [shipVia, setShipVia] = useState<string>("")
+  const [includeNotesInPdf, setIncludeNotesInPdf] = useState(false)
   const [orgFieldValues, setOrgFieldValues] = useState<Record<string, string | number | null>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [savingAction, setSavingAction] = useState<string | null>(null)
@@ -125,6 +132,8 @@ export function OrderEditPanel({
   const [isApprovalEmailSectionOpen, setIsApprovalEmailSectionOpen] = useState(false)
   const [editableApprovalEmail, setEditableApprovalEmail] = useState("")
   const [isLoadingApprovalEmail, setIsLoadingApprovalEmail] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
+  const [showRetryConfirm, setShowRetryConfirm] = useState(false)
 
   // Inline continuation result (replaces dialog)
   const [continueResult, setContinueResult] = useState<{
@@ -164,6 +173,7 @@ export function OrderEditPanel({
       setNotes(order.notes || "")
       setDeliveryDate(order.expected_date ? new Date(order.expected_date) : undefined)
       setShipVia(order.ship_via || "")
+      setIncludeNotesInPdf(order.include_notes_in_pdf ?? false)
 
       // Initialize org field values from order.custom_fields
       const initialOrgFields: Record<string, string | number | null> = {}
@@ -238,11 +248,12 @@ export function OrderEditPanel({
     return editableClarificationMessage !== originalMessage
   }, [order, editableClarificationMessage])
 
-  // Compute completeness
+  // Compute completeness (using current edited field values)
   const completeness = useMemo(() => {
     if (!order) return null
-    return calculateCompleteness(order, items, orgRequiredFields)
-  }, [order, items, orgRequiredFields])
+    const editedFields: EditedFieldOverrides = { ship_via: shipVia }
+    return calculateCompleteness(order, items, orgRequiredFields, editedFields)
+  }, [order, items, orgRequiredFields, shipVia])
 
   if (!order) return null
 
@@ -320,7 +331,7 @@ export function OrderEditPanel({
     setSavingAction("save")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, deletedItems)
+      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -336,7 +347,7 @@ export function OrderEditPanel({
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
       // Pass custom approval email if user edited it, otherwise undefined to use default
       const customEmail = editableApprovalEmail.trim() || undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, customEmail, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, customEmail, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -370,7 +381,7 @@ export function OrderEditPanel({
     setSavingAction("continue")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues }, deletedItems)
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, deletedItems)
 
       // Show inline result instead of dialog
       setContinueResult({
@@ -406,7 +417,7 @@ export function OrderEditPanel({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined }, undefined, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, include_notes_in_pdf: includeNotesInPdf }, undefined, deletedItems)
       setContinueResult(null)
       onClose()
     } finally {
@@ -441,6 +452,28 @@ export function OrderEditPanel({
       }
     }
     setContinueResult(null)
+  }
+
+  // Handle retry processing
+  const handleRetry = async () => {
+    if (!onRetry || !order) return
+
+    setIsRetrying(true)
+    setShowRetryConfirm(false)
+    try {
+      const result = await onRetry(order.id)
+      if (result.success) {
+        // Close and let the list refresh with new data
+        onClose()
+      } else {
+        console.error('Retry failed:', result.error)
+        // Could show an error toast here
+      }
+    } catch (error) {
+      console.error('Error during retry:', error)
+    } finally {
+      setIsRetrying(false)
+    }
   }
 
   const isNeedsInfo = order.status === "awaiting_clarification"
@@ -606,6 +639,51 @@ export function OrderEditPanel({
                   </Button>
                 )}
               </>
+            )}
+
+            {/* Retry button - available for email orders that aren't archived */}
+            {!isArchived && order.source === "email" && onRetry && (
+              showRetryConfirm ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowRetryConfirm(false)}
+                    disabled={isRetrying}
+                    className="h-8 px-2 text-slate-500 hover:text-slate-700"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    disabled={isRetrying}
+                    className="h-8 px-3 rounded-lg border-violet-300 text-violet-600 hover:bg-violet-50"
+                  >
+                    {isRetrying ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : null}
+                    Confirm
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowRetryConfirm(true)}
+                  disabled={isSaving || isRetrying}
+                  className="h-8 px-3 rounded-lg border-violet-300 text-violet-600 hover:bg-violet-50"
+                  title="Re-run AI processing on this order"
+                >
+                  {isRetrying ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Retry
+                </Button>
+              )
             )}
 
             {/* Divider between actions and controls */}
@@ -928,11 +1006,14 @@ export function OrderEditPanel({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-600">Ship Via</Label>
+                    <Label className="text-xs text-slate-600">
+                      Ship Via <span className="text-red-500">*</span>
+                    </Label>
                     <Select value={shipVia} onValueChange={setShipVia} disabled={isArchived}>
                       <SelectTrigger className={cn(
                         "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
-                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed",
+                        !shipVia && "border-red-300"
                       )}>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -952,7 +1033,24 @@ export function OrderEditPanel({
                   </div>
                 </div>
                 <div className="space-y-1.5 mt-4">
-                  <Label htmlFor="notes" className="text-xs text-slate-600">Notes</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="notes" className="text-xs text-slate-600">Notes</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Checkbox
+                        id="include-notes-pdf"
+                        checked={includeNotesInPdf}
+                        onCheckedChange={(checked) => setIncludeNotesInPdf(checked === true)}
+                        disabled={isArchived}
+                        className="h-3.5 w-3.5"
+                      />
+                      <Label
+                        htmlFor="include-notes-pdf"
+                        className="text-xs text-slate-400 cursor-pointer"
+                      >
+                        Include in PDF
+                      </Label>
+                    </div>
+                  </div>
                   <Textarea
                     id="notes"
                     value={notes}
@@ -1170,11 +1268,14 @@ export function OrderEditPanel({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-600">Ship Via</Label>
+                    <Label className="text-xs text-slate-600">
+                      Ship Via <span className="text-red-500">*</span>
+                    </Label>
                     <Select value={shipVia} onValueChange={setShipVia} disabled={isArchived}>
                       <SelectTrigger className={cn(
                         "bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300",
-                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                        isArchived && "bg-slate-50 text-slate-500 cursor-not-allowed",
+                        !shipVia && "border-red-300"
                       )}>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -1194,7 +1295,24 @@ export function OrderEditPanel({
                   </div>
                 </div>
                 <div className="space-y-1.5 mt-4">
-                  <Label htmlFor="notes-peek" className="text-xs text-slate-600">Notes</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="notes-peek" className="text-xs text-slate-600">Notes</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Checkbox
+                        id="include-notes-pdf-peek"
+                        checked={includeNotesInPdf}
+                        onCheckedChange={(checked) => setIncludeNotesInPdf(checked === true)}
+                        disabled={isArchived}
+                        className="h-3.5 w-3.5"
+                      />
+                      <Label
+                        htmlFor="include-notes-pdf-peek"
+                        className="text-xs text-slate-400 cursor-pointer"
+                      >
+                        Include in PDF
+                      </Label>
+                    </div>
+                  </div>
                   <Textarea
                     id="notes-peek"
                     value={notes}

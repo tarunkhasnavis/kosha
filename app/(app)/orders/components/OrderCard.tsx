@@ -149,63 +149,82 @@ interface StatusActionsProps {
   onReject?: (orderId: string) => Promise<void>
   onApprove?: (orderId: string) => Promise<void>
   onRequestInfo?: (orderId: string) => Promise<void>
+  onArchive?: (e: React.MouseEvent) => void
 }
 
-function PendingReviewActions({ order, isLoading, onAction, onReject, onApprove }: StatusActionsProps) {
+function PendingReviewActions({ order, isLoading, onAction, onReject, onApprove, onArchive }: StatusActionsProps) {
   return (
-    <div className="grid grid-cols-2 gap-2 pt-4">
-      <ActionButton
-        icon={XCircle}
-        label="Reject"
-        loading={isLoading === "reject"}
+    <div className="flex items-center gap-2 pt-4">
+      <div className="grid grid-cols-2 gap-2 flex-1">
+        <ActionButton
+          icon={XCircle}
+          label="Reject"
+          loading={isLoading === "reject"}
+          disabled={isLoading !== null}
+          onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
+        />
+        <ActionButton
+          icon={CheckCircle}
+          label="Approve"
+          loading={isLoading === "approve"}
+          disabled={isLoading !== null}
+          variant="default"
+          onClick={onAction("approve", () => onApprove?.(order.id) ?? Promise.resolve())}
+        />
+      </div>
+      <IconButton
+        icon={Archive}
+        tooltip="Archive"
+        loading={isLoading === "archive"}
         disabled={isLoading !== null}
-        onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
-      />
-      <ActionButton
-        icon={CheckCircle}
-        label="Approve"
-        loading={isLoading === "approve"}
-        disabled={isLoading !== null}
-        variant="default"
-        onClick={onAction("approve", () => onApprove?.(order.id) ?? Promise.resolve())}
+        onClick={onArchive!}
       />
     </div>
   )
 }
 
-function NeedsInfoActions({ order, isLoading, onAction, onReject, onRequestInfo }: StatusActionsProps) {
+function NeedsInfoActions({ order, isLoading, onAction, onReject, onRequestInfo, onArchive }: StatusActionsProps) {
   const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
 
   return (
-    <div className="grid grid-cols-2 gap-2 pt-4">
-      <ActionButton
-        icon={XCircle}
-        label="Reject"
-        loading={isLoading === "reject"}
-        disabled={isLoading !== null}
-        onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
-      />
-      {hasClarificationMessage ? (
+    <div className="flex items-center gap-2 pt-4">
+      <div className="grid grid-cols-2 gap-2 flex-1">
         <ActionButton
-          icon={Send}
-          label="Request Info"
-          loading={isLoading === "requestInfo"}
+          icon={XCircle}
+          label="Reject"
+          loading={isLoading === "reject"}
           disabled={isLoading !== null}
-          variant="default"
-          className="bg-orange-600 hover:bg-orange-700 text-white"
-          onClick={onAction("requestInfo", () => onRequestInfo?.(order.id) ?? Promise.resolve())}
+          onClick={onAction("reject", () => onReject?.(order.id) ?? Promise.resolve())}
         />
-      ) : (
-        <Button
-          size="sm"
-          variant="outline"
-          className="bg-gray-100 text-gray-500"
-          disabled
-        >
-          <CheckCheck className="h-4 w-4 mr-1" />
-          Request Sent
-        </Button>
-      )}
+        {hasClarificationMessage ? (
+          <ActionButton
+            icon={Send}
+            label="Request Info"
+            loading={isLoading === "requestInfo"}
+            disabled={isLoading !== null}
+            variant="default"
+            className="bg-orange-600 hover:bg-orange-700 text-white"
+            onClick={onAction("requestInfo", () => onRequestInfo?.(order.id) ?? Promise.resolve())}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-gray-100 text-gray-500"
+            disabled
+          >
+            <CheckCheck className="h-4 w-4 mr-1" />
+            Request Sent
+          </Button>
+        )}
+      </div>
+      <IconButton
+        icon={Archive}
+        tooltip="Archive"
+        loading={isLoading === "archive"}
+        disabled={isLoading !== null}
+        onClick={onArchive!}
+      />
     </div>
   )
 }
@@ -444,6 +463,7 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
             onAction={createActionHandler}
             onReject={onReject}
             onApprove={onApprove}
+            onArchive={handleArchive}
           />
         )}
 
@@ -454,6 +474,7 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
             onAction={createActionHandler}
             onReject={onReject}
             onRequestInfo={onRequestInfo}
+            onArchive={handleArchive}
           />
         )}
 

@@ -287,7 +287,7 @@ RESPONSE FORMAT (JSON):
   "orderValue": 150.50,
   "receivedDate": "YYYY-MM-DD" or null,  // When order was PLACED (email date/header date)
   "expectedDate": "YYYY-MM-DD" or null,  // When customer WANTS pickup/delivery - from notes like "12/9" or "Friday" (NOT the email header date!)
-  "shipVia": "Customer Pickup" or "Delivery" or null,
+  "shipVia": "Customer Pickup" or "Delivery",  // REQUIRED - infer if not explicit
   "notes": "Only explicit Note:/Comments: content here, NOT the email body" or null,
   "billingAddress": "123 Main St, City, State" or null,
   "phone": "555-1234" or null,
@@ -302,7 +302,8 @@ RESPONSE FORMAT (JSON):
 
 RULES:
 - Not an order (question, complaint, inquiry) → {"isOrder": false}
-- isComplete = true only if ALL items have name + quantity > 0
+- isComplete = true only if ALL items have name + quantity > 0 AND shipVia is filled
+- shipVia is REQUIRED: must be "Customer Pickup" or "Delivery". Infer from context if not explicit (e.g., "I'll pick it up" → "Customer Pickup", delivery address mentioned → "Delivery"). If truly cannot determine, add "Delivery method (pickup or delivery)" to missingInfo.
 - If isComplete = false, generate clarificationEmail asking for the missing info
 
 CLARIFICATION EMAIL FORMAT (only if isComplete = false):

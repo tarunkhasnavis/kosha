@@ -14,19 +14,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { Loader2 } from "lucide-react"
 
 const REJECTION_REASONS = [
-  { value: "duplicate", label: "Duplicate order" },
-  { value: "not_order", label: "Not an order" },
-  { value: "customer_change", label: "Customer change" },
-  { value: "maintenance", label: "Under maintenance" },
-  { value: "other", label: "Other" },
+  { value: "duplicate", label: "Duplicate order", noEmail: true },
+  { value: "not_order", label: "Not an order", noEmail: true },
+  { value: "customer_change", label: "Customer change", noEmail: false },
+  { value: "maintenance", label: "Under maintenance", noEmail: false },
+  { value: "other", label: "Other", noEmail: false },
 ] as const
+
+// Reasons that should not trigger an email
+export const NO_EMAIL_REASONS = ["duplicate", "not_order"] as const
 
 type ReasonValue = (typeof REJECTION_REASONS)[number]["value"]
 
 interface RejectOrderModalProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (reason: string) => Promise<void>
+  onConfirm: (reason: string, skipEmail: boolean) => Promise<void>
   orderNumber?: string
 }
 
@@ -50,7 +53,8 @@ export function RejectOrderModal({
         const reasonOption = REJECTION_REASONS.find(r => r.value === selectedReason)
         reason = reasonOption?.label || selectedReason
       }
-      await onConfirm(reason)
+      const skipEmail = NO_EMAIL_REASONS.includes(selectedReason as typeof NO_EMAIL_REASONS[number])
+      await onConfirm(reason, skipEmail)
       // Reset state after successful submission
       setSelectedReason("duplicate")
       setOtherReason("")
@@ -99,6 +103,9 @@ export function RejectOrderModal({
                   className="text-sm font-normal text-slate-700 cursor-pointer flex-1"
                 >
                   {reason.label}
+                  {reason.noEmail && (
+                    <span className="text-slate-400 ml-1">(no email)</span>
+                  )}
                 </Label>
               </div>
             ))}

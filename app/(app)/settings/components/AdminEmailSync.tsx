@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { RefreshCw, Mail, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { RefreshCw, Mail, CheckCircle, XCircle, Loader2, Calendar } from 'lucide-react'
 
 interface SyncResult {
   id: string
@@ -36,30 +36,71 @@ interface SyncResponse {
   results?: SyncResult[]
   error?: string
   reason?: string
+  message?: string
 }
 
 export function AdminEmailSync() {
-  const [query, setQuery] = useState('')
-  const [messageId, setMessageId] = useState('')
-  const [maxEmails, setMaxEmails] = useState('20')
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<SyncResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const handleSync = async (mode: 'query' | 'messageId') => {
+  // Date picker state - default to yesterday
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const [selectedDate, setSelectedDate] = useState(yesterday.toISOString().split('T')[0])
+
+  const syncEmailsFromDate = async (date: string) => {
     setIsLoading(true)
     setResult(null)
     setError(null)
 
     try {
-      const body = mode === 'messageId'
-        ? { messageId }
-        : { query, maxEmails: parseInt(maxEmails) || 20 }
+      // Convert date to Gmail query format (YYYY/MM/DD)
+      const dateObj = new Date(date)
+      const nextDay = new Date(dateObj)
+      nextDay.setDate(nextDay.getDate() + 1)
+
+      const formatDate = (d: Date) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+
+      const query = `after:${formatDate(dateObj)} before:${formatDate(nextDay)}`
 
       const response = await fetch('/api/admin/sync-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ query, maxEmails: 50 }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to sync emails')
+        return
+      }
+
+      setResult(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync emails')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const syncRecentEmails = async (days: number) => {
+    setIsLoading(true)
+    setResult(null)
+    setError(null)
+
+    try {
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - days)
+      const formatDate = (d: Date) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+
+      const query = `after:${formatDate(startDate)}`
+
+      const response = await fetch('/api/admin/sync-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, maxEmails: 50 }),
       })
 
       const data = await response.json()
@@ -104,76 +145,64 @@ export function AdminEmailSync() {
           Manual Email Sync
         </CardTitle>
         <CardDescription>
-          Process missed emails that weren't captured by the Gmail webhook.
-          Already-processed emails will be safely skipped.
+          Re-process emails that may have been missed. Already-processed emails are safely skipped.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Search by Query */}
+        {/* Quick Actions */}
         <div className="space-y-3">
-          <Label className="text-sm font-medium">Search by Gmail Query</Label>
-          <div className="flex gap-2">
-            <Input
-              placeholder="e.g., after:2025/01/06 before:2025/01/08"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1"
-            />
-            <Input
-              type="number"
-              placeholder="Max"
-              value={maxEmails}
-              onChange={(e) => setMaxEmails(e.target.value)}
-              className="w-20"
-              min="1"
-              max="50"
-            />
+          <Label className="text-sm font-medium">Quick Sync</Label>
+          <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => handleSync('query')}
-              disabled={isLoading || !query.trim()}
-            >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              <span className="ml-2">Sync</span>
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Use Gmail search syntax: <code className="bg-gray-100 px-1 rounded">after:YYYY/MM/DD</code>,{' '}
-            <code className="bg-gray-100 px-1 rounded">from:email@example.com</code>,{' '}
-            <code className="bg-gray-100 px-1 rounded">subject:order</code>
-          </p>
-        </div>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-2 text-muted-foreground">Or</span>
-          </div>
-        </div>
-
-        {/* Search by Message ID */}
-        <div className="space-y-3">
-          <Label className="text-sm font-medium">Process Specific Email</Label>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Gmail message ID (e.g., 18d1234567890abc)"
-              value={messageId}
-              onChange={(e) => setMessageId(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              onClick={() => handleSync('messageId')}
-              disabled={isLoading || !messageId.trim()}
+              onClick={() => syncRecentEmails(1)}
+              disabled={isLoading}
               variant="outline"
+              size="sm"
             >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-              <span className="ml-2">Process</span>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Last 24 Hours
+            </Button>
+            <Button
+              onClick={() => syncRecentEmails(3)}
+              disabled={isLoading}
+              variant="outline"
+              size="sm"
+            >
+              Last 3 Days
+            </Button>
+            <Button
+              onClick={() => syncRecentEmails(7)}
+              disabled={isLoading}
+              variant="outline"
+              size="sm"
+            >
+              Last 7 Days
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Find the message ID in Gmail's URL when viewing an email
-          </p>
+        </div>
+
+        {/* Date Picker */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Sync Specific Date</Label>
+          <div className="flex gap-2">
+            <div className="relative flex-1 max-w-48">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="pl-10"
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+            <Button
+              onClick={() => syncEmailsFromDate(selectedDate)}
+              disabled={isLoading || !selectedDate}
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Sync This Date
+            </Button>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -190,56 +219,57 @@ export function AdminEmailSync() {
         {/* Results Display */}
         {result && (
           <div className="space-y-4">
+            {/* No emails found */}
+            {result.message && (
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-muted-foreground">{result.message}</p>
+              </div>
+            )}
+
             {/* Summary for batch queries */}
             {result.summary && (
-              <div className="p-4 bg-gray-50 rounded-lg space-y-2">
+              <div className="p-4 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-green-500" />
                   <span className="font-medium">Sync Complete</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>Total emails found: <span className="font-medium">{result.summary.total}</span></div>
-                  <div>Newly processed: <span className="font-medium text-green-600">{result.summary.newlyProcessed}</span></div>
-                  <div>Already processed: <span className="font-medium text-gray-600">{result.summary.alreadyProcessed}</span></div>
-                  <div>Not orders: <span className="font-medium text-yellow-600">{result.summary.skippedNotOrder}</span></div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <div>Total emails found:</div>
+                  <div className="font-medium">{result.summary.total}</div>
+                  <div>New orders created:</div>
+                  <div className="font-medium text-green-600">{result.summary.newlyProcessed}</div>
+                  <div>Already processed:</div>
+                  <div className="font-medium text-gray-600">{result.summary.alreadyProcessed}</div>
+                  <div>Not orders:</div>
+                  <div className="font-medium text-yellow-600">{result.summary.skippedNotOrder}</div>
+                  {result.summary.skippedOwnEmails > 0 && (
+                    <>
+                      <div>Outgoing emails skipped:</div>
+                      <div className="font-medium text-gray-500">{result.summary.skippedOwnEmails}</div>
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
-
-            {/* Single email result */}
-            {result.action && !result.summary && (
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium truncate">{result.subject || 'Email processed'}</span>
-                  {getActionBadge(result.action)}
-                </div>
-                {result.from && (
-                  <p className="text-sm text-muted-foreground">From: {result.from}</p>
-                )}
-                {result.orderId && (
-                  <p className="text-sm text-green-600 mt-1">Order ID: {result.orderId}</p>
-                )}
-                {result.reason && (
-                  <p className="text-sm text-yellow-600 mt-1">{result.reason}</p>
-                )}
               </div>
             )}
 
             {/* Detailed results list */}
             {result.results && result.results.length > 0 && (
-              <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                {result.results.map((r, i) => (
-                  <div key={i} className="p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{r.subject || r.id}</p>
-                      {r.from && <p className="text-xs text-muted-foreground truncate">{r.from}</p>}
-                      {r.error && <p className="text-xs text-red-600">{r.error}</p>}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Processed Emails</Label>
+                <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                  {result.results.map((r, i) => (
+                    <div key={i} className="p-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{r.subject || r.id}</p>
+                        {r.from && <p className="text-xs text-muted-foreground truncate">{r.from}</p>}
+                        {r.error && <p className="text-xs text-red-600">{r.error}</p>}
+                      </div>
+                      <div className="shrink-0">
+                        {getActionBadge(r.action)}
+                      </div>
                     </div>
-                    <div className="shrink-0">
-                      {getActionBadge(r.action)}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>

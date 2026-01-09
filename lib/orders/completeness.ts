@@ -60,6 +60,7 @@ export interface CompletenessResult {
 /** Order-level required fields to check for completeness */
 export const ORDER_FIELDS: FieldDefinition[] = [
   { key: 'company_name', label: 'Company Name', required: true },
+  { key: 'ship_via', label: 'Ship Via', required: true },
 ]
 
 /** Item-level required fields to check for completeness (per item) */
@@ -100,22 +101,32 @@ function isItemFieldFilled(item: EditableItem, fieldKey: string): boolean {
 // =============================================================================
 
 /**
+ * Edited field overrides - use this to pass current form state
+ * that differs from the original order object
+ */
+export interface EditedFieldOverrides {
+  ship_via?: string
+}
+
+/**
  * Calculate order completeness based on filled fields
  *
  * Checks:
- * - Order-level fields (company_name, contact info, etc.)
+ * - Order-level fields (company_name, ship_via, etc.)
  * - Org-specific required fields (from custom_fields)
  * - Item-level fields (name, sku, quantity, price for each item)
  *
  * @param order - The order being edited
  * @param items - Current state of editable items
  * @param orgRequiredFields - Organization-specific required fields config
+ * @param editedFields - Optional overrides for fields being edited in the form
  * @returns CompletenessResult with percentage and missing field info
  */
 export function calculateCompleteness(
   order: Order,
   items: EditableItem[],
-  orgRequiredFields: OrgRequiredField[]
+  orgRequiredFields: OrgRequiredField[],
+  editedFields?: EditedFieldOverrides
 ): CompletenessResult {
   const missingRequiredFields: string[] = []
   const itemMissingFields = new Map<string, string[]>()
@@ -126,7 +137,13 @@ export function calculateCompleteness(
   // Check order-level fields
   for (const field of ORDER_FIELDS) {
     totalFields++
-    const value = order[field.key as keyof Order]
+    // Use edited value if provided, otherwise use order value
+    let value: unknown
+    if (editedFields && field.key in editedFields) {
+      value = editedFields[field.key as keyof EditedFieldOverrides]
+    } else {
+      value = order[field.key as keyof Order]
+    }
     const isFilled = value !== null && value !== undefined && value !== ''
 
     if (isFilled) {

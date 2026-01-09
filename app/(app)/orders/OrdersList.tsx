@@ -19,6 +19,7 @@ import {
   rejectOrder,
   requestOrderInfo,
   saveClarificationMessage,
+  retryOrderProcessing,
   type EditableItemInput,
   type SaveAndAnalyzeResult,
 } from "@/lib/orders/actions"
@@ -384,10 +385,10 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
     setRejectingOrder(order)
   }
 
-  const handleRejectConfirm = async (reason: string) => {
+  const handleRejectConfirm = async (reason: string, skipEmail: boolean) => {
     if (!rejectingOrder) return
     try {
-      await rejectOrder(rejectingOrder.id, reason)
+      await rejectOrder(rejectingOrder.id, reason, skipEmail)
       toast({
         title: "Order Rejected",
         description: "The order has been removed",
@@ -501,6 +502,35 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
         variant: "destructive",
       })
       throw error
+    }
+  }
+
+  const handleRetry = async (orderId: string) => {
+    try {
+      const result = await retryOrderProcessing(orderId)
+      if (result.success) {
+        toast({
+          title: "Order Reprocessed",
+          description: result.isComplete
+            ? "AI reprocessing complete. Order is ready for review."
+            : "AI reprocessing complete. Order still needs information.",
+        })
+      } else {
+        toast({
+          title: "Retry Failed",
+          description: result.error || "Failed to reprocess order",
+          variant: "destructive",
+        })
+      }
+      return result
+    } catch (error) {
+      console.error("Failed to retry order processing:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to retry order processing",
+        variant: "destructive",
+      })
+      return { success: false, isComplete: false, error: "Failed to retry" }
     }
   }
 
@@ -629,6 +659,7 @@ export function OrdersList({ initialOrders, initialStats, orgRequiredFields }: O
         onSaveAndAnalyze={handleSaveAndAnalyze}
         onRequestInfo={handleRequestInfoWithMessage}
         onSaveClarificationMessage={handleSaveClarificationMessage}
+        onRetry={handleRetry}
         orgRequiredFields={orgRequiredFields}
       />
 

@@ -195,7 +195,7 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
   return { success: true }
 }
 
-export async function rejectOrder(orderId: string, reason?: string) {
+export async function rejectOrder(orderId: string, reason?: string, skipEmail: boolean = false) {
   const supabase = await createClient()
 
   // Get organization for email signature
@@ -243,48 +243,53 @@ export async function rejectOrder(orderId: string, reason?: string) {
   if (error) throw error
 
   // Try to send rejection email (non-blocking - don't fail if email fails)
-  try {
-    if (threadInfo) {
-      const emailBody = generateRejectionEmail(
-        {
-          orderNumber: order.order_number,
-          companyName: order.company_name || undefined,
-          contactName: order.contact_name || undefined,
-          items: (order.order_items || []).map((item: any) => ({
-            id: item.id,
-            order_id: orderId,
-            name: item.name,
-            sku: item.sku,
-            quantity: item.quantity,
-            quantity_unit: item.quantity_unit,
-            unit_price: item.unit_price,
-            total: item.total,
-          })),
-          orderValue: order.order_value,
-          expectedDate: order.expected_date || undefined,
-        },
-        organization.name || 'Our Team',
-        reason
-      )
+  // Skip email for certain reasons like "Duplicate order" or "Not an order"
+  if (!skipEmail) {
+    try {
+      if (threadInfo) {
+        const emailBody = generateRejectionEmail(
+          {
+            orderNumber: order.order_number,
+            companyName: order.company_name || undefined,
+            contactName: order.contact_name || undefined,
+            items: (order.order_items || []).map((item: any) => ({
+              id: item.id,
+              order_id: orderId,
+              name: item.name,
+              sku: item.sku,
+              quantity: item.quantity,
+              quantity_unit: item.quantity_unit,
+              unit_price: item.unit_price,
+              total: item.total,
+            })),
+            orderValue: order.order_value,
+            expectedDate: order.expected_date || undefined,
+          },
+          organization.name || 'Our Team',
+          reason
+        )
 
-      const result = await sendGmailReply(
-        threadInfo.threadId,
-        emailBody,
-        `Re: ${threadInfo.subject}`,
-        threadInfo.organizationId
-      )
+        const result = await sendGmailReply(
+          threadInfo.threadId,
+          emailBody,
+          `Re: ${threadInfo.subject}`,
+          threadInfo.organizationId
+        )
 
-      if (result.success) {
-        console.log(`✅ Sent rejection email for order ${orderId} (messageId: ${result.messageId})`)
+        if (result.success) {
+          console.log(`✅ Sent rejection email for order ${orderId} (messageId: ${result.messageId})`)
+        } else {
+          console.error(`⚠️ Failed to send rejection email: ${result.error}`)
+        }
       } else {
-        console.error(`⚠️ Failed to send rejection email: ${result.error}`)
+        console.log(`ℹ️ No email thread found for order ${orderId}, skipping rejection email`)
       }
-    } else {
-      console.log(`ℹ️ No email thread found for order ${orderId}, skipping rejection email`)
+    } catch (emailError) {
+      console.error('Error sending rejection email:', emailError)
+      // Don't throw - order is still rejected/deleted
     }
-  } catch (emailError) {
-    console.error('Error sending rejection email:', emailError)
-    // Don't throw - order is still rejected/deleted
+  } else {
+    console.log(`ℹ️ Skipping rejection email for order ${orderId} (reason: ${reason})`)
   }
 
   revalidatePath('/orders')
@@ -570,6 +575,7 @@ export async function saveOrderChanges(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
+    include_notes_in_pdf?: boolean
   },
   deletedItemIds?: string[]
 ) {
@@ -591,6 +597,7 @@ export async function saveOrderChanges(
     notes: orderFields.notes || null,
     expected_date: orderFields.expected_date || null,
     ship_via: orderFields.ship_via || null,
+    include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -659,6 +666,7 @@ export async function saveAndAnalyzeOrder(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
+    include_notes_in_pdf?: boolean
   },
   deletedItemIds?: string[]
 ): Promise<SaveAndAnalyzeResult> {
@@ -737,6 +745,7 @@ export async function saveAndAnalyzeOrder(
     expected_date: orderFields.expected_date || null,
     ship_via: orderFields.ship_via || null,
     status: newStatus,
+    include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -797,6 +806,7 @@ export async function saveAndApproveOrder(
     expected_date?: string
     ship_via?: string
     orgFields?: Record<string, string | number | null>
+    include_notes_in_pdf?: boolean
   },
   customApprovalEmail?: string,
   deletedItems?: EditableItemInput[]
@@ -820,6 +830,7 @@ export async function saveAndApproveOrder(
     expected_date: orderFields.expected_date || null,
     ship_via: orderFields.ship_via || null,
     status: 'approved',
+    include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -1054,6 +1065,202 @@ export async function createManualOrder(input: ManualOrderInput) {
 // ============================================
 // APPROVAL EMAIL PREVIEW
 // ============================================
+
+/**
+ * Retry AI processing for an order
+ * Re-runs the email parsing pipeline to regenerate order data
+ *
+ * @param orderId - The order to reprocess
+ * @returns Updated order status and whether it's complete
+ */
+export async function retryOrderProcessing(
+  orderId: string
+): Promise<{ success: boolean; isComplete: boolean; error?: string }> {
+  const organizationId = await getOrganizationId()
+  if (!organizationId) {
+    return { success: false, isComplete: false, error: 'No organization found' }
+  }
+
+  const supabase = await createClient()
+
+  // 1. Get the original email data from order_emails
+  const { data: emailData, error: emailError } = await supabase
+    .from('order_emails')
+    .select('gmail_message_id, gmail_thread_id, email_from, email_subject, email_to, email_date, email_body')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (emailError || !emailData) {
+    console.error('Failed to fetch original email for retry:', emailError)
+    return { success: false, isComplete: false, error: 'No original email found for this order' }
+  }
+
+  // 2. Get organization config
+  const { data: orgData } = await supabase
+    .from('organizations')
+    .select('name, required_order_fields, system_prompt')
+    .eq('id', organizationId)
+    .single()
+
+  const orgRequiredFields = getOrgRequiredFields(orgData?.required_order_fields)
+  const orgSystemPrompt = orgData?.system_prompt || null
+  const organizationName = orgData?.name || undefined
+
+  // 3. Get product catalog (limited to avoid token issues)
+  const MAX_CATALOG_SIZE = 300
+  const { data: productsData } = await supabase
+    .from('products')
+    .select('sku, name, unit_price')
+    .eq('organization_id', organizationId)
+    .eq('is_active', true)
+    .order('sku', { ascending: true })
+
+  const allProducts = productsData || []
+  const productCatalog = allProducts.length <= MAX_CATALOG_SIZE ? allProducts : []
+
+  // 4. Re-run AI processing
+  const { processEmailWithAI } = await import('@/lib/email/parser')
+  const { retrieveSimilarExamples } = await import('@/lib/ai/embeddings')
+  const { getCustomerOrderHistory, formatCustomerHistoryForPrompt, fetchThreadEmails } = await import('./queries')
+
+  // Build parsed email object
+  const parsedEmail = {
+    id: emailData.gmail_message_id,
+    threadId: emailData.gmail_thread_id,
+    from: emailData.email_from,
+    subject: emailData.email_subject,
+    to: emailData.email_to,
+    date: emailData.email_date,
+    body: emailData.email_body,
+    snippet: emailData.email_body.slice(0, 200), // Create snippet from body
+    attachments: [] as any[], // We don't store attachment data, so can't reprocess them
+    messageId: emailData.gmail_message_id,
+  }
+
+  // Get RAG examples
+  const rawInputForRAG = `Subject: ${parsedEmail.subject}\nFrom: ${parsedEmail.from}\n\n${parsedEmail.body}`
+  let ragExamples: any[] = []
+  try {
+    ragExamples = await retrieveSimilarExamples(rawInputForRAG, organizationId)
+  } catch (error) {
+    console.error('RAG retrieval failed (continuing without examples):', error)
+  }
+
+  // Get customer history
+  let customerHistory: any[] = []
+  try {
+    customerHistory = await getCustomerOrderHistory(parsedEmail.from, organizationId, 2)
+  } catch (error) {
+    console.error('Customer history fetch failed:', error)
+  }
+  const customerHistoryPrompt = formatCustomerHistoryForPrompt(customerHistory)
+
+  // Fetch thread emails for context
+  const threadEmails = await fetchThreadEmails(parsedEmail.threadId, organizationId)
+
+  // 5. Call AI to reprocess
+  const aiResult = await processEmailWithAI(
+    parsedEmail,
+    threadEmails.length > 0 ? threadEmails : undefined,
+    [], // No attachments
+    orgRequiredFields,
+    orgSystemPrompt,
+    productCatalog,
+    ragExamples,
+    customerHistoryPrompt,
+    organizationName
+  )
+
+  if (!aiResult) {
+    return { success: false, isComplete: false, error: 'AI could not extract order from email' }
+  }
+
+  // 6. Validate org required fields
+  const { validateOrgRequiredFields } = await import('./field-config')
+  const orgFieldsValidation = validateOrgRequiredFields(
+    aiResult.orgFields || {},
+    orgRequiredFields
+  )
+
+  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+  const newStatus = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
+
+  // Merge missing info
+  const allMissingInfo = [
+    ...aiResult.missingInfo,
+    ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
+  ]
+
+  // Generate clarification message if needed
+  let clarificationMessage: string | null = null
+  if (!isActuallyComplete) {
+    clarificationMessage = aiResult.clarificationEmail || null
+    if (!clarificationMessage) {
+      // Generate a default clarification message
+      const greeting = aiResult.contactName ? `Hi ${aiResult.contactName}!` : 'Hi there!'
+      const signature = organizationName || 'Our Team'
+      const missingList = allMissingInfo.length > 0
+        ? allMissingInfo.map(info => `- ${info}`).join('\n')
+        : '- Additional order details'
+
+      clarificationMessage = `${greeting}
+
+Thanks for your order! To process it, we need the following information:
+
+${missingList}
+
+Could you please reply with these details?
+
+Thank you,
+${signature}`
+    }
+  }
+
+  // 7. Update the order with new AI results
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      company_name: aiResult.companyName || null,
+      order_value: aiResult.orderValue,
+      item_count: aiResult.itemCount,
+      status: newStatus,
+      notes: aiResult.notes || null,
+      billing_address: aiResult.billingAddress || null,
+      phone: aiResult.phone || null,
+      payment_method: aiResult.paymentMethod || null,
+      contact_name: aiResult.contactName || null,
+      contact_email: aiResult.contactEmail || null,
+      ship_via: aiResult.shipVia || null,
+      custom_fields: aiResult.orgFields || {},
+      inferred_fields: aiResult.inferredFields || [],
+      clarification_message: clarificationMessage,
+    })
+    .eq('id', orderId)
+
+  if (updateError) {
+    console.error('Failed to update order after retry:', updateError)
+    return { success: false, isComplete: false, error: `Failed to update order: ${updateError.message}` }
+  }
+
+  // 8. Replace order items with new AI-extracted items
+  if (aiResult.items.length > 0) {
+    const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
+      name: item.name,
+      sku: item.sku,
+      quantity: item.quantity,
+      quantity_unit: item.quantityUnit,
+      unit_price: item.unitPrice || 0,
+      total: item.total || 0,
+    }))
+
+    await replaceOrderItems(orderId, itemInputs, organizationId)
+  }
+
+  revalidatePath('/orders')
+  return { success: true, isComplete: isActuallyComplete }
+}
 
 /**
  * Generate a preview of the approval email that would be sent.

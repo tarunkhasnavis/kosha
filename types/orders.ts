@@ -28,6 +28,7 @@ export interface Order {
   original_email_body?: string | null  // Original email content from the first email in the thread
   original_email_from?: string | null  // Sender of the original email
   original_email_date?: string | null  // Date/time the original email was sent
+  include_notes_in_pdf?: boolean  // Whether to include notes in PDF download (default: false)
 }
 
 export interface OrderItem {

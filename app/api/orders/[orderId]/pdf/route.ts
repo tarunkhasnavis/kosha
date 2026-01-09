@@ -54,6 +54,7 @@ export async function GET(
         email_url,
         ship_via,
         custom_fields,
+        include_notes_in_pdf,
         order_items (
           id,
           order_id,
@@ -100,6 +101,7 @@ export async function GET(
       email_url: order.email_url,
       ship_via: order.ship_via,
       custom_fields: order.custom_fields,
+      include_notes_in_pdf: order.include_notes_in_pdf,
     }
 
     const items: OrderItem[] = (order.order_items || []).map((item: any) => ({
@@ -113,11 +115,12 @@ export async function GET(
       total: item.total,
     }))
 
-    // Generate the PDF
+    // Generate the PDF (only include notes if checkbox was checked)
     const pdfBytes = await generateOrderPdf({
       order: orderData,
       items,
       org: orgInfo,
+      includeNotes: order.include_notes_in_pdf ?? false,
     })
 
     // Create a safe filename

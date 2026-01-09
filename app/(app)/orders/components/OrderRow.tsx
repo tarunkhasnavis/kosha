@@ -246,9 +246,34 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
         )}
       </div>
 
+      {/* Status Label */}
+      <div className="flex items-center justify-center w-28 shrink-0">
+        <span
+          className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+            order.status === "waiting_review"
+              ? "bg-blue-50 text-blue-700"
+              : order.status === "awaiting_clarification"
+              ? "bg-amber-50 text-amber-700"
+              : order.status === "approved"
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-slate-100 text-slate-600"
+          }`}
+        >
+          {order.status === "waiting_review"
+            ? "Pending Review"
+            : order.status === "awaiting_clarification"
+            ? "Needs Info"
+            : order.status === "approved"
+            ? "Approved"
+            : order.status === "archived"
+            ? "Archived"
+            : order.status.replace("_", " ")}
+        </span>
+      </div>
+
       {/* Action buttons */}
       <div className="flex items-center gap-2 ml-auto shrink-0">
-        {/* Pending Review: Reject + Approve */}
+        {/* Pending Review: Reject + Approve + Archive */}
         {order.status === "waiting_review" && (
           <>
             <Button
@@ -277,10 +302,32 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
               )}
               Approve
             </Button>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0"
+                    disabled={isLoading === "archive"}
+                    onClick={handleArchive}
+                  >
+                    {isLoading === "archive" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Archive</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         )}
 
-        {/* Needs Info: Reject + Request Info */}
+        {/* Needs Info: Reject + Request Info + Archive */}
         {order.status === "awaiting_clarification" && (
           <>
             <Button
@@ -321,6 +368,28 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
                 Request Sent
               </Button>
             )}
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0"
+                    disabled={isLoading === "archive"}
+                    onClick={handleArchive}
+                  >
+                    {isLoading === "archive" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Archive</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         )}
 

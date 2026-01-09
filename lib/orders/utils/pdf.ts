@@ -30,6 +30,7 @@ export interface OrderPdfInput {
   order: Order
   items: OrderItem[]
   org: OrgInfo
+  includeNotes?: boolean  // Whether to include notes in PDF (default: false)
 }
 
 // ============================================
@@ -816,7 +817,7 @@ function drawFooter(ctx: DrawContext, org: OrgInfo): void {
 // ============================================
 
 export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array> {
-  const { order, items, org } = input
+  const { order, items, org, includeNotes = false } = input
 
   // Create a new PDF document
   const pdfDoc = await PDFDocument.create()
@@ -886,7 +887,10 @@ export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array
 
     // If no more items, draw totals and footer
     if (remainingItems.length === 0) {
-      ctx.y = drawNotes(ctx, order)
+      // Only draw notes if includeNotes is true
+      if (includeNotes) {
+        ctx.y = drawNotes(ctx, order)
+      }
       drawTotalsBox(ctx, order)
       drawFooter(ctx, org)
     }

@@ -93,17 +93,41 @@ export async function POST(request: NextRequest) {
 
     // Process single message by ID
     if (messageId) {
+      // Validate that messageId looks like an ID, not a query
+      // Gmail message IDs are alphanumeric strings (hex), not queries with colons/spaces
+      if (messageId.includes(':') || messageId.includes(' ')) {
+        return NextResponse.json(
+          {
+            error: 'Invalid message ID format',
+            help: 'It looks like you entered a search query. Use the "query" parameter instead, or enter just the Gmail message ID (e.g., "18d1234567890abc")',
+            receivedValue: messageId,
+          },
+          { status: 400 }
+        )
+      }
+
       console.log(`[Admin Sync] Processing single email ${messageId} for ${orgData.name}`)
 
       try {
         const parsedEmail = await gmailClient.getEmail(messageId)
 
-        // Skip emails from self
+        // Skip emails from self, unless it looks like a forwarded order
+        // This prevents processing outgoing emails while allowing forwards from other mailboxes
         const fromEmail = parsedEmail.from.toLowerCase()
-        if (fromEmail.includes(orgEmail)) {
+        const emailMatch = fromEmail.match(/<([^>]+)>/) // Extract email from "Name <email>"
+        const extractedEmail = emailMatch ? emailMatch[1] : fromEmail.trim()
+        const isFromSelf = extractedEmail === orgEmail
+
+        // Detect forwarded emails by standard markers added by email clients
+        const looksLikeForward =
+          parsedEmail.subject.toLowerCase().includes('fwd:') ||
+          parsedEmail.body.includes('Forwarded Message') ||
+          parsedEmail.body.includes('---------- Forwarded message')
+
+        if (isFromSelf && !looksLikeForward) {
           return NextResponse.json({
             status: 'skipped',
-            reason: 'Email is from your own address',
+            reason: 'Email is from your own address (not a forward)',
             messageId,
           })
         }
@@ -128,10 +152,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Process emails by query
+    // Search ALL mail (not just INBOX) to catch emails in Spam/Promotions/Updates
     const limitedMax = Math.min(maxEmails, 50) // Cap at 50 to prevent abuse
     console.log(`[Admin Sync] Searching emails with query "${query}" (max: ${limitedMax}) for ${orgData.name}`)
 
-    const response = await gmailClient.listMessages(limitedMax, query)
+    const response = await gmailClient.listMessages(limitedMax, query, [])
 
     if (!response.messages || response.messages.length === 0) {
       return NextResponse.json({
@@ -162,9 +187,20 @@ export async function POST(request: NextRequest) {
       try {
         const parsedEmail = await gmailClient.getEmail(message.id)
 
-        // Skip emails from self
+        // Skip emails from self, unless it looks like a forwarded order
+        // This prevents processing outgoing emails while allowing forwards from other mailboxes
         const fromEmail = parsedEmail.from.toLowerCase()
-        if (fromEmail.includes(orgEmail)) {
+        const emailMatch = fromEmail.match(/<([^>]+)>/) // Extract email from "Name <email>"
+        const extractedEmail = emailMatch ? emailMatch[1] : fromEmail.trim()
+        const isFromSelf = extractedEmail === orgEmail
+
+        // Detect forwarded emails by standard markers added by email clients
+        const looksLikeForward =
+          parsedEmail.subject.toLowerCase().includes('fwd:') ||
+          parsedEmail.body.includes('Forwarded Message') ||
+          parsedEmail.body.includes('---------- Forwarded message')
+
+        if (isFromSelf && !looksLikeForward) {
           skippedOwnEmails++
           results.push({
             id: parsedEmail.id,

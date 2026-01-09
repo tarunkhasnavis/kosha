@@ -143,8 +143,11 @@ async function createNewOrder(
   // This preserves the time component so dates display correctly across timezones
   const receivedDate = email.date
 
-  // Use AI-extracted expected date (when customer wants the order) or fallback to received date
-  const expectedDate = aiResult.expectedDate || receivedDate
+  // Use AI-extracted expected date (when customer wants the order) or default to tomorrow
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowISO = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD format
+  const expectedDate = aiResult.expectedDate || tomorrowISO
 
   // Gmail web uses a different ID format than the API, so we link to a search that opens the email directly
   // Using "in:anywhere" ensures it finds the email even if archived/in other folders
@@ -271,8 +274,11 @@ async function updateExistingOrder(
     ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
   ]
 
-  // Use AI-extracted expected date or fallback to email date (ASAP = same day)
-  const expectedDate = aiResult.expectedDate || email.date
+  // Use AI-extracted expected date or default to tomorrow
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowISO = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD format
+  const expectedDate = aiResult.expectedDate || tomorrowISO
 
   // Determine clarification message for incomplete orders BEFORE updating order
   // Use AI-generated message if available, otherwise generate a default one
