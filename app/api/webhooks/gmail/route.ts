@@ -111,9 +111,8 @@ export async function POST(request: NextRequest) {
 
     for (const messageId of messageIds) {
       try {
-        // Fetch full message content
-        const fullMessage = await gmailClient.getMessage(messageId)
-        const parsedEmail = gmailClient.parseMessage(fullMessage)
+        // Fetch full message content with attachment data
+        const parsedEmail = await gmailClient.getEmail(messageId)
 
         // Skip emails sent FROM our own address (prevents infinite loops when we send clarification emails)
         const fromEmail = parsedEmail.from.toLowerCase()
