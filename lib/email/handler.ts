@@ -17,7 +17,7 @@ import { processEmailWithAI } from './parser'
 import { processAllAttachments, isSupportedAttachment } from './attachments'
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
-import { claimEmailForProcessing, updateEmailClaimWithOrder, markEmailAsNotOrder, findOrderByThreadId, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
+import { claimEmailForProcessing, updateEmailClaimWithOrder, markEmailAsNotOrder, findOrderByThreadId, threadHasCompletedOrder, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
 import { getOrgRequiredFields, validateOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
 import { createClient } from '@/utils/supabase/server'
 import { retrieveSimilarExamples, type OrderExample } from '@/lib/ai/embeddings'
@@ -453,6 +453,18 @@ export async function handleEmailOrder(
 
     // Step 4: Check if this is a reply to an existing order (thread_id match)
     const existingOrder = await findOrderByThreadId(email.threadId, organizationId)
+
+    // Step 4b: If no pending order found, check if thread has a completed order
+    // Skip processing if this is a reply to an already-approved/archived order thread
+    // (prevents duplicates from replies that quote our confirmation emails)
+    if (!existingOrder) {
+      const hasCompletedOrder = await threadHasCompletedOrder(email.threadId, organizationId)
+      if (hasCompletedOrder) {
+        console.log(`⏭️ Skipping email - thread already has completed order: ${email.subject}`)
+        await markEmailAsNotOrder(claimId)
+        return { success: false, orderId: '', action: 'thread_already_completed' }
+      }
+    }
 
     // Step 5: Retrieve similar past orders for RAG (few-shot learning)
     // Build raw input text for embedding search

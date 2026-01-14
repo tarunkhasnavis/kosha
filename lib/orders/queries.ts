@@ -205,6 +205,7 @@ export async function markEmailAsNotOrder(claimId: string): Promise<void> {
 
 /**
  * Find existing order by thread_id (for handling reply emails)
+ * Only returns orders that are still pending (waiting_review or awaiting_clarification)
  */
 export async function findOrderByThreadId(
   threadId: string,
@@ -231,6 +232,32 @@ export async function findOrderByThreadId(
     id: orderData.orders.id,
     status: orderData.orders.status,
   }
+}
+
+/**
+ * Check if a thread has any completed orders (approved or archived)
+ * Used to skip processing replies to threads where the order is already done
+ */
+export async function threadHasCompletedOrder(
+  threadId: string,
+  organizationId: string
+): Promise<boolean> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('order_emails')
+    .select('order_id, orders!inner(id, status)')
+    .eq('gmail_thread_id', threadId)
+    .eq('organization_id', organizationId)
+    .in('orders.status', ['approved', 'archived'])
+    .limit(1)
+    .single()
+
+  if (error || !data) {
+    return false
+  }
+
+  return true
 }
 
 /**
