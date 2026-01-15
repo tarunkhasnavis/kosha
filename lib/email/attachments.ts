@@ -47,6 +47,8 @@ export interface ProcessedAttachment {
   images?: string[]
   // For Excel: JSON representation of spreadsheet data
   excelData?: string
+  // For PDFs: extracted text content (fallback when image conversion fails)
+  pdfText?: string
 }
 
 /**
@@ -95,12 +97,38 @@ function processImage(attachment: EmailAttachment): ProcessedAttachment {
 }
 
 /**
+ * Extract text from PDF using pdf-parse (works in serverless)
+ */
+async function extractPdfText(pdfBuffer: Buffer, filename: string): Promise<string | null> {
+  try {
+    // Dynamic import - pdf-parse exports PDFParse as named export
+    const { PDFParse } = await import('pdf-parse')
+    const parser = new PDFParse({ data: pdfBuffer })
+    const textResult = await parser.getText()
+
+    // Get concatenated text from all pages
+    const textContent = textResult.text
+
+    if (textContent && textContent.trim().length > 0) {
+      console.log(`📄 Extracted ${textContent.length} chars of text from PDF ${filename}`)
+      await parser.destroy()
+      return textContent
+    }
+    await parser.destroy()
+    return null
+  } catch (error) {
+    console.warn(`⚠️ PDF text extraction failed for ${filename}:`, error)
+    return null
+  }
+}
+
+/**
  * Process a PDF attachment by converting pages to images
  * Uses pdf-to-img to render PDF pages as PNG images
  *
  * NOTE: pdf-to-img uses pdfjs-dist which requires browser APIs (DOMMatrix, canvas).
- * In serverless environments like Vercel, these APIs don't exist, so we gracefully
- * skip PDF processing with a warning rather than crashing the webhook.
+ * In serverless environments like Vercel, these APIs don't exist, so we fall back
+ * to text extraction using pdf-parse which works in pure Node.js.
  */
 async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachment> {
   if (!attachment.data) {
@@ -108,32 +136,31 @@ async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachm
     return { filename: attachment.filename, type: 'pdf', images: [] }
   }
 
+  // Convert base64 to Buffer (needed for both methods)
+  const pdfBuffer = Buffer.from(attachment.data, 'base64')
+
+  // First, try image conversion (better for visual PDFs like scanned orders)
   try {
     // Dynamically load pdf-to-img to prevent import-time crashes
     const pdfModule = await loadPdfToImg()
-    if (!pdfModule) {
-      console.warn(`⚠️ PDF processing skipped for ${attachment.filename}: pdf-to-img library not available in this environment.`)
-      return { filename: attachment.filename, type: 'pdf', images: [] }
-    }
+    if (pdfModule) {
+      // Convert PDF pages to images using async iterator
+      const pdfDocument = await pdfModule.pdf(pdfBuffer, { scale: 2.0 })
+      const base64Images: string[] = []
 
-    // Convert base64 to Buffer
-    const pdfBuffer = Buffer.from(attachment.data, 'base64')
+      // Iterate through pages and convert each to base64
+      for await (const pageImage of pdfDocument) {
+        base64Images.push(pageImage.toString('base64'))
+      }
 
-    // Convert PDF pages to images using async iterator
-    const pdfDocument = await pdfModule.pdf(pdfBuffer, { scale: 2.0 })
-    const base64Images: string[] = []
-
-    // Iterate through pages and convert each to base64
-    for await (const pageImage of pdfDocument) {
-      base64Images.push(pageImage.toString('base64'))
-    }
-
-    console.log(`Converted PDF ${attachment.filename} to ${base64Images.length} images`)
-
-    return {
-      filename: attachment.filename,
-      type: 'pdf',
-      images: base64Images,
+      if (base64Images.length > 0) {
+        console.log(`✅ Converted PDF ${attachment.filename} to ${base64Images.length} images`)
+        return {
+          filename: attachment.filename,
+          type: 'pdf',
+          images: base64Images,
+        }
+      }
     }
   } catch (error) {
     // Handle DOMMatrix/canvas errors in serverless environments
@@ -143,12 +170,26 @@ async function processPdf(attachment: EmailAttachment): Promise<ProcessedAttachm
                        errorMessage.includes('is not defined')
 
     if (isDOMError) {
-      console.warn(`⚠️ PDF processing skipped for ${attachment.filename}: Browser APIs not available in serverless environment.`)
+      console.log(`📄 PDF image conversion not available in serverless, falling back to text extraction for ${attachment.filename}`)
     } else {
-      console.error(`Failed to process PDF ${attachment.filename}:`, error)
+      console.warn(`⚠️ PDF image conversion failed for ${attachment.filename}, trying text extraction:`, errorMessage)
     }
-    return { filename: attachment.filename, type: 'pdf', images: [] }
   }
+
+  // Fallback: Extract text from PDF (works in serverless)
+  const extractedText = await extractPdfText(pdfBuffer, attachment.filename)
+
+  if (extractedText) {
+    return {
+      filename: attachment.filename,
+      type: 'pdf',
+      pdfText: extractedText,
+    }
+  }
+
+  // If both methods fail, return empty
+  console.warn(`⚠️ Could not process PDF ${attachment.filename}: both image conversion and text extraction failed`)
+  return { filename: attachment.filename, type: 'pdf', images: [] }
 }
 
 /**
@@ -247,6 +288,12 @@ export function prepareAttachmentsForAI(processedAttachments: ProcessedAttachmen
   for (const attachment of processedAttachments) {
     if (attachment.type === 'excel' && attachment.excelData) {
       textParts.push(`\n--- Excel Attachment: ${attachment.filename} ---\n${attachment.excelData}\n`)
+    }
+
+    // Handle PDF text content (fallback when image conversion fails in serverless)
+    if (attachment.type === 'pdf' && attachment.pdfText) {
+      textParts.push(`\n--- PDF Attachment: ${attachment.filename} ---\n${attachment.pdfText}\n`)
+      console.log(`Added PDF text for AI: ${attachment.filename}`)
     }
 
     if (attachment.images && attachment.images.length > 0) {
