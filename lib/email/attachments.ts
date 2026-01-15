@@ -97,24 +97,26 @@ function processImage(attachment: EmailAttachment): ProcessedAttachment {
 }
 
 /**
- * Extract text from PDF using pdf-parse (works in serverless)
+ * Extract text from PDF using unpdf (serverless-compatible)
+ * unpdf is specifically designed for serverless/edge environments
+ * and ships with a serverless build of PDF.js that doesn't require DOMMatrix
  */
 async function extractPdfText(pdfBuffer: Buffer, filename: string): Promise<string | null> {
   try {
-    // Dynamic import - pdf-parse exports PDFParse as named export
-    const { PDFParse } = await import('pdf-parse')
-    const parser = new PDFParse({ data: pdfBuffer })
-    const textResult = await parser.getText()
+    // Dynamic import for unpdf
+    const { extractText, getDocumentProxy } = await import('unpdf')
 
-    // Get concatenated text from all pages
-    const textContent = textResult.text
+    // Convert Buffer to Uint8Array for unpdf
+    const uint8Array = new Uint8Array(pdfBuffer)
 
-    if (textContent && textContent.trim().length > 0) {
-      console.log(`📄 Extracted ${textContent.length} chars of text from PDF ${filename}`)
-      await parser.destroy()
-      return textContent
+    // Get document proxy and extract text
+    const pdf = await getDocumentProxy(uint8Array)
+    const { text } = await extractText(pdf, { mergePages: true })
+
+    if (text && text.trim().length > 0) {
+      console.log(`📄 Extracted ${text.length} chars of text from PDF ${filename}`)
+      return text
     }
-    await parser.destroy()
     return null
   } catch (error) {
     console.warn(`⚠️ PDF text extraction failed for ${filename}:`, error)
