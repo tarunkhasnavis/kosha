@@ -68,6 +68,8 @@ export async function POST(request: NextRequest) {
     // Get the last processed history ID
     const lastHistoryId = organization.gmail_last_history_id
 
+    console.log(`[DEBUG] Org ${organization.name}: stored historyId=${lastHistoryId}, notification historyId=${notification.historyId}`)
+
     if (!lastHistoryId) {
       console.log(`No history ID stored for org ${organization.id}, skipping incremental sync`)
       // Store the new history ID for future syncs
@@ -76,10 +78,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch new messages since last history ID
-    const { messageIds, newHistoryId } = await getGmailHistory(
+    const { messageIds, newHistoryId, rawHistoryResponse } = await getGmailHistory(
       organization.id,
       lastHistoryId
     )
+
+    console.log(`[DEBUG] Gmail History API response: messageIds=${JSON.stringify(messageIds)}, newHistoryId=${newHistoryId}, rawResponse=${JSON.stringify(rawHistoryResponse)}`)
 
     if (messageIds.length === 0) {
       console.log(`No new inbox messages for org ${organization.id}`)
@@ -114,16 +118,20 @@ export async function POST(request: NextRequest) {
         // Fetch full message content with attachment data
         const parsedEmail = await gmailClient.getEmail(messageId)
 
+        console.log(`[DEBUG] Processing email: id=${parsedEmail.id}, subject="${parsedEmail.subject}", from="${parsedEmail.from}", threadId=${parsedEmail.threadId}, date=${parsedEmail.date}`)
+
         // Skip emails sent FROM our own address (prevents infinite loops when we send clarification emails)
         const fromEmail = parsedEmail.from.toLowerCase()
         if (orgEmail && fromEmail.includes(orgEmail)) {
-          console.log(`Skipping email from self: ${parsedEmail.subject}`)
+          console.log(`[DEBUG] Skipping email from self: ${parsedEmail.subject}`)
           skippedOwnEmails++
           continue
         }
 
         // Process through existing order handler
         const result = await handleEmailOrder(parsedEmail, organization.id)
+
+        console.log(`[DEBUG] handleEmailOrder result: success=${result.success}, action="${result.action}", orderId=${result.orderId || 'none'}`)
 
         if (result.success) {
           processedCount++
@@ -134,7 +142,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
         errors.push(`Email ${messageId}: ${errorMsg}`)
-        console.error(`Error processing email ${messageId}:`, error)
+        console.error(`[DEBUG] Error processing email ${messageId}:`, error)
       }
     }
 

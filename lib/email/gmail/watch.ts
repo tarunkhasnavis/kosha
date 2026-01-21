@@ -197,12 +197,12 @@ export async function renewExpiringWatches(): Promise<{
 export async function getGmailHistory(
   organizationId: string,
   startHistoryId: string
-): Promise<{ messageIds: string[]; newHistoryId: string | null }> {
+): Promise<{ messageIds: string[]; newHistoryId: string | null; rawHistoryResponse: unknown }> {
   const accessToken = await getValidAccessToken(organizationId)
 
   if (!accessToken) {
     console.error(`No valid access token for organization ${organizationId}`)
-    return { messageIds: [], newHistoryId: null }
+    return { messageIds: [], newHistoryId: null, rawHistoryResponse: { error: 'no_access_token' } }
   }
 
   try {
@@ -226,12 +226,12 @@ export async function getGmailHistory(
       // 404 means historyId is too old, need to do full sync
       if (response.status === 404) {
         console.log(`History ID ${startHistoryId} expired for org ${organizationId}, need full sync`)
-        return { messageIds: [], newHistoryId: null }
+        return { messageIds: [], newHistoryId: null, rawHistoryResponse: { error: 'history_expired', status: 404 } }
       }
 
       const error = await response.text()
       console.error(`Failed to get Gmail history: ${response.status} - ${error}`)
-      return { messageIds: [], newHistoryId: null }
+      return { messageIds: [], newHistoryId: null, rawHistoryResponse: { error, status: response.status } }
     }
 
     const data = await response.json()
@@ -254,10 +254,11 @@ export async function getGmailHistory(
     return {
       messageIds,
       newHistoryId: data.historyId || null,
+      rawHistoryResponse: data,
     }
   } catch (error) {
     console.error(`Error getting Gmail history for org ${organizationId}:`, error)
-    return { messageIds: [], newHistoryId: null }
+    return { messageIds: [], newHistoryId: null, rawHistoryResponse: { error: String(error) } }
   }
 }
 
