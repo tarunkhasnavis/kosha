@@ -1153,6 +1153,7 @@ export async function retryOrderProcessing(
   const { processEmailWithAI } = await import('@/lib/email/parser')
   const { retrieveSimilarExamples } = await import('@/lib/ai/embeddings')
   const { getCustomerOrderHistory, formatCustomerHistoryForPrompt, fetchThreadEmails } = await import('./queries')
+  const { getOrderAttachments, storedToProcessed } = await import('@/lib/email/attachment-storage')
 
   // Build parsed email object
   const parsedEmail = {
@@ -1164,9 +1165,13 @@ export async function retryOrderProcessing(
     date: emailData.email_date,
     body: emailData.email_body,
     snippet: emailData.email_body.slice(0, 200), // Create snippet from body
-    attachments: [] as any[], // We don't store attachment data, so can't reprocess them
+    attachments: [] as any[],
     messageId: emailData.gmail_message_id,
   }
+
+  // Fetch stored attachments for this order
+  const storedAttachments = await getOrderAttachments(orderId)
+  const processedAttachments = storedToProcessed(storedAttachments)
 
   // Get RAG examples
   const rawInputForRAG = `Subject: ${parsedEmail.subject}\nFrom: ${parsedEmail.from}\n\n${parsedEmail.body}`
@@ -1189,11 +1194,11 @@ export async function retryOrderProcessing(
   // Fetch thread emails for context
   const threadEmails = await fetchThreadEmails(parsedEmail.threadId, organizationId)
 
-  // 5. Call AI to reprocess
+  // 5. Call AI to reprocess (now with stored attachments)
   const aiResult = await processEmailWithAI(
     parsedEmail,
     threadEmails.length > 0 ? threadEmails : undefined,
-    [], // No attachments
+    processedAttachments,
     orgRequiredFields,
     orgSystemPrompt,
     productCatalog,
@@ -1394,4 +1399,69 @@ export async function generateApprovalEmailPreview(
     },
     organization.name || 'Our Team'
   )
+}
+
+// ============================================
+// ATTACHMENT SERVER ACTIONS
+// ============================================
+
+export interface OrderAttachmentData {
+  id: string
+  filename: string
+  mimeType: string
+  fileSize: number
+  storagePath: string | null
+  processedContent: string | null
+  processedType: string | null
+}
+
+/**
+ * Fetch attachments for an order
+ * Returns metadata and processed content (for display)
+ */
+export async function getOrderAttachmentsAction(
+  orderId: string
+): Promise<OrderAttachmentData[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('order_attachments')
+    .select('id, filename, mime_type, file_size, storage_path, processed_content, processed_type')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+
+  if (error || !data) {
+    console.error('Failed to fetch order attachments:', error)
+    return []
+  }
+
+  return data.map(row => ({
+    id: row.id,
+    filename: row.filename,
+    mimeType: row.mime_type,
+    fileSize: row.file_size,
+    storagePath: row.storage_path,
+    processedContent: row.processed_content,
+    processedType: row.processed_type,
+  }))
+}
+
+/**
+ * Get a signed URL for downloading an attachment from Supabase Storage
+ */
+export async function getAttachmentDownloadUrlAction(
+  storagePath: string
+): Promise<string | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.storage
+    .from('order-attachments')
+    .createSignedUrl(storagePath, 3600) // 1 hour expiry
+
+  if (error || !data) {
+    console.error('Failed to get attachment download URL:', error)
+    return null
+  }
+
+  return data.signedUrl
 }

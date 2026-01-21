@@ -13,13 +13,31 @@ import { openai } from '@/lib/openai'
 import { createClient } from '@/utils/supabase/server'
 
 /**
+ * Maximum characters to send to embedding API.
+ * text-embedding-3-small has an 8192 token limit.
+ * Using ~24,000 chars as a safe limit (roughly 3 chars per token on average).
+ */
+const MAX_EMBEDDING_CHARS = 24000
+
+/**
+ * Truncate text to stay within embedding model token limits
+ */
+function truncateForEmbedding(text: string): string {
+  if (text.length <= MAX_EMBEDDING_CHARS) return text
+  console.log(`⚠️ Truncating text for embedding: ${text.length} chars -> ${MAX_EMBEDDING_CHARS} chars`)
+  return text.substring(0, MAX_EMBEDDING_CHARS)
+}
+
+/**
  * Generate an embedding vector for text using OpenAI
  * Uses text-embedding-3-small (1536 dimensions)
+ * Automatically truncates text that exceeds token limits
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
+  const truncatedText = truncateForEmbedding(text)
   const response = await openai.embeddings.create({
     model: 'text-embedding-3-small',
-    input: text,
+    input: truncatedText,
   })
 
   return response.data[0].embedding

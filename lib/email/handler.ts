@@ -15,6 +15,7 @@ import type { ParsedOrderData, ProductCatalogItem } from './parser'
 import type { ProcessedAttachment } from './attachments'
 import { processEmailWithAI } from './parser'
 import { processAllAttachments, isSupportedAttachment } from './attachments'
+import { storeAllAttachments, linkAttachmentsToOrder } from './attachment-storage'
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
 import { claimEmailForProcessing, updateEmailClaimWithOrder, markEmailAsNotOrder, findOrderByThreadId, threadHasCompletedOrder, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
@@ -220,6 +221,9 @@ async function createNewOrder(
       clarification_message: clarificationMessage || undefined,
     })
 
+    // 2b. Link any stored attachments to the order
+    await linkAttachmentsToOrder(claimId, order.id)
+
     // 3. Create order items
     if (aiResult.items.length > 0) {
       const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
@@ -333,6 +337,9 @@ async function updateExistingOrder(
       clarification_message: clarificationMessage || undefined,
     })
 
+    // 2b. Link any stored attachments to the order
+    await linkAttachmentsToOrder(claimId, existingOrderId)
+
     // 3. Replace order items
     if (aiResult.items.length > 0) {
       const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
@@ -417,7 +424,8 @@ export async function handleEmailOrder(
     email.subject,
     email.to,
     email.date,
-    email.body
+    email.body,
+    email.bodyHtml
   )
 
   if (!claimResult.claimed) {
@@ -445,6 +453,16 @@ export async function handleEmailOrder(
     if (email.attachments.length > 0) {
       try {
         processedAttachments = await processAttachmentsForAI(email)
+
+        // Store attachments in database and Supabase Storage
+        if (processedAttachments.length > 0) {
+          await storeAllAttachments({
+            orderEmailId: claimId,
+            organizationId,
+            rawAttachments: email.attachments,
+            processedAttachments,
+          })
+        }
       } catch (error) {
         console.error('Error processing attachments:', error)
         // Continue without attachments - don't fail the entire order

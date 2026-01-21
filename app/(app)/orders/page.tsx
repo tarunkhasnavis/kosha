@@ -81,7 +81,7 @@ export default async function OrdersPage() {
   // NOTE: clarification_message is now on the orders table directly, not in order_emails
   const { data: orderEmails, error: emailsError } = await supabase
     .from('order_emails')
-    .select('order_id, email_body, email_from, email_date, created_at')
+    .select('order_id, email_body, email_body_html, email_from, email_date, created_at')
     .in('order_id', orderIds)
     .order('created_at', { ascending: false })
 
@@ -90,12 +90,13 @@ export default async function OrdersPage() {
   }
 
   // Build map for order_id -> original email data (for displaying original email in UI)
-  const originalEmailMap = new Map<string, { body: string | null, from: string | null, date: string | null }>()
+  const originalEmailMap = new Map<string, { body: string | null, bodyHtml: string | null, from: string | null, date: string | null }>()
 
   orderEmails?.forEach(email => {
     // Always update original email - last one processed will be the oldest (due to desc order)
     originalEmailMap.set(email.order_id, {
       body: email.email_body || null,
+      bodyHtml: email.email_body_html || null,
       from: email.email_from || null,
       date: email.email_date || null,
     })
@@ -111,6 +112,7 @@ export default async function OrdersPage() {
       deletedItems: deletedOrderItems?.filter(item => item.order_id === order.id) || [],
       // clarification_message is already on order from select('*')
       original_email_body: originalEmail?.body || null,
+      original_email_body_html: originalEmail?.bodyHtml || null,
       original_email_from: originalEmail?.from || null,
       original_email_date: originalEmail?.date || null,
     }

@@ -105,7 +105,8 @@ export async function claimEmailForProcessing(
   emailSubject: string,
   emailTo: string,
   emailDate: string,
-  emailBody: string
+  emailBody: string,
+  emailBodyHtml?: string
 ): Promise<{ claimed: boolean; claimId?: string; existingOrderId?: string }> {
   const supabase = await createClient()
 
@@ -122,6 +123,7 @@ export async function claimEmailForProcessing(
       email_to: emailTo,
       email_date: emailDate,
       email_body: emailBody,
+      email_body_html: emailBodyHtml || null,
       // order_id will be null initially - we'll update it after order creation
       order_id: null,
       changes_made: { type: 'processing' }, // Placeholder, will be updated

@@ -47,7 +47,8 @@ export interface ParsedEmail {
   from: string
   to: string
   date: string
-  body: string
+  body: string // Plain text body (preferred for AI processing)
+  bodyHtml?: string // HTML body (for visual display, may not be present)
   snippet: string
   attachments: EmailAttachment[]
 }
@@ -246,6 +247,9 @@ export class GmailClient {
       }
     }
 
+    // Extract both plain text and HTML bodies
+    const { text, html } = this.extractBodies(message.payload)
+
     return {
       id: message.id,
       threadId: message.threadId,
@@ -254,7 +258,8 @@ export class GmailClient {
       from: getHeader('From'),
       to: getHeader('To'),
       date: normalizedDate,
-      body: this.extractBody(message.payload),
+      body: text,
+      bodyHtml: html,
       snippet: message.snippet,
       attachments: this.extractAttachments(message.payload),
     }
@@ -295,47 +300,57 @@ export class GmailClient {
   }
 
   /**
-   * Extract email body from Gmail message payload
+   * Extract both plain text and HTML bodies from Gmail message payload
    *
-   * Gmail stores email bodies in a nested structure. This method:
-   * 1. Checks for direct body data
-   * 2. Searches through parts for text/plain or text/html
-   * 3. Decodes base64url encoded content
+   * Gmail stores email bodies in a nested structure. This method extracts both:
+   * - text/plain for AI processing
+   * - text/html for visual display
    *
    * @param payload - The message payload from Gmail API
-   * @returns The decoded email body text
+   * @returns Object with text and html bodies
    */
-  private extractBody(payload: GmailMessage['payload']): string {
-    // Try direct body first
+  private extractBodies(payload: GmailMessage['payload']): { text: string; html?: string } {
+    let text = ''
+    let html: string | undefined
+
+    // Try direct body first (simple emails)
     if (payload.body?.data) {
-      return this.decodeBase64Url(payload.body.data)
+      const decoded = this.decodeBase64Url(payload.body.data)
+      // Can't determine type from direct body, assume text
+      return { text: decoded }
     }
 
-    // Check parts for email body
-    if (payload.parts) {
-      for (const part of payload.parts) {
-        // Prefer plain text
-        if (part.mimeType === 'text/plain' && part.body?.data) {
-          return this.decodeBase64Url(part.body.data)
+    // Search through parts for text/plain and text/html
+    const findBodies = (parts: GmailMessagePart[] | undefined) => {
+      if (!parts) return
+
+      for (const part of parts) {
+        if (part.mimeType === 'text/plain' && part.body?.data && !text) {
+          text = this.decodeBase64Url(part.body.data)
         }
 
-        // Fall back to HTML
-        if (part.mimeType === 'text/html' && part.body?.data) {
-          return this.decodeBase64Url(part.body.data)
+        if (part.mimeType === 'text/html' && part.body?.data && !html) {
+          html = this.decodeBase64Url(part.body.data)
         }
 
-        // Check nested parts (for multipart messages)
+        // Recursively check nested parts (for multipart messages)
         if (part.parts) {
-          for (const nestedPart of part.parts) {
-            if (nestedPart.mimeType === 'text/plain' && nestedPart.body?.data) {
-              return this.decodeBase64Url(nestedPart.body.data)
-            }
-          }
+          findBodies(part.parts)
         }
       }
     }
 
-    return ''
+    if (payload.parts) {
+      findBodies(payload.parts)
+    }
+
+    // If no plain text found, fall back to HTML (strip tags for AI)
+    if (!text && html) {
+      // Simple HTML tag stripping for fallback
+      text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+    }
+
+    return { text, html }
   }
 
   /**

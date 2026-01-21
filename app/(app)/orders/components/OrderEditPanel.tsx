@@ -40,9 +40,10 @@ import {
   RotateCcw,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
-import type { SaveAndAnalyzeResult } from "@/lib/orders/actions"
-import { generateApprovalEmailPreview } from "@/lib/orders/actions"
+import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/actions"
+import { generateApprovalEmailPreview, getOrderAttachmentsAction } from "@/lib/orders/actions"
 import type { OrgRequiredField } from "@/lib/orders/field-config"
+import { AttachmentViewer } from "./AttachmentViewer"
 import {
   calculateCompleteness,
   hasItemsChanged,
@@ -141,6 +142,10 @@ export function OrderEditPanel({
     clarificationMessage?: string
   } | null>(null)
 
+  // Attachments state
+  const [attachments, setAttachments] = useState<OrderAttachmentData[]>([])
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
+
   // Initialize form when order changes
   useEffect(() => {
     if (order) {
@@ -189,6 +194,16 @@ export function OrderEditPanel({
       setEditableApprovalEmail("")
       setContinueResult(null)
       setEditableClarificationMessage(order.clarification_message || "")
+
+      // Fetch attachments for this order
+      setIsLoadingAttachments(true)
+      getOrderAttachmentsAction(order.id)
+        .then(setAttachments)
+        .catch((error) => {
+          console.error('Failed to fetch attachments:', error)
+          setAttachments([])
+        })
+        .finally(() => setIsLoadingAttachments(false))
     }
   }, [order, orgRequiredFields])
 
@@ -641,8 +656,8 @@ export function OrderEditPanel({
               </>
             )}
 
-            {/* Retry button - available for email orders that aren't archived */}
-            {!isArchived && order.source === "email" && onRetry && (
+            {/* Retry button - available for email orders that aren't approved or archived */}
+            {!isArchived && !isApproved && order.source === "email" && onRetry && (
               showRetryConfirm ? (
                 <div className="flex items-center gap-1.5">
                   <Button
@@ -889,10 +904,27 @@ export function OrderEditPanel({
                       )}
                     </div>
                     <div className="bg-slate-50 rounded-lg p-3 max-h-96 overflow-y-auto">
-                      <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans">
-                        {order.original_email_body}
-                      </pre>
+                      {order.original_email_body_html ? (
+                        <div
+                          className="text-sm text-slate-600 prose prose-sm prose-slate max-w-none [&_a]:text-blue-600 [&_a]:underline"
+                          dangerouslySetInnerHTML={{ __html: order.original_email_body_html }}
+                        />
+                      ) : (
+                        <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans">
+                          {order.original_email_body}
+                        </pre>
+                      )}
                     </div>
+
+                    {/* Attachments within Original Email section */}
+                    {isLoadingAttachments ? (
+                      <div className="mt-4 flex items-center justify-center py-4 text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-sm">Loading attachments...</span>
+                      </div>
+                    ) : attachments.length > 0 ? (
+                      <AttachmentViewer attachments={attachments} />
+                    ) : null}
                   </motion.div>
                 )}
 
