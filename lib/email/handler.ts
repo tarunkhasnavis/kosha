@@ -450,23 +450,38 @@ export async function handleEmailOrder(
     // Step 3: Process attachments if present (attachment data should already be in email)
     let processedAttachments: ProcessedAttachment[] = []
 
+    console.log(`[ATTACH-DEBUG] email.attachments.length = ${email.attachments.length}`)
+    for (const att of email.attachments) {
+      console.log(`[ATTACH-DEBUG] attachment: "${att.filename}" mime=${att.mimeType} size=${att.size} hasData=${!!att.data} dataLen=${att.data?.length ?? 0}`)
+    }
+
     if (email.attachments.length > 0) {
       try {
         processedAttachments = await processAttachmentsForAI(email)
+        console.log(`[ATTACH-DEBUG] processedAttachments.length = ${processedAttachments.length}`)
+        for (const pa of processedAttachments) {
+          console.log(`[ATTACH-DEBUG] processed: "${pa.filename}" type=${pa.type} hasImages=${!!pa.images} imageCount=${pa.images?.length ?? 0} hasPdfText=${!!pa.pdfText} hasExcel=${!!pa.excelData}`)
+        }
 
         // Store attachments in database and Supabase Storage
         if (processedAttachments.length > 0) {
-          await storeAllAttachments({
+          console.log(`[ATTACH-DEBUG] Calling storeAllAttachments with orderEmailId=${claimId}, orgId=${organizationId}, rawCount=${email.attachments.length}, processedCount=${processedAttachments.length}`)
+          const storedResult = await storeAllAttachments({
             orderEmailId: claimId,
             organizationId,
             rawAttachments: email.attachments,
             processedAttachments,
           })
+          console.log(`[ATTACH-DEBUG] storeAllAttachments returned ${storedResult.length} stored attachments`)
+        } else {
+          console.log(`[ATTACH-DEBUG] Skipping storeAllAttachments - no processed attachments`)
         }
       } catch (error) {
-        console.error('Error processing attachments:', error)
+        console.error('[ATTACH-DEBUG] Error processing attachments:', error)
         // Continue without attachments - don't fail the entire order
       }
+    } else {
+      console.log(`[ATTACH-DEBUG] No attachments on email`)
     }
 
     // Step 4: Check if this is a reply to an existing order (thread_id match)

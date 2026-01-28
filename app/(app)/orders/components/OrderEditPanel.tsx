@@ -44,6 +44,7 @@ import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/act
 import { generateApprovalEmailPreview, getOrderAttachmentsAction } from "@/lib/orders/actions"
 import type { OrgRequiredField } from "@/lib/orders/field-config"
 import { AttachmentViewer } from "./AttachmentViewer"
+import { EmailHtmlViewer } from "./EmailHtmlViewer"
 import {
   calculateCompleteness,
   hasItemsChanged,
@@ -145,6 +146,7 @@ export function OrderEditPanel({
   // Attachments state
   const [attachments, setAttachments] = useState<OrderAttachmentData[]>([])
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
+  const [emailSectionTab, setEmailSectionTab] = useState<'email' | 'attachments'>('email')
 
   // Initialize form when order changes
   useEffect(() => {
@@ -883,48 +885,81 @@ export function OrderEditPanel({
                         Original Email
                       </h3>
                     </div>
-                    {/* Email metadata: From and Date */}
-                    <div className="flex items-center justify-between mb-3 text-sm">
-                      <div className="text-slate-500">
-                        <span className="text-slate-400">From: </span>
-                        <span>{order.original_email_from || 'Unknown'}</span>
-                      </div>
-                      {order.original_email_date && (
-                        <div className="text-slate-400">
-                          {new Date(order.original_email_date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                          })} at {new Date(order.original_email_date).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true,
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <div className="bg-slate-50 rounded-lg p-3 max-h-96 overflow-y-auto">
-                      {order.original_email_body_html ? (
-                        <div
-                          className="text-sm text-slate-600 prose prose-sm prose-slate max-w-none [&_a]:text-blue-600 [&_a]:underline"
-                          dangerouslySetInnerHTML={{ __html: order.original_email_body_html }}
-                        />
-                      ) : (
-                        <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans">
-                          {order.original_email_body}
-                        </pre>
-                      )}
-                    </div>
 
-                    {/* Attachments within Original Email section */}
-                    {isLoadingAttachments ? (
-                      <div className="mt-4 flex items-center justify-center py-4 text-slate-400">
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        <span className="text-sm">Loading attachments...</span>
+                    {/* Email / Attachments tab bar */}
+                    {(!isLoadingAttachments && attachments.length > 0) && (
+                      <div className="flex gap-1 mb-3 bg-slate-100 rounded-lg p-0.5 w-fit">
+                        <button
+                          onClick={() => setEmailSectionTab('email')}
+                          className={cn(
+                            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                            emailSectionTab === 'email'
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : "text-slate-500 hover:text-slate-700"
+                          )}
+                        >
+                          Email
+                        </button>
+                        <button
+                          onClick={() => setEmailSectionTab('attachments')}
+                          className={cn(
+                            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                            emailSectionTab === 'attachments'
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : "text-slate-500 hover:text-slate-700"
+                          )}
+                        >
+                          Attachments ({attachments.length})
+                        </button>
                       </div>
-                    ) : attachments.length > 0 ? (
-                      <AttachmentViewer attachments={attachments} />
-                    ) : null}
+                    )}
+
+                    {/* Tab content */}
+                    {emailSectionTab === 'email' ? (
+                      <>
+                        {/* Email metadata: From and Date */}
+                        <div className="flex items-center justify-between mb-3 text-sm">
+                          <div className="text-slate-500">
+                            <span className="text-slate-400">From: </span>
+                            <span>{order.original_email_from || 'Unknown'}</span>
+                          </div>
+                          {order.original_email_date && (
+                            <div className="text-slate-400">
+                              {new Date(order.original_email_date).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })} at {new Date(order.original_email_date).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <div className="bg-slate-50 rounded-lg overflow-hidden max-h-[600px] overflow-y-auto">
+                          {order.original_email_body_html ? (
+                            <EmailHtmlViewer html={order.original_email_body_html} />
+                          ) : (
+                            <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans p-3">
+                              {order.original_email_body}
+                            </pre>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Attachments tab content */}
+                        {isLoadingAttachments ? (
+                          <div className="flex items-center justify-center py-8 text-slate-400">
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            <span className="text-sm">Loading attachments...</span>
+                          </div>
+                        ) : (
+                          <AttachmentViewer attachments={attachments} compact />
+                        )}
+                      </>
+                    )}
                   </motion.div>
                 )}
 

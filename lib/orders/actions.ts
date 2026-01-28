@@ -231,16 +231,33 @@ export async function rejectOrder(orderId: string, reason?: string, skipEmail: b
     throw new Error(`Failed to fetch order: ${orderError?.message}`)
   }
 
-  // Get thread info before deleting (since order_emails references order)
+  // Get thread info (needed for sending rejection email)
   const threadInfo = await getOrderThreadInfo(orderId)
 
-  // Delete the order
-  const { error } = await supabase
-    .from('orders')
-    .delete()
-    .eq('id', orderId)
+  // Determine if this is a hard delete (duplicate/not an order) or soft reject
+  const hardDeleteReasons = ['Duplicate order', 'Not an order']
+  const shouldHardDelete = reason ? hardDeleteReasons.includes(reason) : false
 
-  if (error) throw error
+  if (shouldHardDelete) {
+    // Hard delete - remove from database entirely
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', orderId)
+
+    if (error) throw error
+  } else {
+    // Soft reject - mark as rejected and store reason
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        status: 'rejected',
+        rejection_reason: reason || null,
+      })
+      .eq('id', orderId)
+
+    if (error) throw error
+  }
 
   // Try to send rejection email (non-blocking - don't fail if email fails)
   // Skip email for certain reasons like "Duplicate order" or "Not an order"
@@ -286,7 +303,7 @@ export async function rejectOrder(orderId: string, reason?: string, skipEmail: b
       }
     } catch (emailError) {
       console.error('Error sending rejection email:', emailError)
-      // Don't throw - order is still rejected/deleted
+      // Don't throw - order is still rejected
     }
   } else {
     console.log(`ℹ️ Skipping rejection email for order ${orderId} (reason: ${reason})`)

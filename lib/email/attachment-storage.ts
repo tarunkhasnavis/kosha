@@ -6,7 +6,7 @@
  * - Processed content → Database (PDF text, Excel JSON, image base64)
  */
 
-import { createClient } from '@/utils/supabase/server'
+import { createServiceClient } from '@/utils/supabase/service'
 import type { EmailAttachment } from './gmail/client'
 import type { ProcessedAttachment } from './attachments'
 
@@ -38,7 +38,9 @@ export async function storeAttachment(params: {
   processedAttachment: ProcessedAttachment
 }): Promise<StoredAttachment | null> {
   const { orderEmailId, orderId, organizationId, rawAttachment, processedAttachment } = params
-  const supabase = await createClient()
+  console.log(`[STORE-DEBUG] storeAttachment called: file="${rawAttachment.filename}" mime=${rawAttachment.mimeType} size=${rawAttachment.size} hasData=${!!rawAttachment.data} orderEmailId=${orderEmailId} orgId=${organizationId}`)
+
+  const supabase = createServiceClient()
 
   // Determine processed content and type
   let processedContent: string | null = null
@@ -56,6 +58,8 @@ export async function storeAttachment(params: {
     processedType = 'image_base64'
   }
 
+  console.log(`[STORE-DEBUG] processedType=${processedType} processedContentLen=${processedContent?.length ?? 0}`)
+
   // Always store raw file in Supabase Storage
   let storagePath: string | null = null
   if (rawAttachment.data) {
@@ -65,6 +69,7 @@ export async function storeAttachment(params: {
 
       // Convert base64 to buffer for upload
       const fileBuffer = Buffer.from(rawAttachment.data, 'base64')
+      console.log(`[STORE-DEBUG] Uploading to storage bucket "${STORAGE_BUCKET}" path="${path}" bufferSize=${fileBuffer.length}`)
 
       const { error: uploadError } = await supabase.storage
         .from(STORAGE_BUCKET)
@@ -74,17 +79,20 @@ export async function storeAttachment(params: {
         })
 
       if (uploadError) {
-        console.error(`Failed to upload attachment to storage: ${uploadError.message}`)
+        console.error(`[STORE-DEBUG] Storage upload FAILED: ${uploadError.message}`)
       } else {
         storagePath = path
-        console.log(`📎 Uploaded ${rawAttachment.filename} to storage: ${path}`)
+        console.log(`[STORE-DEBUG] Storage upload SUCCESS: ${path}`)
       }
     } catch (error) {
-      console.error('Error uploading attachment to storage:', error)
+      console.error('[STORE-DEBUG] Storage upload EXCEPTION:', error)
     }
+  } else {
+    console.log(`[STORE-DEBUG] No raw data to upload to storage`)
   }
 
   // Insert into order_attachments table
+  console.log(`[STORE-DEBUG] Inserting into order_attachments table...`)
   const { data, error } = await supabase
     .from('order_attachments')
     .insert({
@@ -104,9 +112,11 @@ export async function storeAttachment(params: {
     .single()
 
   if (error) {
-    console.error('Failed to store attachment:', error)
+    console.error('[STORE-DEBUG] DB insert FAILED:', error)
     return null
   }
+
+  console.log(`[STORE-DEBUG] DB insert SUCCESS: id=${data.id}`)
 
   console.log(`📎 Stored attachment ${rawAttachment.filename} (${processedType || 'raw'})`)
 
@@ -167,7 +177,7 @@ export async function linkAttachmentsToOrder(
   orderEmailId: string,
   orderId: string
 ): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('order_attachments')
@@ -183,7 +193,7 @@ export async function linkAttachmentsToOrder(
  * Get attachments for an order
  */
 export async function getOrderAttachments(orderId: string): Promise<StoredAttachment[]> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const { data, error } = await supabase
     .from('order_attachments')
@@ -216,7 +226,7 @@ export async function getOrderAttachments(orderId: string): Promise<StoredAttach
  * Get attachments for an order email (before order is created)
  */
 export async function getEmailAttachments(orderEmailId: string): Promise<StoredAttachment[]> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const { data, error } = await supabase
     .from('order_attachments')
@@ -278,7 +288,7 @@ export async function getAttachmentDownloadUrl(
   storagePath: string,
   expiresIn: number = 3600
 ): Promise<string | null> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKET)

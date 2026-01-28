@@ -9,6 +9,8 @@ import { getAttachmentDownloadUrlAction } from "@/lib/orders/actions"
 
 interface AttachmentViewerProps {
   attachments: OrderAttachmentData[]
+  /** When true, hides the header and border-top (used in tabbed context) */
+  compact?: boolean
 }
 
 /**
@@ -200,7 +202,7 @@ function AttachmentContent({ attachment }: { attachment: OrderAttachmentData }) 
 /**
  * Main attachment viewer with tabs
  */
-export function AttachmentViewer({ attachments }: AttachmentViewerProps) {
+export function AttachmentViewer({ attachments, compact }: AttachmentViewerProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   if (attachments.length === 0) {
@@ -210,10 +212,12 @@ export function AttachmentViewer({ attachments }: AttachmentViewerProps) {
   const selectedAttachment = attachments[selectedIndex]
 
   return (
-    <div className="mt-4 border-t border-slate-200 pt-4">
-      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">
-        Attachments ({attachments.length})
-      </h4>
+    <div className={compact ? "" : "mt-4 border-t border-slate-200 pt-4"}>
+      {!compact && (
+        <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">
+          Attachments ({attachments.length})
+        </h4>
+      )}
 
       {/* Attachment tabs */}
       <div className="flex flex-wrap gap-2 mb-4">

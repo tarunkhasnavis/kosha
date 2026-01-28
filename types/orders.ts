@@ -30,6 +30,7 @@ export interface Order {
   original_email_from?: string | null  // Sender of the original email
   original_email_date?: string | null  // Date/time the original email was sent
   include_notes_in_pdf?: boolean  // Whether to include notes in PDF download (default: false)
+  rejection_reason?: string | null  // Reason for rejection (stored when status = 'rejected')
 }
 
 export interface OrderItem {
