@@ -4,21 +4,25 @@
  * Organization Server Actions
  *
  * UI-facing server actions for organization management.
+ *
+ * NOTE: Organization creation now happens during OAuth callback (app/auth/callback/route.ts)
+ * This ensures OAuth tokens are never lost. The onboarding flow updates the organization
+ * name rather than creating a new one.
  */
 
 import { createClient } from '@/utils/supabase/server'
-import { getUser, getSession } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
-import { storeOAuthTokens } from './oauth'
-import { startGmailWatch } from '@/lib/email/gmail/watch'
 import type { OrgRequiredField } from '@/lib/orders/field-config'
 
 const SUPER_ADMIN_ORG_COOKIE = 'super_admin_org_id'
 
 /**
- * Create a new organization and assign the current user as owner
- * Returns the organization ID on success instead of redirecting
+ * DEPRECATED: This function is kept for backwards compatibility but should not be used.
+ * Organizations are now created during OAuth callback to ensure tokens are never lost.
+ *
+ * @deprecated Use the OAuth callback flow instead
  */
 export async function createOrganization(organizationName: string): Promise<{ organizationId: string }> {
   const user = await getUser()
@@ -29,7 +33,7 @@ export async function createOrganization(organizationName: string): Promise<{ or
 
   const supabase = await createClient()
 
-  // Check if user already has an organization
+  // Check if user already has an organization (should always be true with new flow)
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('organization_id')
@@ -37,11 +41,18 @@ export async function createOrganization(organizationName: string): Promise<{ or
     .single()
 
   if (existingProfile?.organization_id) {
-    // User already has an organization, return it
+    // User already has an organization - just update its name
+    await supabase
+      .from('organizations')
+      .update({ name: organizationName.trim() })
+      .eq('id', existingProfile.organization_id)
+
     return { organizationId: existingProfile.organization_id }
   }
 
-  // Create new organization with Gmail email set to user's email
+  // Fallback: Create org if somehow user doesn't have one (shouldn't happen with new flow)
+  console.warn('createOrganization called but user has no org - this indicates a flow issue')
+
   const { data: newOrg, error: orgError } = await supabase
     .from('organizations')
     .insert({
@@ -52,72 +63,14 @@ export async function createOrganization(organizationName: string): Promise<{ or
     .single()
 
   if (orgError) {
-    console.error('Organization creation error:', orgError)
     throw new Error('Failed to create organization: ' + orgError.message)
   }
 
-  console.log('Organization created:', newOrg)
-
-  // Upsert user's profile with organization_id as owner
-  const { error: profileError } = await supabase
+  await supabase
     .from('profiles')
-    .upsert({
-      id: user.id,
-      email: user.email,
-      full_name: user.user_metadata?.full_name || user.user_metadata?.name,
-      organization_id: newOrg.id,
-      role: 'owner'
-    })
+    .update({ organization_id: newOrg.id, role: 'owner' })
+    .eq('id', user.id)
 
-  if (profileError) {
-    throw new Error('Failed to update user profile: ' + profileError.message)
-  }
-
-  console.log('✅ Profile updated with organization_id:', newOrg.id)
-
-  // Store OAuth tokens for the new organization
-  const session = await getSession()
-  if (session?.provider_token && session?.provider_refresh_token) {
-    try {
-      const expiresIn = session.expires_in || 3600
-      const expiresAt = new Date(Date.now() + expiresIn * 1000)
-
-      await storeOAuthTokens(newOrg.id, {
-        accessToken: session.provider_token,
-        refreshToken: session.provider_refresh_token,
-        expiresAt,
-      })
-
-      console.log('✅ OAuth tokens stored successfully for organization:', newOrg.id)
-
-      // Start Gmail watch for real-time notifications via Pub/Sub
-      const watchResult = await startGmailWatch(newOrg.id)
-      if (watchResult) {
-        console.log('✅ Gmail watch started for organization:', newOrg.id)
-      } else {
-        console.error('⚠️ Failed to start Gmail watch - emails will not sync in real-time')
-      }
-    } catch (error) {
-      // CRITICAL: Token storage failed - this will prevent email sync from working
-      console.error('❌ CRITICAL: Failed to store OAuth tokens for new organization')
-      console.error('Organization:', newOrg.name, '(', newOrg.id, ')')
-      console.error('Error:', error)
-      console.error('ACTION REQUIRED: User needs to log out and log back in to fix this')
-
-      // Fail the organization creation if tokens can't be stored
-      // This prevents silent failures that lose customers
-      throw new Error(
-        'Failed to store authentication tokens. Please ensure TOKEN_ENCRYPTION_KEY is set in .env.local and restart the dev server.'
-      )
-    }
-  } else {
-    // No OAuth tokens in session - this shouldn't happen with Google OAuth
-    console.error('❌ CRITICAL: No OAuth tokens in session after login')
-    console.error('This indicates a problem with the Google OAuth flow')
-    throw new Error('Authentication failed: No OAuth tokens received from Google')
-  }
-
-  // Revalidate routes to ensure profile/org changes propagate
   revalidatePath('/', 'layout')
   revalidatePath('/orders')
 

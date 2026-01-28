@@ -181,3 +181,16 @@ export async function getValidAccessToken(
 
   return tokens.accessToken
 }
+
+// =============================================================================
+// DEPRECATED: Pending OAuth Tokens
+// =============================================================================
+// The pending token system has been removed in favor of creating organizations
+// immediately during the OAuth callback. This ensures tokens are never lost.
+//
+// Old flow (fragile):
+//   Callback → store tokens in profile → Onboarding → create org → retrieve tokens
+//
+// New flow (robust):
+//   Callback → create org immediately → store tokens directly in org → Onboarding updates org name
+// =============================================================================

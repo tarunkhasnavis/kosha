@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { FileText, FileSpreadsheet, Image, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -39,28 +39,220 @@ function formatFileSize(bytes: number): string {
 }
 
 /**
- * Attachment content viewer - displays based on processed type
+ * Attachment content viewer - renders the actual file from Supabase Storage
  */
 function AttachmentContent({ attachment }: { attachment: OrderAttachmentData }) {
-  const [downloading, setDownloading] = useState(false)
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
 
-  const handleDownload = async () => {
+  // Fetch signed URL on mount (or when attachment changes)
+  useEffect(() => {
     if (!attachment.storagePath) return
 
-    setDownloading(true)
-    try {
-      const url = await getAttachmentDownloadUrlAction(attachment.storagePath)
-      if (url) {
-        window.open(url, '_blank')
-      }
-    } catch (error) {
-      console.error('Failed to get download URL:', error)
-    } finally {
-      setDownloading(false)
+    let cancelled = false
+    setLoading(true)
+    setError(false)
+    setSignedUrl(null)
+
+    getAttachmentDownloadUrlAction(attachment.storagePath)
+      .then((url) => {
+        if (!cancelled) {
+          setSignedUrl(url)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(true)
+          setLoading(false)
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [attachment.storagePath])
+
+  const handleDownload = () => {
+    if (signedUrl) {
+      window.open(signedUrl, '_blank')
     }
   }
 
-  // Image attachment
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+        <Loader2 className="h-8 w-8 animate-spin mb-3" />
+        <p className="text-sm">Loading attachment...</p>
+      </div>
+    )
+  }
+
+  // No storage path or failed to get URL — fall back to processed content
+  if (!signedUrl) {
+    return <AttachmentFallbackContent attachment={attachment} onDownload={handleDownload} error={error} />
+  }
+
+  const isPdf = attachment.mimeType === 'application/pdf'
+  const isImage = attachment.mimeType.startsWith('image/')
+
+  // PDF: render in iframe (browsers have built-in PDF viewers)
+  if (isPdf) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-500">{attachment.filename}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            className="h-7 text-xs"
+          >
+            <Download className="h-3 w-3 mr-1" />
+            Download
+          </Button>
+        </div>
+        <iframe
+          src={signedUrl}
+          className="w-full rounded-lg border border-slate-200"
+          style={{ height: '600px' }}
+          title={attachment.filename}
+        />
+      </div>
+    )
+  }
+
+  // Image: render as img tag
+  if (isImage) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-500">{attachment.filename}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            className="h-7 text-xs"
+          >
+            <Download className="h-3 w-3 mr-1" />
+            Download
+          </Button>
+        </div>
+        <img
+          src={signedUrl}
+          alt={attachment.filename}
+          className="max-w-full rounded-lg border border-slate-200"
+        />
+      </div>
+    )
+  }
+
+  // Excel: show table from processed content + download button
+  if (attachment.processedType === 'excel_json' && attachment.processedContent) {
+    return <ExcelContent attachment={attachment} onDownload={handleDownload} />
+  }
+
+  // Other file types: download button
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+      <FileText className="h-12 w-12 mb-3" />
+      <p className="text-sm mb-1">{attachment.filename}</p>
+      <p className="text-xs mb-3">{formatFileSize(attachment.fileSize)}</p>
+      <Button variant="outline" size="sm" onClick={handleDownload}>
+        <Download className="h-4 w-4 mr-2" />
+        Download File
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Excel table renderer
+ */
+function ExcelContent({ attachment, onDownload }: { attachment: OrderAttachmentData; onDownload: () => void }) {
+  let sheets: Record<string, Record<string, unknown>[]> = {}
+  try {
+    sheets = JSON.parse(attachment.processedContent || '{}')
+  } catch {
+    // Invalid JSON
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500">{attachment.filename}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDownload}
+          className="h-7 text-xs"
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Download
+        </Button>
+      </div>
+      {Object.entries(sheets).map(([sheetName, rows]) => (
+        <div key={sheetName} className="space-y-2">
+          <h4 className="text-xs font-medium text-slate-700">{sheetName}</h4>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
+              <thead className="bg-slate-50">
+                <tr>
+                  {rows[0] && Object.keys(rows[0]).map((key) => (
+                    <th key={key} className="px-2 py-1.5 text-left font-medium text-slate-600 border-b border-slate-200">
+                      {key}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, 20).map((row, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    {Object.values(row).map((val, cellIdx) => (
+                      <td key={cellIdx} className="px-2 py-1 text-slate-600 border-b border-slate-100">
+                        {String(val ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length > 20 && (
+              <p className="text-xs text-slate-400 mt-2">
+                Showing first 20 of {rows.length} rows
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Fallback when signed URL is unavailable - shows processed content or download prompt
+ */
+function AttachmentFallbackContent({ attachment, onDownload, error }: { attachment: OrderAttachmentData; onDownload: () => void; error: boolean }) {
+  // PDF text fallback
+  if (attachment.processedType === 'pdf_text' && attachment.processedContent) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-500">Extracted text from {attachment.filename}</span>
+        </div>
+        <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans bg-white rounded-lg p-3 border border-slate-200 max-h-96 overflow-y-auto">
+          {attachment.processedContent}
+        </pre>
+      </div>
+    )
+  }
+
+  // Excel fallback
+  if (attachment.processedType === 'excel_json' && attachment.processedContent) {
+    return <ExcelContent attachment={attachment} onDownload={onDownload} />
+  }
+
+  // Image base64 fallback
   if (attachment.processedType === 'image_base64' && attachment.processedContent) {
     const images = attachment.processedContent.split('|||')
     return (
@@ -77,124 +269,11 @@ function AttachmentContent({ attachment }: { attachment: OrderAttachmentData }) 
     )
   }
 
-  // PDF text content
-  if (attachment.processedType === 'pdf_text' && attachment.processedContent) {
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Extracted text from PDF</span>
-          {attachment.storagePath && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownload}
-              disabled={downloading}
-              className="h-7 text-xs"
-            >
-              {downloading ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Download className="h-3 w-3 mr-1" />
-              )}
-              Download Original
-            </Button>
-          )}
-        </div>
-        <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans bg-white rounded-lg p-3 border border-slate-200 max-h-96 overflow-y-auto">
-          {attachment.processedContent}
-        </pre>
-      </div>
-    )
-  }
-
-  // Excel JSON content
-  if (attachment.processedType === 'excel_json' && attachment.processedContent) {
-    let sheets: Record<string, Record<string, unknown>[]> = {}
-    try {
-      sheets = JSON.parse(attachment.processedContent)
-    } catch {
-      // Invalid JSON
-    }
-
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Excel data</span>
-          {attachment.storagePath && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownload}
-              disabled={downloading}
-              className="h-7 text-xs"
-            >
-              {downloading ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Download className="h-3 w-3 mr-1" />
-              )}
-              Download Original
-            </Button>
-          )}
-        </div>
-        {Object.entries(sheets).map(([sheetName, rows]) => (
-          <div key={sheetName} className="space-y-2">
-            <h4 className="text-xs font-medium text-slate-700">{sheetName}</h4>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
-                <thead className="bg-slate-50">
-                  <tr>
-                    {rows[0] && Object.keys(rows[0]).map((key) => (
-                      <th key={key} className="px-2 py-1.5 text-left font-medium text-slate-600 border-b border-slate-200">
-                        {key}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, 20).map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                      {Object.values(row).map((val, cellIdx) => (
-                        <td key={cellIdx} className="px-2 py-1 text-slate-600 border-b border-slate-100">
-                          {String(val ?? '')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {rows.length > 20 && (
-                <p className="text-xs text-slate-400 mt-2">
-                  Showing first 20 of {rows.length} rows
-                </p>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  // No processed content - just show download button
+  // Nothing available
   return (
     <div className="flex flex-col items-center justify-center py-8 text-slate-400">
       <FileText className="h-12 w-12 mb-3" />
-      <p className="text-sm mb-3">Preview not available</p>
-      {attachment.storagePath && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownload}
-          disabled={downloading}
-        >
-          {downloading ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Download className="h-4 w-4 mr-2" />
-          )}
-          Download File
-        </Button>
-      )}
+      <p className="text-sm mb-3">{error ? 'Failed to load preview' : 'Preview not available'}</p>
     </div>
   )
 }

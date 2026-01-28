@@ -9,7 +9,7 @@
  * for pre-processing and extracting relevant metadata before calling these functions.
  */
 
-import { openai } from '@/lib/openai'
+import { getOpenAI } from '@/lib/openai'
 import { createClient } from '@/utils/supabase/server'
 
 /**
@@ -35,6 +35,7 @@ function truncateForEmbedding(text: string): string {
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const truncatedText = truncateForEmbedding(text)
+  const openai = getOpenAI()
   const response = await openai.embeddings.create({
     model: 'text-embedding-3-small',
     input: truncatedText,

@@ -38,6 +38,8 @@ import {
   FileSpreadsheet,
   FileText,
   RotateCcw,
+  Paperclip,
+  Pencil,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/actions"
@@ -87,6 +89,8 @@ export interface OrderFieldsWithOrgFields {
   ship_via?: string
   orgFields?: Record<string, string | number | null>
   include_notes_in_pdf?: boolean
+  company_name?: string
+  contact_name?: string
 }
 
 interface OrderEditPanelProps {
@@ -125,6 +129,9 @@ export function OrderEditPanel({
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined)
   const [shipVia, setShipVia] = useState<string>("")
   const [includeNotesInPdf, setIncludeNotesInPdf] = useState(false)
+  const [companyName, setCompanyName] = useState("")
+  const [contactName, setContactName] = useState("")
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false)
   const [orgFieldValues, setOrgFieldValues] = useState<Record<string, string | number | null>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [savingAction, setSavingAction] = useState<string | null>(null)
@@ -181,6 +188,9 @@ export function OrderEditPanel({
       setDeliveryDate(order.expected_date ? new Date(order.expected_date) : undefined)
       setShipVia(order.ship_via || "")
       setIncludeNotesInPdf(order.include_notes_in_pdf ?? false)
+      setCompanyName(order.company_name || "")
+      setContactName(order.contact_name || "")
+      setIsEditingCustomer(false)
 
       // Initialize org field values from order.custom_fields
       const initialOrgFields: Record<string, string | number | null> = {}
@@ -247,6 +257,10 @@ export function OrderEditPanel({
     // Check if ship via changed
     if (shipVia !== (order.ship_via || "")) return true
 
+    // Check if customer fields changed
+    if (companyName !== (order.company_name || "")) return true
+    if (contactName !== (order.contact_name || "")) return true
+
     // Check if org fields changed
     const customFields = order.custom_fields || {}
     for (const field of orgRequiredFields) {
@@ -256,7 +270,7 @@ export function OrderEditPanel({
     }
 
     return false
-  }, [order, items, originalItems, notes, deliveryDate, shipVia, orgFieldValues, orgRequiredFields])
+  }, [order, items, originalItems, notes, deliveryDate, shipVia, companyName, contactName, orgFieldValues, orgRequiredFields])
 
   // Check if clarification message was edited
   const isClarificationMessageDirty = useMemo(() => {
@@ -348,7 +362,7 @@ export function OrderEditPanel({
     setSavingAction("save")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, deletedItems)
+      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -364,7 +378,7 @@ export function OrderEditPanel({
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
       // Pass custom approval email if user edited it, otherwise undefined to use default
       const customEmail = editableApprovalEmail.trim() || undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, customEmail, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, customEmail, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -398,7 +412,7 @@ export function OrderEditPanel({
     setSavingAction("continue")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf }, deletedItems)
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, deletedItems)
 
       // Show inline result instead of dialog
       setContinueResult({
@@ -434,7 +448,7 @@ export function OrderEditPanel({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, include_notes_in_pdf: includeNotesInPdf }, undefined, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, undefined, deletedItems)
       setContinueResult(null)
       onClose()
     } finally {
@@ -840,35 +854,77 @@ export function OrderEditPanel({
                         </span>
                       )}
                     </div>
-                    {order.email_url && (
-                      <a
-                        href={order.email_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                    {!isEditingCustomer && (
+                      <button
+                        onClick={() => setIsEditingCustomer(true)}
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
                       >
-                        <Mail className="h-3 w-3" />
-                        <span>View Inbox</span>
-                      </a>
+                        <Pencil className="h-3 w-3" />
+                        <span>Edit</span>
+                      </button>
                     )}
                   </div>
-                  <div className={`${!order.company_name ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
-                    <p className="font-medium">
-                      {order.company_name || "Unknown Company"}
-                      {!order.company_name && (
-                        <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
-                      )}
-                    </p>
-                    {order.contact_name && (
-                      <p className="text-sm text-slate-500 mt-0.5">
-                        {order.contact_name}
-                        {order.contact_email && ` · ${order.contact_email}`}
+
+                  {isEditingCustomer ? (
+                    <div className="space-y-2">
+                      <div>
+                        <Label className="text-xs text-slate-500">Company Name *</Label>
+                        <Input
+                          value={companyName}
+                          onChange={(e) => setCompanyName(e.target.value)}
+                          placeholder="Company name (required)"
+                          className="mt-1 h-8 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-500">Contact Name *</Label>
+                        <Input
+                          value={contactName}
+                          onChange={(e) => setContactName(e.target.value)}
+                          placeholder="Contact name (required)"
+                          className="mt-1 h-8 text-sm"
+                        />
+                      </div>
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => setIsEditingCustomer(false)}
+                          className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`${!companyName ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
+                      <p className="font-medium">
+                        {companyName || "Unknown Company"}
+                        {!companyName && (
+                          <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
+                        )}
                       </p>
-                    )}
-                    {order.phone && (
-                      <p className="text-sm text-slate-500">{order.phone}</p>
-                    )}
-                  </div>
+                      {contactName ? (
+                        <p className="text-sm text-slate-500 mt-0.5">
+                          {contactName}
+                          {order.contact_email && ` · ${order.contact_email}`}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-[hsl(var(--attention-500))] mt-0.5">
+                          No contact name <span className="text-xs">(required)</span>
+                        </p>
+                      )}
+                      {order.phone && (
+                        <p className="text-sm text-slate-500">{order.phone}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Source email — always read-only */}
+                  {order.original_email_from && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-400">Source</p>
+                      <p className="text-sm text-slate-500 mt-0.5">{order.original_email_from}</p>
+                    </div>
+                  )}
                 </motion.div>
 
                 {/* Original Email Section */}
@@ -881,38 +937,60 @@ export function OrderEditPanel({
                     variants={sectionVariants}
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                        Original Email
-                      </h3>
-                    </div>
-
-                    {/* Email / Attachments tab bar */}
-                    {(!isLoadingAttachments && attachments.length > 0) && (
-                      <div className="flex gap-1 mb-3 bg-slate-100 rounded-lg p-0.5 w-fit">
-                        <button
-                          onClick={() => setEmailSectionTab('email')}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                            emailSectionTab === 'email'
-                              ? "bg-white text-slate-900 shadow-sm"
-                              : "text-slate-500 hover:text-slate-700"
-                          )}
-                        >
-                          Email
-                        </button>
-                        <button
-                          onClick={() => setEmailSectionTab('attachments')}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                            emailSectionTab === 'attachments'
-                              ? "bg-white text-slate-900 shadow-sm"
-                              : "text-slate-500 hover:text-slate-700"
-                          )}
-                        >
-                          Attachments ({attachments.length})
-                        </button>
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                          Original Email
+                        </h3>
+                        {order.email_url && (
+                          <a
+                            href={order.email_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            <Mail className="h-3 w-3" />
+                            <span>View in Inbox</span>
+                          </a>
+                        )}
                       </div>
-                    )}
+
+                      {/* Email / Attachments tab bar — inline with title */}
+                      {(!isLoadingAttachments && attachments.length > 0) && (
+                        <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
+                          <button
+                            onClick={() => setEmailSectionTab('email')}
+                            className={cn(
+                              "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                              emailSectionTab === 'email'
+                                ? "bg-white text-slate-900 shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"
+                            )}
+                          >
+                            Email
+                          </button>
+                          <button
+                            onClick={() => setEmailSectionTab('attachments')}
+                            className={cn(
+                              "flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                              emailSectionTab === 'attachments'
+                                ? "bg-white text-slate-900 shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"
+                            )}
+                          >
+                            <Paperclip className="h-3 w-3" />
+                            Attachments
+                            <span className={cn(
+                              "inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-semibold",
+                              emailSectionTab === 'attachments'
+                                ? "bg-slate-200 text-slate-700"
+                                : "bg-blue-100 text-blue-700"
+                            )}>
+                              {attachments.length}
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Tab content */}
                     {emailSectionTab === 'email' ? (
@@ -1241,7 +1319,7 @@ export function OrderEditPanel({
           ) : (
             /* PEEK MODE: Single column with logical order */
             <div className="space-y-5">
-              {/* Customer Info (read-only) */}
+              {/* Customer Info */}
               <motion.div
                 className="bg-white border border-slate-200/60 rounded-xl p-4"
                 custom={0}
@@ -1262,35 +1340,77 @@ export function OrderEditPanel({
                       </span>
                     )}
                   </div>
-                  {order.email_url && (
-                    <a
-                      href={order.email_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                  {!isEditingCustomer && (
+                    <button
+                      onClick={() => setIsEditingCustomer(true)}
+                      className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
                     >
-                      <Mail className="h-3 w-3" />
-                      <span>View Inbox</span>
-                    </a>
+                      <Pencil className="h-3 w-3" />
+                      <span>Edit</span>
+                    </button>
                   )}
                 </div>
-                <div className={`${!order.company_name ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
-                  <p className="font-medium">
-                    {order.company_name || "Unknown Company"}
-                    {!order.company_name && (
-                      <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
-                    )}
-                  </p>
-                  {order.contact_name && (
-                    <p className="text-sm text-slate-500 mt-0.5">
-                      {order.contact_name}
-                      {order.contact_email && ` · ${order.contact_email}`}
+
+                {isEditingCustomer ? (
+                  <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs text-slate-500">Company Name *</Label>
+                      <Input
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder="Company name (required)"
+                        className="mt-1 h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-500">Contact Name *</Label>
+                      <Input
+                        value={contactName}
+                        onChange={(e) => setContactName(e.target.value)}
+                        placeholder="Contact name (required)"
+                        className="mt-1 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={() => setIsEditingCustomer(false)}
+                        className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`${!companyName ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
+                    <p className="font-medium">
+                      {companyName || "Unknown Company"}
+                      {!companyName && (
+                        <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
+                      )}
                     </p>
-                  )}
-                  {order.phone && (
-                    <p className="text-sm text-slate-500">{order.phone}</p>
-                  )}
-                </div>
+                    {contactName ? (
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {contactName}
+                        {order.contact_email && ` · ${order.contact_email}`}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-[hsl(var(--attention-500))] mt-0.5">
+                        No contact name <span className="text-xs">(required)</span>
+                      </p>
+                    )}
+                    {order.phone && (
+                      <p className="text-sm text-slate-500">{order.phone}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Source email — always read-only */}
+                {order.original_email_from && (
+                  <div className="mt-3 pt-3 border-t border-slate-100">
+                    <p className="text-xs text-slate-400">Source</p>
+                    <p className="text-sm text-slate-500 mt-0.5">{order.original_email_from}</p>
+                  </div>
+                )}
               </motion.div>
 
               {/* Items Table */}

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Young_Serif } from "next/font/google"
 import {
@@ -54,6 +55,30 @@ interface MainNavProps {
   userEmail?: string | null
 }
 
+// Animation variants for nav entrance
+const navVariants = {
+  hidden: { x: -20, opacity: 0 },
+  visible: {
+    x: 0,
+    opacity: 1,
+    transition: {
+      duration: 0.4,
+      ease: 'easeOut' as const,
+      staggerChildren: 0.08,
+      delayChildren: 0.1,
+    },
+  },
+}
+
+const navItemVariants = {
+  hidden: { x: -10, opacity: 0 },
+  visible: {
+    x: 0,
+    opacity: 1,
+    transition: { duration: 0.3, ease: 'easeOut' as const },
+  },
+}
+
 export function MainNav({
   organizationName,
   isSuperAdmin,
@@ -76,9 +101,14 @@ export function MainNav({
   }
 
   return (
-    <nav className="fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-[rgba(15,23,42,0.06)] flex flex-col">
+    <motion.nav
+      className="fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-[rgba(15,23,42,0.06)] flex flex-col"
+      variants={navVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-6">
+      <motion.div className="h-16 flex items-center justify-between px-6" variants={navItemVariants}>
         <Link href="/orders">
           <span className={`text-[22px] text-slate-900 ${youngSerif.className}`}>kosha</span>
         </Link>
@@ -88,11 +118,11 @@ export function MainNav({
             Admin
           </Badge>
         )}
-      </div>
+      </motion.div>
 
       {/* Super Admin Org Switcher */}
       {isSuperAdmin && allOrganizations.length > 0 && (
-        <div className="px-3 py-3 border-b border-[rgba(15,23,42,0.06)] bg-purple-50/30">
+        <motion.div className="px-3 py-3 border-b border-[rgba(15,23,42,0.06)] bg-purple-50/30" variants={navItemVariants}>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200 hover:border-purple-300 transition-colors duration-150 cursor-pointer" disabled={isSwitching}>
               {isSwitching ? (
@@ -140,11 +170,11 @@ export function MainNav({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
+        </motion.div>
       )}
 
       {/* Navigation Links */}
-      <div className="flex-1 px-3 py-4">
+      <motion.div className="flex-1 px-3 py-4" variants={navItemVariants}>
         <div className="space-y-1">
           {navigation.map((item) => {
             const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
@@ -165,22 +195,22 @@ export function MainNav({
             )
           })}
         </div>
-      </div>
+      </motion.div>
 
       {/* Organization Name - above divider */}
       {organizationName && (
-        <div className="mx-3 pb-3">
+        <motion.div className="mx-3 pb-3" variants={navItemVariants}>
           <div className="flex items-center gap-2.5 px-3 py-2">
             <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
             <span className="text-[14px] font-semibold text-slate-700 truncate">
               {organizationName}
             </span>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Footer Navigation */}
-      <div className="mx-3 px-0 pb-3 border-t border-[rgba(15,23,42,0.06)] pt-3">
+      <motion.div className="mx-3 px-0 pb-3 border-t border-[rgba(15,23,42,0.06)] pt-3" variants={navItemVariants}>
         <div className="space-y-1">
           <Link
             href="/settings"
@@ -213,7 +243,7 @@ export function MainNav({
             Sign out
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Report Issue Modal */}
       <ReportIssueModal
@@ -224,6 +254,6 @@ export function MainNav({
         orgId={currentOrgId}
         orgName={organizationName}
       />
-    </nav>
+    </motion.nav>
   )
 }

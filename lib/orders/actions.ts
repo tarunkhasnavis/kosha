@@ -593,6 +593,8 @@ export async function saveOrderChanges(
     ship_via?: string
     orgFields?: Record<string, string | number | null>
     include_notes_in_pdf?: boolean
+    company_name?: string
+    contact_name?: string
   },
   deletedItemIds?: string[]
 ) {
@@ -615,6 +617,14 @@ export async function saveOrderChanges(
     expected_date: orderFields.expected_date || null,
     ship_via: orderFields.ship_via || null,
     include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
+  }
+
+  // Update customer fields if provided
+  if (orderFields.company_name !== undefined) {
+    updateData.company_name = orderFields.company_name || null
+  }
+  if (orderFields.contact_name !== undefined) {
+    updateData.contact_name = orderFields.contact_name || null
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -684,6 +694,8 @@ export async function saveAndAnalyzeOrder(
     ship_via?: string
     orgFields?: Record<string, string | number | null>
     include_notes_in_pdf?: boolean
+    company_name?: string
+    contact_name?: string
   },
   deletedItemIds?: string[]
 ): Promise<SaveAndAnalyzeResult> {
@@ -765,6 +777,14 @@ export async function saveAndAnalyzeOrder(
     include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
   }
 
+  // Update customer fields if provided
+  if (orderFields.company_name !== undefined) {
+    updateData.company_name = orderFields.company_name || null
+  }
+  if (orderFields.contact_name !== undefined) {
+    updateData.contact_name = orderFields.contact_name || null
+  }
+
   // Store org-specific fields in custom_fields JSONB column
   if (orderFields.orgFields) {
     updateData.custom_fields = orderFields.orgFields
@@ -824,6 +844,8 @@ export async function saveAndApproveOrder(
     ship_via?: string
     orgFields?: Record<string, string | number | null>
     include_notes_in_pdf?: boolean
+    company_name?: string
+    contact_name?: string
   },
   customApprovalEmail?: string,
   deletedItems?: EditableItemInput[]
@@ -848,6 +870,14 @@ export async function saveAndApproveOrder(
     ship_via: orderFields.ship_via || null,
     status: 'approved',
     include_notes_in_pdf: orderFields.include_notes_in_pdf ?? false,
+  }
+
+  // Update customer fields if provided
+  if (orderFields.company_name !== undefined) {
+    updateData.company_name = orderFields.company_name || null
+  }
+  if (orderFields.contact_name !== undefined) {
+    updateData.contact_name = orderFields.contact_name || null
   }
 
   // Store org-specific fields in custom_fields JSONB column

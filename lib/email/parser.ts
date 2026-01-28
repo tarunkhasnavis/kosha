@@ -8,7 +8,7 @@
 import type { ParsedEmail } from './gmail/client'
 import type { ProcessedAttachment } from './attachments'
 import { prepareAttachmentsForAI } from './attachments'
-import { openai } from '@/lib/openai'
+import { getOpenAI } from '@/lib/openai'
 import {
   type OrgRequiredField,
   generateOrgFieldPromptInstructions,
@@ -201,6 +201,7 @@ ${email.body}
       })
     }
 
+    const openai = getOpenAI()
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -457,6 +458,7 @@ export async function analyzeOrderCompleteness(
     const greetingName = contactName || 'there'
     const signatureName = organizationName || 'Our Team'
 
+    const openai = getOpenAI()
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
