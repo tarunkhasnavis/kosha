@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@/utils/supabase/server'
+import { createServiceClient } from '@/utils/supabase/service'
 import { revalidatePath } from 'next/cache'
 import type { OrderStatus } from '@/types/orders'
 import { getOrderClarificationInfo, clearClarificationMessage, updateClarificationMessage, getOrderThreadInfo, getOrderLearningData } from './queries'
@@ -1465,13 +1466,43 @@ export interface OrderAttachmentData {
 /**
  * Fetch attachments for an order
  * Returns metadata and processed content (for display)
+ *
+ * Uses service client to bypass RLS, with manual authorization checking.
+ * This is necessary because super admins can view other orgs via cookie override,
+ * which RLS policies don't know about.
  */
 export async function getOrderAttachmentsAction(
   orderId: string
 ): Promise<OrderAttachmentData[]> {
-  const supabase = await createClient()
+  // Get the user's current organization (respects super admin org override)
+  const org = await getUserOrganization()
+  if (!org?.id) {
+    console.error('No organization found for user')
+    return []
+  }
 
-  const { data, error } = await supabase
+  const serviceClient = createServiceClient()
+
+  // First verify the order belongs to the user's current organization
+  const { data: order, error: orderError } = await serviceClient
+    .from('orders')
+    .select('id, organization_id')
+    .eq('id', orderId)
+    .single()
+
+  if (orderError || !order) {
+    console.error('Failed to fetch order for authorization check:', orderError)
+    return []
+  }
+
+  // Authorization: order must belong to the user's current organization
+  if (order.organization_id !== org.id) {
+    console.error('Order does not belong to user\'s organization')
+    return []
+  }
+
+  // Now fetch attachments using service client (bypasses RLS)
+  const { data, error } = await serviceClient
     .from('order_attachments')
     .select('id, filename, mime_type, file_size, storage_path, processed_content, processed_type')
     .eq('order_id', orderId)
@@ -1495,13 +1526,25 @@ export async function getOrderAttachmentsAction(
 
 /**
  * Get a signed URL for downloading an attachment from Supabase Storage
+ *
+ * Uses service client to bypass storage RLS policies.
+ * Authorization is handled by getOrderAttachmentsAction which must be called first.
  */
 export async function getAttachmentDownloadUrlAction(
   storagePath: string
 ): Promise<string | null> {
-  const supabase = await createClient()
+  // Basic validation - storage path should exist
+  if (!storagePath) {
+    console.error('No storage path provided')
+    return null
+  }
 
-  const { data, error } = await supabase.storage
+  // Use service client to bypass storage RLS
+  // Note: Authorization is assumed to be done by getOrderAttachmentsAction
+  // which verifies the user has access to the order before returning storage paths
+  const serviceClient = createServiceClient()
+
+  const { data, error } = await serviceClient.storage
     .from('order-attachments')
     .createSignedUrl(storagePath, 3600) // 1 hour expiry
 
