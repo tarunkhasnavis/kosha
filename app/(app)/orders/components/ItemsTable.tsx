@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select"
 import { Trash2, Plus, Undo2 } from "lucide-react"
 import type { EditableItem, CompletenessResult } from "@/lib/orders/completeness"
+import type { Product } from "@/types/products"
+import { ProductCombobox } from "./ProductCombobox"
 
 // Re-export for convenience
 export type { EditableItem }
@@ -21,10 +23,12 @@ interface ItemsTableProps {
   completeness: CompletenessResult | null
   inferredFields?: string[]  // Fields where AI made logical leaps (e.g., "items[0].sku")
   readOnly?: boolean
+  products: Product[]  // Product catalog for SKU dropdown
   onUpdateItem: (id: string, field: keyof EditableItem, value: string | number) => void
   onDeleteItem: (id: string) => void
   onRestoreItem?: (id: string) => void
   onAddItem: () => void
+  onProductSelect?: (itemId: string, product: Product) => void
 }
 
 // =============================================================================
@@ -63,8 +67,6 @@ function getInferredFieldClass(isInferred: boolean): string {
 }
 
 function getFieldClass(isMissing: boolean, isInferred: boolean): string {
-  // These should be mutually exclusive - a field is either missing OR inferred, never both
-  // If somehow both (shouldn't happen), orange (missing) takes priority as the safer default
   if (isMissing) return getMissingFieldClass(true)
   if (isInferred) return getInferredFieldClass(true)
   return ''
@@ -78,10 +80,12 @@ interface ItemRowProps {
   item: EditableItem
   itemIndex: number
   missingFields: string[]
-  inferredFields: string[]  // Full paths like "items[0].sku"
+  inferredFields: string[]
   readOnly?: boolean
+  products: Product[]
   onUpdate: (field: keyof EditableItem, value: string | number) => void
   onDelete: () => void
+  onProductSelect?: (product: Product) => void
 }
 
 function InferredFieldWrapper({
@@ -90,11 +94,10 @@ function InferredFieldWrapper({
   isInferred: boolean
   children: React.ReactNode
 }) {
-  // Just render children - purple highlight is applied via CSS classes on the input
   return <>{children}</>
 }
 
-function ItemRow({ item, itemIndex, missingFields, inferredFields, readOnly, onUpdate, onDelete }: ItemRowProps) {
+function ItemRow({ item, itemIndex, missingFields, inferredFields, readOnly, products, onUpdate, onDelete, onProductSelect }: ItemRowProps) {
   const isFieldMissing = (field: string) => missingFields.includes(field)
   const isFieldInferred = (field: string) => inferredFields.includes(`items[${itemIndex}].${field}`)
 
@@ -104,24 +107,44 @@ function ItemRow({ item, itemIndex, missingFields, inferredFields, readOnly, onU
     <tr className="hover:bg-slate-50/30 transition-colors">
       <td className="px-3 py-2.5">
         <InferredFieldWrapper isInferred={isFieldInferred('sku')}>
-          <Input
-            value={item.sku}
-            onChange={(e) => onUpdate("sku", e.target.value)}
-            placeholder="SKU"
-            disabled={readOnly}
-            className={`h-8 text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 ${getFieldClass(isFieldMissing('sku'), isFieldInferred('sku'))} ${disabledClass}`}
-          />
+          {readOnly ? (
+            <Input
+              value={item.sku}
+              placeholder="SKU"
+              disabled
+              className={`h-8 text-sm bg-white border-slate-200 ${disabledClass}`}
+            />
+          ) : (
+            <ProductCombobox
+              value={item.sku}
+              products={products}
+              onProductSelect={(product) => onProductSelect?.(product)}
+              placeholder="Search products..."
+              searchField="sku"
+              className={`h-8 text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 ${getFieldClass(isFieldMissing('sku'), isFieldInferred('sku'))}`}
+            />
+          )}
         </InferredFieldWrapper>
       </td>
       <td className="px-3 py-2.5">
         <InferredFieldWrapper isInferred={isFieldInferred('name')}>
-          <Input
-            value={item.name}
-            onChange={(e) => onUpdate("name", e.target.value)}
-            placeholder="Item description"
-            disabled={readOnly}
-            className={`h-8 text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 ${getFieldClass(isFieldMissing('name'), isFieldInferred('name'))} ${disabledClass}`}
-          />
+          {readOnly ? (
+            <Input
+              value={item.name}
+              placeholder="Description"
+              disabled
+              className={`h-8 text-sm bg-white border-slate-200 ${disabledClass}`}
+            />
+          ) : (
+            <ProductCombobox
+              value={item.name}
+              products={products}
+              onProductSelect={(product) => onProductSelect?.(product)}
+              placeholder="Search products..."
+              searchField="name"
+              className={`h-8 text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 ${getFieldClass(isFieldMissing('name'), isFieldInferred('name'))}`}
+            />
+          )}
         </InferredFieldWrapper>
       </td>
       <td className="px-3 py-2.5">
@@ -147,7 +170,6 @@ function ItemRow({ item, itemIndex, missingFields, inferredFields, readOnly, onU
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {/* Include current value if not in standard list */}
                 {!QUANTITY_UNITS.includes(item.quantity_unit) && (
                   <SelectItem value={item.quantity_unit}>{item.quantity_unit}</SelectItem>
                 )}
@@ -202,7 +224,6 @@ function ItemRow({ item, itemIndex, missingFields, inferredFields, readOnly, onU
 // Main Component
 // =============================================================================
 
-// Deleted item row component
 function DeletedItemRow({
   item,
   onRestore
@@ -250,10 +271,12 @@ export function ItemsTable({
   completeness,
   inferredFields,
   readOnly,
+  products,
   onUpdateItem,
   onDeleteItem,
   onRestoreItem,
   onAddItem,
+  onProductSelect,
 }: ItemsTableProps) {
   const itemsNeedingAttention = completeness?.itemMissingFields.size ?? 0
   const safeInferredFields = inferredFields ?? []
@@ -302,8 +325,10 @@ export function ItemsTable({
                 missingFields={completeness?.itemMissingFields.get(item.id) ?? []}
                 inferredFields={safeInferredFields}
                 readOnly={readOnly}
+                products={products}
                 onUpdate={(field, value) => onUpdateItem(item.id, field, value)}
                 onDelete={() => onDeleteItem(item.id)}
+                onProductSelect={(product) => onProductSelect?.(item.id, product)}
               />
             ))}
             {items.length === 0 && deletedItems.length === 0 && (

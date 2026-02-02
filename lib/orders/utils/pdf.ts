@@ -26,11 +26,14 @@ export interface OrgInfo {
   website?: string
 }
 
+export type DocumentType = 'order_form' | 'invoice'
+
 export interface OrderPdfInput {
   order: Order
   items: OrderItem[]
   org: OrgInfo
   includeNotes?: boolean  // Whether to include notes in PDF (default: false)
+  documentType?: DocumentType  // 'order_form' (default) or 'invoice'
 }
 
 // ============================================
@@ -128,12 +131,12 @@ interface DrawContext {
   y: number // Current Y position (top-down)
 }
 
-function drawHeader(ctx: DrawContext, org: OrgInfo): number {
+function drawHeader(ctx: DrawContext, org: OrgInfo, documentType: DocumentType = 'order_form'): number {
   const { page, fonts } = ctx
   let y = PAGE.HEIGHT - PAGE.MARGIN_TOP
 
-  // Title - "SALES ORDER FORM" on the right (using Bitter font)
-  const titleText = 'SALES ORDER FORM'
+  // Title - document type on the right (using Bitter font)
+  const titleText = documentType === 'invoice' ? 'INVOICE' : 'SALES ORDER FORM'
   const titleWidth = fonts.title.widthOfTextAtSize(titleText, FONTS.TITLE)
   page.drawText(titleText, {
     x: PAGE.WIDTH - PAGE.MARGIN_RIGHT - titleWidth,
@@ -197,16 +200,73 @@ function drawHeader(ctx: DrawContext, org: OrgInfo): number {
   return y - 15 // Return Y position after header with spacing
 }
 
-function drawDateAndOrderBlock(ctx: DrawContext, order: Order): number {
+function drawDateAndOrderBlock(ctx: DrawContext, order: Order, documentType: DocumentType = 'order_form'): number {
   const { page, fonts } = ctx
   const rightX = PAGE.WIDTH - PAGE.MARGIN_RIGHT
   let y = PAGE.HEIGHT - PAGE.MARGIN_TOP - 50
 
-  // Date box
+  if (documentType === 'invoice') {
+    // Invoice layout: Invoice #, Date of Issue, Due Date
+    const invoiceLabel = 'INVOICE #:'
+    page.drawText(invoiceLabel, {
+      x: rightX - 110,
+      y,
+      size: FONTS.SMALL,
+      font: fonts.bold,
+      color: COLORS.GRAY,
+    })
+    page.drawText(order.order_number, {
+      x: rightX - 60,
+      y,
+      size: FONTS.BODY,
+      font: fonts.bold,
+      color: COLORS.BLACK,
+    })
+
+    y -= 18
+
+    // Date of issue
+    page.drawText('DATE:', {
+      x: rightX - 110,
+      y,
+      size: FONTS.SMALL,
+      font: fonts.bold,
+      color: COLORS.GRAY,
+    })
+    page.drawText(formatDate(order.received_date), {
+      x: rightX - 60,
+      y,
+      size: FONTS.BODY,
+      font: fonts.regular,
+      color: COLORS.BLACK,
+    })
+
+    y -= 18
+
+    // Due date (use expected_date or default to received_date + 30 days)
+    page.drawText('DUE:', {
+      x: rightX - 110,
+      y,
+      size: FONTS.SMALL,
+      font: fonts.bold,
+      color: COLORS.GRAY,
+    })
+    const dueDate = order.expected_date || order.received_date
+    page.drawText(formatDate(dueDate), {
+      x: rightX - 60,
+      y,
+      size: FONTS.BODY,
+      font: fonts.regular,
+      color: COLORS.BLACK,
+    })
+
+    return y - 15
+  }
+
+  // Order form layout (original)
   const dateLabel = 'DATE'
   const dateValue = formatDate(order.received_date)
 
-  // Draw date label
   page.drawText(dateLabel, {
     x: rightX - 100,
     y,
@@ -215,7 +275,6 @@ function drawDateAndOrderBlock(ctx: DrawContext, order: Order): number {
     color: COLORS.GRAY,
   })
 
-  // Draw date value
   page.drawText(dateValue, {
     x: rightX - 60,
     y,
@@ -226,7 +285,6 @@ function drawDateAndOrderBlock(ctx: DrawContext, order: Order): number {
 
   y -= 25
 
-  // Order number label and box
   const orderLabel = 'ORDER #:'
   page.drawText(orderLabel, {
     x: rightX - 100,
@@ -247,7 +305,7 @@ function drawDateAndOrderBlock(ctx: DrawContext, order: Order): number {
   return y - 20
 }
 
-function drawAddressBlocks(ctx: DrawContext, order: Order): number {
+function drawAddressBlocks(ctx: DrawContext, order: Order, documentType: DocumentType = 'order_form'): number {
   const { page, fonts } = ctx
   let y = ctx.y
 
@@ -261,8 +319,9 @@ function drawAddressBlocks(ctx: DrawContext, order: Order): number {
 
   y -= 20
 
-  // Left block: Customer/DBA Address
-  page.drawText('CUSTOMER', {
+  // Left block label
+  const leftLabel = documentType === 'invoice' ? 'BILL TO' : 'CUSTOMER'
+  page.drawText(leftLabel, {
     x: PAGE.MARGIN_LEFT,
     y,
     size: FONTS.SMALL,
@@ -270,14 +329,16 @@ function drawAddressBlocks(ctx: DrawContext, order: Order): number {
     color: COLORS.GRAY,
   })
 
-  // Right block: Customer Address
-  page.drawText('CUSTOMER ADDRESS', {
-    x: PAGE.MARGIN_LEFT + 260,
-    y,
-    size: FONTS.SMALL,
-    font: fonts.bold,
-    color: COLORS.GRAY,
-  })
+  // Right block label (only show for order form)
+  if (documentType === 'order_form') {
+    page.drawText('CUSTOMER ADDRESS', {
+      x: PAGE.MARGIN_LEFT + 260,
+      y,
+      size: FONTS.SMALL,
+      font: fonts.bold,
+      color: COLORS.GRAY,
+    })
+  }
 
   y -= 15
 
@@ -369,7 +430,7 @@ function drawAddressBlocks(ctx: DrawContext, order: Order): number {
   return y - 20
 }
 
-function drawMetaRow(ctx: DrawContext, order: Order): number {
+function drawMetaRow(ctx: DrawContext, order: Order, documentType: DocumentType = 'order_form'): number {
   const { page, fonts } = ctx
   let y = ctx.y
 
@@ -383,12 +444,18 @@ function drawMetaRow(ctx: DrawContext, order: Order): number {
 
   y -= 15
 
-  // Meta row with columns
-  const columns = [
-    { label: 'P.O NO.', value: order.order_number || '', x: PAGE.MARGIN_LEFT },
-    { label: 'DELIVERY DATE', value: formatDate(order.expected_date) || '', x: PAGE.MARGIN_LEFT + 130 },
-    { label: 'SHIP VIA', value: order.ship_via || '', x: PAGE.MARGIN_LEFT + 280 },
-  ]
+  // Meta row with columns - different for invoice vs order form
+  const columns = documentType === 'invoice'
+    ? [
+        { label: 'INVOICE #', value: order.order_number || '', x: PAGE.MARGIN_LEFT },
+        { label: 'DATE', value: formatDate(order.received_date) || '', x: PAGE.MARGIN_LEFT + 130 },
+        { label: 'TERMS', value: 'Net 30', x: PAGE.MARGIN_LEFT + 280 },
+      ]
+    : [
+        { label: 'P.O NO.', value: order.order_number || '', x: PAGE.MARGIN_LEFT },
+        { label: 'DELIVERY DATE', value: formatDate(order.expected_date) || '', x: PAGE.MARGIN_LEFT + 130 },
+        { label: 'SHIP VIA', value: order.ship_via || '', x: PAGE.MARGIN_LEFT + 280 },
+      ]
 
   // Draw labels
   for (const col of columns) {
@@ -607,7 +674,7 @@ function drawTableRows(
   return { y, remainingItems }
 }
 
-function drawTotalsBox(ctx: DrawContext, order: Order): number {
+function drawTotalsBox(ctx: DrawContext, order: Order, documentType: DocumentType = 'order_form'): number {
   const { page, fonts } = ctx
   let y = ctx.y - 20
 
@@ -646,7 +713,7 @@ function drawTotalsBox(ctx: DrawContext, order: Order): number {
 
   y -= lineHeight
 
-  // Shipping/Handling line
+  // Tax line (for invoice) or Shipping/Handling (for order form)
   page.drawLine({
     start: { x: boxX, y },
     end: { x: boxX + boxWidth, y },
@@ -654,7 +721,8 @@ function drawTotalsBox(ctx: DrawContext, order: Order): number {
     color: COLORS.LINE,
   })
 
-  page.drawText('SHIPPING/HANDLING', {
+  const middleRowLabel = documentType === 'invoice' ? 'TAX' : 'SHIPPING/HANDLING'
+  page.drawText(middleRowLabel, {
     x: boxX + 10,
     y: y - lineHeight + 5,
     size: FONTS.BODY,
@@ -662,7 +730,6 @@ function drawTotalsBox(ctx: DrawContext, order: Order): number {
     color: COLORS.GRAY,
   })
 
-  // No shipping value (empty or could be added later)
   page.drawText('-', {
     x: boxX + boxWidth - 20,
     y: y - lineHeight + 5,
@@ -673,7 +740,7 @@ function drawTotalsBox(ctx: DrawContext, order: Order): number {
 
   y -= lineHeight
 
-  // Total line
+  // Total/Amount Due line
   page.drawLine({
     start: { x: boxX, y },
     end: { x: boxX + boxWidth, y },
@@ -681,7 +748,8 @@ function drawTotalsBox(ctx: DrawContext, order: Order): number {
     color: COLORS.BLACK,
   })
 
-  page.drawText('TOTAL', {
+  const totalLabel = documentType === 'invoice' ? 'AMOUNT DUE' : 'TOTAL'
+  page.drawText(totalLabel, {
     x: boxX + 10,
     y: y - lineHeight + 5,
     size: FONTS.HEADER,
@@ -817,7 +885,7 @@ function drawFooter(ctx: DrawContext, org: OrgInfo): void {
 // ============================================
 
 export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array> {
-  const { order, items, org, includeNotes = false } = input
+  const { order, items, org, includeNotes = false, documentType = 'order_form' } = input
 
   // Create a new PDF document
   const pdfDoc = await PDFDocument.create()
@@ -856,12 +924,12 @@ export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array
 
     if (isFirstPage) {
       // Draw header sections only on first page
-      drawHeader(ctx, org)
-      drawDateAndOrderBlock(ctx, order)
+      drawHeader(ctx, org, documentType)
+      drawDateAndOrderBlock(ctx, order, documentType)
 
       ctx.y = PAGE.HEIGHT - PAGE.MARGIN_TOP - 120
-      ctx.y = drawAddressBlocks(ctx, order)
-      ctx.y = drawMetaRow(ctx, order)
+      ctx.y = drawAddressBlocks(ctx, order, documentType)
+      ctx.y = drawMetaRow(ctx, order, documentType)
     } else {
       // For continuation pages, add a simple header
       page.drawText(`${order.order_number} - Continued`, {
@@ -891,7 +959,7 @@ export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array
       if (includeNotes) {
         ctx.y = drawNotes(ctx, order)
       }
-      drawTotalsBox(ctx, order)
+      drawTotalsBox(ctx, order, documentType)
       drawFooter(ctx, org)
     }
 

@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
   Select,
@@ -42,8 +43,10 @@ import {
   Pencil,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
+import type { Product } from "@/types/products"
 import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/actions"
 import { generateApprovalEmailPreview, getOrderAttachmentsAction } from "@/lib/orders/actions"
+import { getProducts } from "@/lib/products/actions"
 import type { OrgRequiredField } from "@/lib/orders/field-config"
 import { AttachmentViewer } from "./AttachmentViewer"
 import { EmailHtmlViewer } from "./EmailHtmlViewer"
@@ -141,6 +144,7 @@ export function OrderEditPanel({
   const [isApprovalEmailSectionOpen, setIsApprovalEmailSectionOpen] = useState(false)
   const [editableApprovalEmail, setEditableApprovalEmail] = useState("")
   const [isLoadingApprovalEmail, setIsLoadingApprovalEmail] = useState(false)
+  const [sendApprovalEmail, setSendApprovalEmail] = useState(false) // Toggle for sending approval email
   const [isRetrying, setIsRetrying] = useState(false)
   const [showRetryConfirm, setShowRetryConfirm] = useState(false)
 
@@ -154,6 +158,18 @@ export function OrderEditPanel({
   const [attachments, setAttachments] = useState<OrderAttachmentData[]>([])
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
   const [emailSectionTab, setEmailSectionTab] = useState<'email' | 'attachments'>('email')
+
+  // Products state for SKU dropdown
+  const [products, setProducts] = useState<Product[]>([])
+
+  // Load products once when component mounts
+  useEffect(() => {
+    async function loadProducts() {
+      const { products: loadedProducts } = await getProducts()
+      setProducts(loadedProducts)
+    }
+    loadProducts()
+  }, [])
 
   // Initialize form when order changes
   useEffect(() => {
@@ -219,25 +235,19 @@ export function OrderEditPanel({
     }
   }, [order, orgRequiredFields])
 
-  // Auto-load approval email in full mode for pending review orders
+  // Auto-load approval email when in full mode and order is waiting_review
+  // The email is always generated; the toggle only controls visibility and whether it's sent
   useEffect(() => {
     if (mode === "full" && order?.status === "waiting_review" && !editableApprovalEmail && !isLoadingApprovalEmail) {
-      const loadApprovalEmail = async () => {
-        setIsLoadingApprovalEmail(true)
-        try {
-          const preview = await generateApprovalEmailPreview(order.id, items, deletedItems)
-          if (preview) {
-            setEditableApprovalEmail(preview)
-          }
-        } catch (error) {
-          console.error('Failed to generate approval email preview:', error)
-        } finally {
-          setIsLoadingApprovalEmail(false)
-        }
-      }
-      loadApprovalEmail()
+      setIsLoadingApprovalEmail(true)
+      generateApprovalEmailPreview(order.id, items, deletedItems)
+        .then((preview) => {
+          if (preview) setEditableApprovalEmail(preview)
+        })
+        .catch(console.error)
+        .finally(() => setIsLoadingApprovalEmail(false))
     }
-  }, [mode, order?.status, order?.id, editableApprovalEmail, isLoadingApprovalEmail])
+  }, [mode, order?.status, order?.id])
 
   // Compute dirty state - checks items, notes, dates, and org fields
   const isDirty = useMemo(() => {
@@ -356,6 +366,23 @@ export function OrderEditPanel({
     }
   }
 
+  // Handle product selection from combobox - auto-fill SKU, name, and unit_price
+  const handleProductSelect = (itemId: string, product: Product) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item
+        const newTotal = item.quantity * product.unit_price
+        return {
+          ...item,
+          sku: product.sku,
+          name: product.name,
+          unit_price: String(product.unit_price),
+          total: newTotal,
+        }
+      })
+    )
+  }
+
   // Handle save
   const handleSave = async () => {
     setIsSaving(true)
@@ -376,8 +403,9 @@ export function OrderEditPanel({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      // Pass custom approval email if user edited it, otherwise undefined to use default
-      const customEmail = editableApprovalEmail.trim() || undefined
+      // Only send approval email if toggle is on, otherwise pass undefined to skip sending
+      // We use a special marker "__SKIP_EMAIL__" to indicate no email should be sent
+      const customEmail = sendApprovalEmail ? (editableApprovalEmail.trim() || undefined) : "__SKIP_EMAIL__"
       await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, customEmail, deletedItems)
       onClose()
     } finally {
@@ -1088,20 +1116,29 @@ export function OrderEditPanel({
                       <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                         Approval Email
                       </h3>
-                    </div>
-                    {isLoadingApprovalEmail ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                        <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">Auto-send</span>
+                        <Switch
+                          checked={sendApprovalEmail}
+                          onCheckedChange={setSendApprovalEmail}
+                        />
                       </div>
-                    ) : (
-                      <Textarea
-                        value={editableApprovalEmail}
-                        onChange={(e) => setEditableApprovalEmail(e.target.value)}
-                        rows={12}
-                        className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
-                        placeholder="Approval email content..."
-                      />
+                    </div>
+                    {sendApprovalEmail && (
+                      isLoadingApprovalEmail ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                          <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
+                        </div>
+                      ) : (
+                        <Textarea
+                          value={editableApprovalEmail}
+                          onChange={(e) => setEditableApprovalEmail(e.target.value)}
+                          rows={12}
+                          className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
+                          placeholder="Approval email content..."
+                        />
+                      )
                     )}
                   </motion.div>
                 )}
@@ -1122,10 +1159,12 @@ export function OrderEditPanel({
                   completeness={completeness}
                   inferredFields={order.inferred_fields}
                   readOnly={isArchived}
+                  products={products}
                   onUpdateItem={updateItem}
                   onDeleteItem={deleteItem}
                   onRestoreItem={restoreItem}
                   onAddItem={addItem}
+                  onProductSelect={handleProductSelect}
                 />
               </motion.div>
 
@@ -1426,10 +1465,12 @@ export function OrderEditPanel({
                   completeness={completeness}
                   inferredFields={order.inferred_fields}
                   readOnly={isArchived}
+                  products={products}
                   onUpdateItem={updateItem}
                   onDeleteItem={deleteItem}
                   onRestoreItem={restoreItem}
                   onAddItem={addItem}
+                  onProductSelect={handleProductSelect}
                 />
               </motion.div>
 
@@ -1682,44 +1723,57 @@ export function OrderEditPanel({
                     <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                       Approval Email
                     </h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleApprovalEmailSectionToggle(!isApprovalEmailSectionOpen)}
-                      className="h-6 px-2 text-xs text-slate-500 hover:text-slate-700"
-                    >
-                      {isApprovalEmailSectionOpen ? "Close" : "View & Edit"}
-                    </Button>
-                  </div>
-                  {isApprovalEmailSectionOpen ? (
-                    isLoadingApprovalEmail ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                        <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
-                      </div>
-                    ) : (
-                      <Textarea
-                        value={editableApprovalEmail}
-                        onChange={(e) => setEditableApprovalEmail(e.target.value)}
-                        rows={10}
-                        className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
-                        placeholder="Approval email content..."
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">Auto-send</span>
+                      <Switch
+                        checked={sendApprovalEmail}
+                        onCheckedChange={setSendApprovalEmail}
                       />
-                    )
-                  ) : isLoadingApprovalEmail ? (
-                    <div className="flex items-center py-4">
-                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-                      <span className="ml-2 text-sm text-slate-500">Loading...</span>
                     </div>
-                  ) : (
-                    <div className="relative">
-                      <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans max-h-24 overflow-hidden">
-                        {editableApprovalEmail || "Click View & Edit to see approval email preview"}
-                      </pre>
-                      {editableApprovalEmail && editableApprovalEmail.length > 200 && (
-                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent" />
+                  </div>
+                  {sendApprovalEmail && (
+                    <>
+                      <div className="flex justify-end mb-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleApprovalEmailSectionToggle(!isApprovalEmailSectionOpen)}
+                          className="h-6 px-2 text-xs text-slate-500 hover:text-slate-700"
+                        >
+                          {isApprovalEmailSectionOpen ? "Collapse" : "Expand"}
+                        </Button>
+                      </div>
+                      {isApprovalEmailSectionOpen ? (
+                        isLoadingApprovalEmail ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                            <span className="ml-2 text-sm text-slate-500">Loading email preview...</span>
+                          </div>
+                        ) : (
+                          <Textarea
+                            value={editableApprovalEmail}
+                            onChange={(e) => setEditableApprovalEmail(e.target.value)}
+                            rows={10}
+                            className="text-sm bg-white border-slate-200 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 resize-none font-mono"
+                            placeholder="Approval email content..."
+                          />
+                        )
+                      ) : isLoadingApprovalEmail ? (
+                        <div className="flex items-center py-4">
+                          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                          <span className="ml-2 text-sm text-slate-500">Loading...</span>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans max-h-24 overflow-hidden">
+                            {editableApprovalEmail || "Loading preview..."}
+                          </pre>
+                          {editableApprovalEmail && editableApprovalEmail.length > 200 && (
+                            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent" />
+                          )}
+                        </div>
                       )}
-                    </div>
+                    </>
                   )}
                 </motion.div>
               )}

@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 import { markOrderPdfDownloaded, archiveOrder, unarchiveOrder } from "@/lib/orders/actions"
+import { DownloadModal, type DocumentType } from "./DownloadModal"
 
 // =============================================================================
 // Constants
@@ -346,6 +347,7 @@ interface OrderCardProps {
 export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, onDownload }: OrderCardProps) {
   const [isLoading, setIsLoading] = useState<string | null>(null)
   const [justDownloaded, setJustDownloaded] = useState(false)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
 
   const SourceIcon = sourceIcons[order.source]
   const borderColor = statusBorderColors[order.status] || "border-l-gray-500"
@@ -370,11 +372,17 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
   const handleArchive = createActionHandler("archive", async () => { await archiveOrder(order.id) })
   const handleUnarchive = createActionHandler("unarchive", async () => { await unarchiveOrder(order.id) })
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownloadClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    setShowDownloadModal(true)
+  }
+
+  const handleDownloadDocuments = async (types: DocumentType[]) => {
     setIsLoading("download")
-    window.open(`/api/orders/${order.id}/pdf`, '_blank')
     try {
+      for (const type of types) {
+        window.open(`/api/orders/${order.id}/pdf?type=${type}`, '_blank')
+      }
       await markOrderPdfDownloaded(order.id)
       setJustDownloaded(true)
       onDownload?.(order.id)
@@ -383,11 +391,6 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
     } finally {
       setIsLoading(null)
     }
-  }
-
-  const handleSimpleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    window.open(`/api/orders/${order.id}/pdf`, '_blank')
   }
 
   return (
@@ -485,7 +488,7 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
             hasBeenDownloaded={hasBeenDownloaded}
             justDownloaded={justDownloaded}
             onArchive={handleArchive}
-            onDownload={handleDownload}
+            onDownload={handleDownloadClick}
           />
         )}
 
@@ -494,10 +497,19 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
             order={order}
             isLoading={isLoading}
             onUnarchive={handleUnarchive}
-            onDownload={handleSimpleDownload}
+            onDownload={handleDownloadClick}
           />
         )}
       </CardContent>
+
+      {/* Download Modal */}
+      <DownloadModal
+        open={showDownloadModal}
+        onOpenChange={setShowDownloadModal}
+        orderId={order.id}
+        orderNumber={order.order_number}
+        onDownload={handleDownloadDocuments}
+      />
     </Card>
   )
 }

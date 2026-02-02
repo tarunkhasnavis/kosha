@@ -16,7 +16,7 @@ import { generateApprovalEmail, generateRejectionEmail } from './utils/templates
 import { getUserOrganization, getOrganizationId } from '@/lib/organizations/queries'
 import { analyzeOrderCompleteness } from '@/lib/email/parser'
 import { sendGmailReply } from '@/lib/email/gmail/reply'
-import { replaceOrderItems, type OrderItemInput } from './services'
+import { replaceOrderItems, hardDeleteAllOrderItems, type OrderItemInput } from './services'
 import { triggerOrderCompleted } from '@/lib/integrations/dispatcher'
 import { getOrgRequiredFields } from './field-config'
 import { saveOrderExample } from '@/lib/ai/embeddings'
@@ -945,7 +945,10 @@ export async function saveAndApproveOrder(
   }
 
   // Send approval email (non-blocking - don't fail if email fails)
-  try {
+  // Skip if customApprovalEmail is "__SKIP_EMAIL__" (user chose not to send)
+  const shouldSendEmail = customApprovalEmail !== "__SKIP_EMAIL__"
+
+  if (shouldSendEmail) try {
     const organization = await getUserOrganization()
     const threadInfo = await getOrderThreadInfo(orderId)
 
@@ -1027,6 +1030,8 @@ export async function saveAndApproveOrder(
   } catch (emailError) {
     console.error('Error sending approval email:', emailError)
     // Don't throw - order is still approved
+  } else {
+    console.log(`📧 Skipping approval email for order ${orderId} (user opted out)`)
   }
 
   revalidatePath('/orders')
@@ -1326,8 +1331,13 @@ ${signature}`
     return { success: false, isComplete: false, error: `Failed to update order: ${updateError.message}` }
   }
 
-  // 8. Replace order items with new AI-extracted items
+  // 8. Hard delete all existing items and insert fresh AI-extracted items
+  // We use hard delete (not soft delete) because retry is a full reprocess -
+  // we don't want old items showing up in "Deleted Items" section
+  await hardDeleteAllOrderItems(orderId)
+
   if (aiResult.items.length > 0) {
+    const { createOrderItems } = await import('./services')
     const itemInputs: OrderItemInput[] = aiResult.items.map(item => ({
       name: item.name,
       sku: item.sku,
@@ -1337,7 +1347,7 @@ ${signature}`
       total: item.total || 0,
     }))
 
-    await replaceOrderItems(orderId, itemInputs, organizationId)
+    await createOrderItems(orderId, itemInputs, organizationId)
   }
 
   revalidatePath('/orders')

@@ -25,6 +25,7 @@ import type { OrgRequiredField } from "@/lib/orders/field-config"
 import { markOrderPdfDownloaded, archiveOrder, unarchiveOrder } from "@/lib/orders/actions"
 import { calculateCompleteness, type EditableItem } from "@/lib/orders/completeness"
 import { listItem, durations, easings } from "@/lib/motion"
+import { DownloadModal, type DocumentType } from "./DownloadModal"
 
 // =============================================================================
 // Status Configuration (muted/desaturated colors per spec)
@@ -90,6 +91,7 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
   const [isLoading, setIsLoading] = useState<string | null>(null)
   const [justDownloaded, setJustDownloaded] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
 
   const status = order.status as OrderStatus
   const config = statusConfig[status] || statusConfig.waiting_review
@@ -116,11 +118,18 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
   const handleArchive = createActionHandler("archive", async () => { await archiveOrder(order.id) })
   const handleUnarchive = createActionHandler("unarchive", async () => { await unarchiveOrder(order.id) })
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownloadClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    setShowDownloadModal(true)
+  }
+
+  const handleDownloadDocuments = async (types: DocumentType[]) => {
     setIsLoading("download")
-    window.open(`/api/orders/${order.id}/pdf`, '_blank')
     try {
+      // Download each selected type
+      for (const type of types) {
+        window.open(`/api/orders/${order.id}/pdf?type=${type}`, '_blank')
+      }
       await markOrderPdfDownloaded(order.id)
       setJustDownloaded(true)
       onDownload?.(order.id)
@@ -131,14 +140,10 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
     }
   }
 
-  const handleSimpleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    window.open(`/api/orders/${order.id}/pdf`, '_blank')
-  }
-
   const isDownloaded = hasBeenDownloaded || justDownloaded
 
   return (
+    <>
     <motion.div
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
@@ -430,7 +435,7 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
                         : "bg-slate-500 hover:bg-slate-600 text-white"
                     }`}
                     disabled={isLoading === "download"}
-                    onClick={handleDownload}
+                    onClick={handleDownloadClick}
                   >
                     {isLoading === "download" ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -483,7 +488,7 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
                     size="sm"
                     variant="outline"
                     className="h-8 w-8 p-0 xl:w-auto xl:px-3"
-                    onClick={handleSimpleDownload}
+                    onClick={handleDownloadClick}
                   >
                     <Download className="h-3.5 w-3.5 xl:mr-1" />
                     <span className="hidden xl:inline text-xs">Download</span>
@@ -497,7 +502,18 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
           </>
         )}
       </div>
+
     </motion.div>
+
+    {/* Download Modal - Rendered outside motion.div to avoid animation conflicts */}
+    <DownloadModal
+      open={showDownloadModal}
+      onOpenChange={setShowDownloadModal}
+      orderId={order.id}
+      orderNumber={order.order_number}
+      onDownload={handleDownloadDocuments}
+    />
+  </>
   )
 }
 

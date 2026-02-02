@@ -1,24 +1,27 @@
 /**
  * Order PDF Download API Route
  *
- * GET /api/orders/[orderId]/pdf
+ * GET /api/orders/[orderId]/pdf?type=order_form|invoice
  *
  * Downloads a formatted PDF of the order for the authenticated user.
  * Only accessible for orders belonging to the user's organization.
+ * Supports both order form and invoice document types.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { getOrganizationId, getOrganizationForPdf } from '@/lib/organizations/queries'
-import { generateOrderPdf } from '@/lib/orders/utils/pdf'
+import { generateOrderPdf, type DocumentType } from '@/lib/orders/utils/pdf'
 import type { Order, OrderItem } from '@/types/orders'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   try {
     const { orderId } = await params
+    const { searchParams } = new URL(request.url)
+    const documentType = (searchParams.get('type') as DocumentType) || 'order_form'
 
     if (!orderId) {
       return NextResponse.json({ error: 'Order ID is required' }, { status: 400 })
@@ -121,11 +124,13 @@ export async function GET(
       items,
       org: orgInfo,
       includeNotes: order.include_notes_in_pdf ?? false,
+      documentType,
     })
 
     // Create a safe filename
     const safeOrderNumber = order.order_number.replace(/[^a-zA-Z0-9-_]/g, '_')
-    const filename = `Order_${safeOrderNumber}.pdf`
+    const prefix = documentType === 'invoice' ? 'Invoice' : 'Order'
+    const filename = `${prefix}_${safeOrderNumber}.pdf`
 
     // Return the PDF as a downloadable file
     return new NextResponse(Buffer.from(pdfBytes), {

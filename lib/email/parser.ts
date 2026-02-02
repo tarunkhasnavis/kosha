@@ -258,8 +258,13 @@ ITEMS:
 - IMPORTANT: "Case of 12" or "Pack of 6" in a product NAME is NOT the quantity - it describes the product packaging
 - When quantity is missing/0, set unitPrice to the total (treat as 1 unit) rather than inventing a price${generateOrgFieldPromptInstructions(orgRequiredFields || [])}${productCatalog && productCatalog.length > 0 ? `
 
-PRODUCT CATALOG (match items to get SKU/price):
-${productCatalog.map(p => `${p.sku} | ${p.name} | $${p.unit_price.toFixed(2)}`).join('\n')}` : ''}
+PRODUCT CATALOG:
+${productCatalog.map(p => `${p.sku} | ${p.name} | $${p.unit_price.toFixed(2)}`).join('\n')}
+
+When matching products:
+- Look up items by SKU or name against the catalog above
+- Include the SKU in your response when you find a match
+- The system will automatically normalize names and prices from the catalog` : ''}
 
 INFERENCE TRACKING (inferredFields array) - UI highlights these in purple:
 ADD to inferredFields when you:
@@ -360,12 +365,38 @@ ${organizationName || 'Our Team'}"${orgSystemPrompt ? `\n\n--- ORGANIZATION INST
 
     // Accept partial orders (even without companyName or items)
     // We'll save them as awaiting_clarification
-    const items = (parsed.items as ParsedOrderItem[]) || []
+    let items = (parsed.items as ParsedOrderItem[]) || []
 
     // If no items at all, this is likely not a real order attempt
     if (items.length === 0) {
       console.log('Order detected but no items found:', email.subject)
       return null
+    }
+
+    // Post-process items: normalize names and prices against the product catalog
+    // This ensures we always use exact catalog values when SKU matches
+    if (productCatalog && productCatalog.length > 0) {
+      items = items.map(item => {
+        if (!item.sku) return item
+
+        // Find matching product by SKU (case-insensitive)
+        const catalogProduct = productCatalog.find(
+          p => p.sku.toLowerCase() === item.sku!.toLowerCase()
+        )
+
+        if (catalogProduct) {
+          // Replace with exact catalog values
+          return {
+            ...item,
+            sku: catalogProduct.sku, // Use exact casing from catalog
+            name: catalogProduct.name, // Use exact name from catalog
+            unitPrice: catalogProduct.unit_price, // Use catalog price
+            total: item.quantity * catalogProduct.unit_price,
+          }
+        }
+
+        return item
+      })
     }
 
     return {

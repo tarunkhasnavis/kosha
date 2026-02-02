@@ -120,6 +120,23 @@ export async function restoreOrderItems(itemIds: string[]) {
 }
 
 /**
+ * Hard delete ALL order items for an order (used when reprocessing an order from scratch)
+ */
+export async function hardDeleteAllOrderItems(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('order_items')
+    .delete()
+    .eq('order_id', orderId)
+
+  if (error) {
+    console.error('Failed to hard delete order items:', error)
+    throw new Error(`Failed to hard delete order items: ${error.message}`)
+  }
+}
+
+/**
  * Replace order items with smart handling:
  * - Items with existing IDs are updated
  * - Items without IDs are created
