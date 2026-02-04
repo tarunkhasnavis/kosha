@@ -68,12 +68,16 @@ const HTML_MIME_TYPES = ['text/html']
 
 /**
  * Determine the type of attachment based on MIME type
+ * Handles charset suffixes (e.g., "text/html; charset=utf-8") and case variations
  */
 export function getAttachmentType(mimeType: string): AttachmentType {
-  if (IMAGE_MIME_TYPES.includes(mimeType)) return 'image'
-  if (PDF_MIME_TYPES.includes(mimeType)) return 'pdf'
-  if (EXCEL_MIME_TYPES.includes(mimeType)) return 'excel'
-  if (HTML_MIME_TYPES.includes(mimeType)) return 'html'
+  // Normalize: lowercase and strip charset/parameters
+  const normalizedMime = mimeType.toLowerCase().split(';')[0].trim()
+
+  if (IMAGE_MIME_TYPES.includes(normalizedMime)) return 'image'
+  if (PDF_MIME_TYPES.includes(normalizedMime)) return 'pdf'
+  if (EXCEL_MIME_TYPES.includes(normalizedMime)) return 'excel'
+  if (HTML_MIME_TYPES.includes(normalizedMime)) return 'html'
   return 'unsupported'
 }
 
