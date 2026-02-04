@@ -700,8 +700,8 @@ export function OrderEditPanel({
               </>
             )}
 
-            {/* Retry button - available for email orders that aren't approved or archived */}
-            {!isArchived && !isApproved && order.source === "email" && onRetry && (
+            {/* Retry button - available for email orders that need AI reprocessing (not complete, approved, or archived) */}
+            {!isArchived && !isApproved && !isPendingReview && order.source === "email" && onRetry && (
               showRetryConfirm ? (
                 <div className="flex items-center gap-1.5">
                   <Button

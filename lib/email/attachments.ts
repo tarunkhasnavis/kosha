@@ -1,12 +1,13 @@
 /**
  * Attachment Processor
  *
- * Processes email attachments (images, PDFs, Excel files) into formats
+ * Processes email attachments (images, PDFs, Excel files, HTML) into formats
  * suitable for AI processing via OpenAI's multimodal API.
  *
  * - Images: Pass through as base64
- * - PDFs: Convert pages to images
+ * - PDFs: Convert pages to images (or extract text in serverless)
  * - Excel: Parse to JSON
+ * - HTML: Extract text content using jsdom
  */
 
 import * as XLSX from 'xlsx'
@@ -35,7 +36,7 @@ const loadPdfToImg = async () => {
 /**
  * Supported attachment types for processing
  */
-export type AttachmentType = 'image' | 'pdf' | 'excel' | 'unsupported'
+export type AttachmentType = 'image' | 'pdf' | 'excel' | 'html' | 'unsupported'
 
 /**
  * Processed attachment content ready for AI
@@ -49,6 +50,8 @@ export interface ProcessedAttachment {
   excelData?: string
   // For PDFs: extracted text content (fallback when image conversion fails)
   pdfText?: string
+  // For HTML: extracted text content from HTML
+  htmlContent?: string
 }
 
 /**
@@ -61,6 +64,7 @@ const EXCEL_MIME_TYPES = [
   'application/vnd.ms-excel', // .xls
   'application/vnd.oasis.opendocument.spreadsheet', // .ods
 ]
+const HTML_MIME_TYPES = ['text/html']
 
 /**
  * Determine the type of attachment based on MIME type
@@ -69,6 +73,7 @@ export function getAttachmentType(mimeType: string): AttachmentType {
   if (IMAGE_MIME_TYPES.includes(mimeType)) return 'image'
   if (PDF_MIME_TYPES.includes(mimeType)) return 'pdf'
   if (EXCEL_MIME_TYPES.includes(mimeType)) return 'excel'
+  if (HTML_MIME_TYPES.includes(mimeType)) return 'html'
   return 'unsupported'
 }
 
@@ -234,6 +239,51 @@ function processExcel(attachment: EmailAttachment): ProcessedAttachment {
 }
 
 /**
+ * Process an HTML attachment by extracting text content
+ * HTML files often contain order information in a structured format
+ * Uses jsdom for proper HTML parsing
+ */
+async function processHtml(attachment: EmailAttachment): Promise<ProcessedAttachment> {
+  if (!attachment.data) {
+    console.warn(`HTML attachment ${attachment.filename} has no data`)
+    return { filename: attachment.filename, type: 'html', htmlContent: '' }
+  }
+
+  try {
+    // Decode base64 to UTF-8 text
+    const htmlString = Buffer.from(attachment.data, 'base64').toString('utf-8')
+
+    // Use jsdom to parse HTML and extract text content
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(htmlString)
+    const document = dom.window.document
+
+    // Remove script and style elements (not useful for order extraction)
+    document.querySelectorAll('script, style').forEach((el: Element) => el.remove())
+
+    // Get text content - jsdom handles whitespace normalization
+    const textContent = document.body?.textContent || ''
+
+    // Clean up excessive whitespace while preserving structure
+    const cleanedText = textContent
+      .replace(/\s+/g, ' ')
+      .replace(/ +/g, ' ')
+      .trim()
+
+    console.log(`📄 Processed HTML ${attachment.filename}: ${cleanedText.length} chars extracted`)
+
+    return {
+      filename: attachment.filename,
+      type: 'html',
+      htmlContent: cleanedText,
+    }
+  } catch (error) {
+    console.error(`Failed to process HTML ${attachment.filename}:`, error)
+    return { filename: attachment.filename, type: 'html', htmlContent: '' }
+  }
+}
+
+/**
  * Process a single attachment based on its type
  */
 export async function processAttachment(attachment: EmailAttachment): Promise<ProcessedAttachment> {
@@ -246,6 +296,8 @@ export async function processAttachment(attachment: EmailAttachment): Promise<Pr
       return await processPdf(attachment)
     case 'excel':
       return processExcel(attachment)
+    case 'html':
+      return await processHtml(attachment)
     default:
       return { filename: attachment.filename, type: 'unsupported' }
   }
@@ -296,6 +348,12 @@ export function prepareAttachmentsForAI(processedAttachments: ProcessedAttachmen
     if (attachment.type === 'pdf' && attachment.pdfText) {
       textParts.push(`\n--- PDF Attachment: ${attachment.filename} ---\n${attachment.pdfText}\n`)
       console.log(`Added PDF text for AI: ${attachment.filename}`)
+    }
+
+    // Handle HTML content
+    if (attachment.type === 'html' && attachment.htmlContent) {
+      textParts.push(`\n--- HTML Attachment: ${attachment.filename} ---\n${attachment.htmlContent}\n`)
+      console.log(`Added HTML text for AI: ${attachment.filename}`)
     }
 
     if (attachment.images && attachment.images.length > 0) {

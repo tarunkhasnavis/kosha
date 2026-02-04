@@ -380,14 +380,40 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
   const handleDownloadDocuments = async (types: DocumentType[]) => {
     setIsLoading("download")
     try {
+      // Download each selected type sequentially using fetch + blob download
+      // This avoids popup blockers and allows multiple file downloads
       for (const type of types) {
-        window.open(`/api/orders/${order.id}/pdf?type=${type}`, '_blank')
+        const response = await fetch(`/api/orders/${order.id}/pdf?type=${type}`)
+        if (!response.ok) {
+          throw new Error(`Failed to download ${type}`)
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition')
+        const filenameMatch = contentDisposition?.match(/filename="(.+)"/)
+        const filename = filenameMatch?.[1] || `${type === 'invoice' ? 'Invoice' : 'Order'}_${order.order_number}.pdf`
+
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+
+        // Small delay between downloads to ensure browser handles them correctly
+        if (types.length > 1 && type !== types[types.length - 1]) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
       }
       await markOrderPdfDownloaded(order.id)
       setJustDownloaded(true)
       onDownload?.(order.id)
     } catch (error) {
-      console.error('Failed to mark as downloaded:', error)
+      console.error('Failed to download documents:', error)
     } finally {
       setIsLoading(null)
     }

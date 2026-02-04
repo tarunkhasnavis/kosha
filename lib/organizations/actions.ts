@@ -431,3 +431,65 @@ export async function updateOrganizationInfo(
 
   return { success: true }
 }
+
+/**
+ * Update payment settings (billing address, payment link, bank information)
+ */
+export async function updatePaymentSettings(
+  organizationId: string,
+  data: {
+    billing_address_payment?: string | null
+    payment_link?: string | null
+    bank_information?: string | null
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+
+  if (!user) {
+    return { success: false, error: 'Not authenticated' }
+  }
+
+  const supabase = await createClient()
+
+  // Verify user has access to this organization
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Super admins can access any organization
+  const isSuperAdmin = profile.is_super_admin === true
+
+  if (!isSuperAdmin && profile.organization_id !== organizationId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  // Only owners, admins, and super admins can modify settings
+  if (!isSuperAdmin && profile.role !== 'owner' && profile.role !== 'admin') {
+    return { success: false, error: 'Insufficient permissions' }
+  }
+
+  // Update the organization's payment settings
+  const { error } = await supabase
+    .from('organizations')
+    .update({
+      billing_address_payment: data.billing_address_payment,
+      payment_link: data.payment_link,
+      bank_information: data.bank_information,
+    })
+    .eq('id', organizationId)
+
+  if (error) {
+    console.error('Failed to update payment settings:', error)
+    return { success: false, error: 'Failed to update payment settings' }
+  }
+
+  revalidatePath('/settings')
+
+  return { success: true }
+}

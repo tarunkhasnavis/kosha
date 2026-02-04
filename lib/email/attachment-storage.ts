@@ -52,6 +52,9 @@ export async function storeAttachment(params: {
   } else if (processedAttachment.excelData) {
     processedContent = processedAttachment.excelData
     processedType = 'excel_json'
+  } else if (processedAttachment.htmlContent) {
+    processedContent = processedAttachment.htmlContent
+    processedType = 'html_content'
   } else if (processedAttachment.images && processedAttachment.images.length > 0) {
     // Store image base64 data (join multiple pages with delimiter)
     processedContent = processedAttachment.images.join('|||')
@@ -265,6 +268,7 @@ export function storedToProcessed(stored: StoredAttachment[]): ProcessedAttachme
       type: att.mimeType.startsWith('image/') ? 'image' :
             att.mimeType === 'application/pdf' ? 'pdf' :
             att.mimeType.includes('spreadsheet') || att.mimeType.includes('excel') ? 'excel' :
+            att.mimeType === 'text/html' ? 'html' :
             'unsupported',
     }
 
@@ -272,6 +276,8 @@ export function storedToProcessed(stored: StoredAttachment[]): ProcessedAttachme
       base.pdfText = att.processedContent
     } else if (att.processedType === 'excel_json' && att.processedContent) {
       base.excelData = att.processedContent
+    } else if (att.processedType === 'html_content' && att.processedContent) {
+      base.htmlContent = att.processedContent
     } else if (att.processedType === 'image_base64' && att.processedContent) {
       // Split back multiple images if they were joined
       base.images = att.processedContent.split('|||')

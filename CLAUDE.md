@@ -182,25 +182,8 @@ Required (see `lib/env.ts` for Zod validation):
 - Multi-tenant: Always filter by `organization_id`
 - Build currently ignores ESLint/TS errors (goal: fix and enable)
 
-## Incremental Adoption Roadmap
-
-### Phase 1: Foundation ✅
-- [x] Set up Vitest + React Testing Library
-- [x] Add test scripts to package.json
-- [x] Create first tests for utility files
-
-### Phase 2: New Code Coverage (Current)
-- [ ] All new features include tests
-- [ ] All bug fixes include regression tests
-- [ ] Enable TypeScript strict checks in build
-
-### Phase 3: Legacy Coverage
-- [ ] Add tests to critical paths (order processing, email parsing)
-- [ ] Achieve 80% coverage on `lib/` directory
-- [ ] Remove build error suppression
 
 ## Resources
 
 - [Testing Library Principles](https://testing-library.com/docs/guiding-principles)
 - [Vitest Documentation](https://vitest.dev/)
-- [Kent C. Dodds Testing JavaScript](https://testingjavascript.com/)

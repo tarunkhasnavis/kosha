@@ -19,7 +19,7 @@ import { storeAllAttachments, linkAttachmentsToOrder } from './attachment-storag
 import { createOrder, updateOrderFields, type CreateOrderInput } from '@/lib/orders/actions'
 import { createOrderItems, replaceOrderItems, type OrderItemInput } from '@/lib/orders/services'
 import { claimEmailForProcessing, updateEmailClaimWithOrder, markEmailAsNotOrder, findOrderByThreadId, threadHasCompletedOrder, fetchThreadEmails, getCustomerOrderHistory, formatCustomerHistoryForPrompt, type CustomerOrderHistory } from '@/lib/orders/queries'
-import { getOrgRequiredFields, validateOrgRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
+import { getOrgRequiredFields, validateOrgRequiredFields, validateBaseRequiredFields, type OrgRequiredField } from '@/lib/orders/field-config'
 import { createClient } from '@/utils/supabase/server'
 import { retrieveSimilarExamples, type OrderExample } from '@/lib/ai/embeddings'
 
@@ -119,21 +119,34 @@ async function createNewOrder(
   orgRequiredFields: OrgRequiredField[],
   claimId: string
 ): Promise<{ success: boolean; orderId: string }> {
+  // Validate base required fields (apply to ALL organizations)
+  const baseItemsForValidation = aiResult.items.map(item => ({
+    name: item.name,
+    quantity: item.quantity,
+    quantity_unit: item.quantityUnit,
+    unit_price: item.unitPrice ?? null,
+  }))
+  const baseFieldsValidation = validateBaseRequiredFields(
+    { company_name: aiResult.companyName },
+    baseItemsForValidation
+  )
+
   // Validate org-specific required fields - this is the source of truth, NOT the AI
   const orgFieldsValidation = validateOrgRequiredFields(
     aiResult.orgFields || {},
     orgRequiredFields
   )
 
-  // Order is only complete if AI says complete AND all required org fields are present
-  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+  // Order is complete if all required fields are present (don't rely on AI's isComplete flag)
+  const isActuallyComplete = baseFieldsValidation.isComplete && orgFieldsValidation.isComplete
 
   // Determine order status based on ACTUAL completeness
   const status = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
 
-  // Merge missing info from AI and org field validation
+  // Merge missing info from AI, base fields, and org field validation
   const allMissingInfo = [
     ...aiResult.missingInfo,
+    ...baseFieldsValidation.missingFields,
     ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
   ]
 
@@ -260,21 +273,34 @@ async function updateExistingOrder(
   orgRequiredFields: OrgRequiredField[],
   claimId: string
 ): Promise<{ success: boolean; orderId: string }> {
+  // Validate base required fields (apply to ALL organizations)
+  const baseItemsForValidation = aiResult.items.map(item => ({
+    name: item.name,
+    quantity: item.quantity,
+    quantity_unit: item.quantityUnit,
+    unit_price: item.unitPrice ?? null,
+  }))
+  const baseFieldsValidation = validateBaseRequiredFields(
+    { company_name: aiResult.companyName },
+    baseItemsForValidation
+  )
+
   // Validate org-specific required fields - this is the source of truth, NOT the AI
   const orgFieldsValidation = validateOrgRequiredFields(
     aiResult.orgFields || {},
     orgRequiredFields
   )
 
-  // Order is only complete if AI says complete AND all required org fields are present
-  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+  // Order is complete if all required fields are present (don't rely on AI's isComplete flag)
+  const isActuallyComplete = baseFieldsValidation.isComplete && orgFieldsValidation.isComplete
 
   // Determine new status based on ACTUAL completeness
   const newStatus = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
 
-  // Merge missing info from AI and org field validation
+  // Merge missing info from AI, base fields, and org field validation
   const allMissingInfo = [
     ...aiResult.missingInfo,
+    ...baseFieldsValidation.missingFields,
     ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
   ]
 
@@ -373,10 +399,18 @@ async function updateExistingOrder(
 async function processAttachmentsForAI(
   email: ParsedEmail
 ): Promise<ProcessedAttachment[]> {
+  // Debug: log each attachment's supported status
+  for (const att of email.attachments) {
+    const isSupported = isSupportedAttachment(att)
+    console.log(`[ATTACH-DEBUG] isSupportedAttachment("${att.filename}", mime="${att.mimeType}"): ${isSupported}, hasData=${!!att.data}`)
+  }
+
   // Check if there are any supported attachments with data
   const supportedAttachments = email.attachments.filter(
     (att) => isSupportedAttachment(att) && att.data
   )
+
+  console.log(`[ATTACH-DEBUG] supportedAttachments after filter: ${supportedAttachments.length}`)
 
   if (supportedAttachments.length === 0) {
     return []

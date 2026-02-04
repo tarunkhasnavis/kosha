@@ -24,6 +24,8 @@ export interface OrgInfo {
   phone?: string
   email?: string
   website?: string
+  billingAddressPayment?: string
+  bankInformation?: string
 }
 
 export type DocumentType = 'order_form' | 'invoice'
@@ -351,80 +353,134 @@ function drawAddressBlocks(ctx: DrawContext, order: Order, documentType: Documen
       font: fonts.bold,
       color: COLORS.BLACK,
     })
+    y -= 12
   }
 
-  // Delivery address (use billing_address if available)
-  let addrY = y
-  if (order.billing_address) {
-    const addressLines = order.billing_address.split('\n')
-    for (const line of addressLines.slice(0, 3)) {
-      page.drawText(line, {
+  // For invoice: billing address goes in the BILL TO section (left side, below company name)
+  // For order form: address goes in the CUSTOMER ADDRESS section (right side)
+  if (documentType === 'invoice') {
+    // Invoice layout: address in BILL TO section (left column)
+    if (order.billing_address) {
+      const addressLines = order.billing_address.split('\n')
+      for (const line of addressLines.slice(0, 3)) {
+        page.drawText(line, {
+          x: PAGE.MARGIN_LEFT,
+          y,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        y -= 12
+      }
+    }
+
+    // Contact name
+    if (order.contact_name) {
+      page.drawText(order.contact_name, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.BLACK,
+      })
+      y -= 12
+    }
+
+    // Contact email
+    if (order.contact_email) {
+      page.drawText(order.contact_email, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.PRIMARY,
+      })
+      y -= 12
+    }
+
+    // Phone
+    if (order.phone) {
+      page.drawText(order.phone, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.BLACK,
+      })
+      y -= 12
+    }
+  } else {
+    // Order form layout: two-column with address on right
+    let addrY = y
+    if (order.billing_address) {
+      const addressLines = order.billing_address.split('\n')
+      for (const line of addressLines.slice(0, 3)) {
+        page.drawText(line, {
+          x: PAGE.MARGIN_LEFT + 260,
+          y: addrY,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        addrY -= 12
+      }
+    }
+
+    // License field (below address) - from custom_fields.liquor_license
+    const licenseValue = order.custom_fields?.liquor_license
+    if (licenseValue) {
+      addrY -= 12 // More spacing to avoid crowding
+      page.drawText('LICENSE:', {
         x: PAGE.MARGIN_LEFT + 260,
+        y: addrY,
+        size: FONTS.SMALL,
+        font: fonts.bold,
+        color: COLORS.GRAY,
+      })
+      page.drawText(String(licenseValue), {
+        x: PAGE.MARGIN_LEFT + 310,
         y: addrY,
         size: FONTS.BODY,
         font: fonts.regular,
         color: COLORS.BLACK,
       })
-      addrY -= 12
     }
-  }
 
-  // License field (below address) - from custom_fields.liquor_license
-  const licenseValue = order.custom_fields?.liquor_license
-  if (licenseValue) {
-    addrY -= 12 // More spacing to avoid crowding
-    page.drawText('LICENSE:', {
-      x: PAGE.MARGIN_LEFT + 260,
-      y: addrY,
-      size: FONTS.SMALL,
-      font: fonts.bold,
-      color: COLORS.GRAY,
-    })
-    page.drawText(String(licenseValue), {
-      x: PAGE.MARGIN_LEFT + 310,
-      y: addrY,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-  }
+    // Contact name
+    if (order.contact_name) {
+      page.drawText(order.contact_name, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.BLACK,
+      })
+      y -= 12
+    }
 
-  y -= 12
+    // Contact email
+    if (order.contact_email) {
+      page.drawText(order.contact_email, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.PRIMARY,
+      })
+      y -= 12
+    }
 
-  // Contact name
-  if (order.contact_name) {
-    page.drawText(order.contact_name, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-    y -= 12
-  }
-
-  // Contact email
-  if (order.contact_email) {
-    page.drawText(order.contact_email, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.PRIMARY,
-    })
-    y -= 12
-  }
-
-  // Phone
-  if (order.phone) {
-    page.drawText(order.phone, {
-      x: PAGE.MARGIN_LEFT,
-      y,
-      size: FONTS.BODY,
-      font: fonts.regular,
-      color: COLORS.BLACK,
-    })
-    y -= 12
+    // Phone
+    if (order.phone) {
+      page.drawText(order.phone, {
+        x: PAGE.MARGIN_LEFT,
+        y,
+        size: FONTS.BODY,
+        font: fonts.regular,
+        color: COLORS.BLACK,
+      })
+      y -= 12
+    }
   }
 
   return y - 20
@@ -834,21 +890,79 @@ function drawNotes(ctx: DrawContext, order: Order): number {
   return y - 10
 }
 
-function drawFooter(ctx: DrawContext, org: OrgInfo): void {
+function drawFooter(ctx: DrawContext, org: OrgInfo, documentType: DocumentType = 'order_form'): void {
   const { page, fonts } = ctx
   const footerY = PAGE.MARGIN_BOTTOM + 40
 
-  // "THANK YOU" text (using Bitter font)
-  page.drawText('THANK YOU', {
-    x: PAGE.MARGIN_LEFT,
-    y: footerY + 20,
-    size: 20,
-    font: fonts.title,
-    color: COLORS.LIGHT_GRAY,
-  })
+  // For invoices, draw billing address and bank info on the left
+  if (documentType === 'invoice' && (org.billingAddressPayment || org.bankInformation)) {
+    let paymentY = footerY + 60
 
-  // Contact info line
-  const contactLine = 'For questions concerning this order, please contact'
+    // Billing Address section
+    if (org.billingAddressPayment) {
+      page.drawText('BILLING ADDRESS', {
+        x: PAGE.MARGIN_LEFT,
+        y: paymentY,
+        size: FONTS.SMALL,
+        font: fonts.bold,
+        color: COLORS.GRAY,
+      })
+      paymentY -= 12
+
+      // Split billing address by newlines
+      const addressLines = org.billingAddressPayment.split('\n')
+      for (const line of addressLines) {
+        page.drawText(line.trim(), {
+          x: PAGE.MARGIN_LEFT,
+          y: paymentY,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        paymentY -= 12
+      }
+      paymentY -= 8 // Extra spacing between sections
+    }
+
+    // Bank Information section
+    if (org.bankInformation) {
+      page.drawText('BANK INFORMATION', {
+        x: PAGE.MARGIN_LEFT,
+        y: paymentY,
+        size: FONTS.SMALL,
+        font: fonts.bold,
+        color: COLORS.GRAY,
+      })
+      paymentY -= 12
+
+      // Split bank info by newlines
+      const bankLines = org.bankInformation.split('\n')
+      for (const line of bankLines) {
+        page.drawText(line.trim(), {
+          x: PAGE.MARGIN_LEFT,
+          y: paymentY,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        paymentY -= 12
+      }
+    }
+  } else {
+    // "THANK YOU" text for order forms (using Bitter font)
+    page.drawText('THANK YOU', {
+      x: PAGE.MARGIN_LEFT,
+      y: footerY + 20,
+      size: 20,
+      font: fonts.title,
+      color: COLORS.LIGHT_GRAY,
+    })
+  }
+
+  // Contact info line (centered, for both document types)
+  const contactLine = documentType === 'invoice'
+    ? 'For questions concerning this invoice, please contact'
+    : 'For questions concerning this order, please contact'
   page.drawText(contactLine, {
     x: PAGE.WIDTH / 2 - fonts.regular.widthOfTextAtSize(contactLine, FONTS.SMALL) / 2,
     y: footerY,
@@ -960,7 +1074,7 @@ export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array
         ctx.y = drawNotes(ctx, order)
       }
       drawTotalsBox(ctx, order, documentType)
-      drawFooter(ctx, org)
+      drawFooter(ctx, org, documentType)
     }
 
     isFirstPage = false

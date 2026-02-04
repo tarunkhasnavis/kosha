@@ -18,7 +18,7 @@ import { analyzeOrderCompleteness } from '@/lib/email/parser'
 import { sendGmailReply } from '@/lib/email/gmail/reply'
 import { replaceOrderItems, hardDeleteAllOrderItems, type OrderItemInput } from './services'
 import { triggerOrderCompleted } from '@/lib/integrations/dispatcher'
-import { getOrgRequiredFields } from './field-config'
+import { getOrgRequiredFields, validateBaseRequiredFields, validateOrgRequiredFields } from './field-config'
 import { saveOrderExample } from '@/lib/ai/embeddings'
 
 // ============================================
@@ -752,20 +752,56 @@ export async function saveAndAnalyzeOrder(
     },
   }
 
+  // Use edited values if provided, otherwise fall back to current order values
+  const companyNameForAnalysis = orderFields.company_name !== undefined
+    ? orderFields.company_name
+    : currentOrder.company_name
+  const contactNameForAnalysis = orderFields.contact_name !== undefined
+    ? orderFields.contact_name
+    : currentOrder.contact_name
+
   // Call AI to analyze completeness (including org-specific required fields and prompt)
   const analysisResult = await analyzeOrderCompleteness(
     itemsForAnalysis,
-    currentOrder.company_name || undefined,
+    companyNameForAnalysis || undefined,
     undefined, // originalMissingInfo - not available here
     mergedOrderData, // order data with user's org field edits
     orgRequiredFields,
     orgSystemPrompt,
-    currentOrder.contact_name || undefined, // contactName for email greeting
+    contactNameForAnalysis || undefined, // contactName for email greeting
     organizationName // organizationName for email signature
   )
 
-  // Determine new status based on completeness
-  const newStatus: OrderStatus = analysisResult.isComplete ? 'waiting_review' : 'awaiting_clarification'
+  // Validate base required fields (apply to ALL organizations) - don't rely solely on AI
+  const baseItemsForValidation = itemsForAnalysis.map(item => ({
+    name: item.name,
+    quantity: item.quantity,
+    quantity_unit: item.quantity_unit,
+    unit_price: item.unit_price,
+  }))
+  const baseFieldsValidation = validateBaseRequiredFields(
+    { company_name: companyNameForAnalysis },
+    baseItemsForValidation
+  )
+
+  // Validate org-specific required fields
+  const orgFieldsValidation = validateOrgRequiredFields(
+    mergedOrderData.custom_fields as Record<string, unknown> || {},
+    orgRequiredFields
+  )
+
+  // Order is complete if all required fields are present (don't rely on AI's isComplete flag)
+  const isActuallyComplete = baseFieldsValidation.isComplete && orgFieldsValidation.isComplete
+
+  // Determine new status based on ACTUAL completeness
+  const newStatus: OrderStatus = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
+
+  // Merge missing info from all validations
+  const allMissingInfo = [
+    ...analysisResult.missingInfo,
+    ...baseFieldsValidation.missingFields,
+    ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
+  ]
 
   // Build update object with base fields and custom_fields JSONB
   const updateData: Record<string, unknown> = {
@@ -816,9 +852,9 @@ export async function saveAndAnalyzeOrder(
   await replaceOrderItems(orderId, orderItemInputs, organizationId, deletedItemIds)
 
   // If incomplete, update the clarification message on the order
-  if (!analysisResult.isComplete && analysisResult.clarificationEmail) {
+  if (!isActuallyComplete && analysisResult.clarificationEmail) {
     await updateClarificationMessage(orderId, analysisResult.clarificationEmail)
-  } else if (analysisResult.isComplete) {
+  } else if (isActuallyComplete) {
     // If complete, clear any existing clarification message
     await clearClarificationMessage(orderId)
   }
@@ -827,9 +863,9 @@ export async function saveAndAnalyzeOrder(
 
   return {
     success: true,
-    isComplete: analysisResult.isComplete,
+    isComplete: isActuallyComplete,
     clarificationMessage: analysisResult.clarificationEmail,
-    missingInfo: analysisResult.missingInfo,
+    missingInfo: allMissingInfo,
   }
 }
 
@@ -1264,19 +1300,34 @@ export async function retryOrderProcessing(
     return { success: false, isComplete: false, error: 'AI could not extract order from email' }
   }
 
-  // 6. Validate org required fields
-  const { validateOrgRequiredFields } = await import('./field-config')
-  const orgFieldsValidation = validateOrgRequiredFields(
+  // 6. Validate base required fields (apply to ALL organizations)
+  const { validateBaseRequiredFields: validateBase } = await import('./field-config')
+  const baseItemsForValidation = aiResult.items.map(item => ({
+    name: item.name,
+    quantity: item.quantity,
+    quantity_unit: item.quantityUnit,
+    unit_price: item.unitPrice ?? null,
+  }))
+  const baseFieldsValidation = validateBase(
+    { company_name: aiResult.companyName },
+    baseItemsForValidation
+  )
+
+  // Validate org required fields
+  const { validateOrgRequiredFields: validateOrg } = await import('./field-config')
+  const orgFieldsValidation = validateOrg(
     aiResult.orgFields || {},
     orgRequiredFields
   )
 
-  const isActuallyComplete = aiResult.isComplete && orgFieldsValidation.isComplete
+  // Order is complete if all required fields are present (don't rely on AI's isComplete flag)
+  const isActuallyComplete = baseFieldsValidation.isComplete && orgFieldsValidation.isComplete
   const newStatus = isActuallyComplete ? 'waiting_review' : 'awaiting_clarification'
 
-  // Merge missing info
+  // Merge missing info from all validations
   const allMissingInfo = [
     ...aiResult.missingInfo,
+    ...baseFieldsValidation.missingFields,
     ...orgFieldsValidation.missingFields.map(f => `Missing ${f}`),
   ]
 

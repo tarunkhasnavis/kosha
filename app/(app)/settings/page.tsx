@@ -5,6 +5,7 @@ import { AlertCircle } from 'lucide-react'
 import { WooCommerceSettings } from './components/WooCommerceSettings'
 import { CustomFieldsSettings } from './components/CustomFieldsSettings'
 import { OrganizationInfoSettings } from './components/OrganizationInfoSettings'
+import { PaymentSettings } from './components/PaymentSettings'
 import { SystemPromptSettings } from './components/SystemPromptSettings'
 import { AdminEmailSync } from './components/AdminEmailSync'
 import { getOrgRequiredFields } from '@/lib/orders/field-config'
@@ -20,6 +21,9 @@ interface OrganizationData {
   created_at: string
   required_order_fields: unknown
   system_prompt: string | null
+  billing_address_payment: string | null
+  payment_link: string | null
+  bank_information: string | null
 }
 
 async function getOrganizationData(orgId: string): Promise<OrganizationData | null> {
@@ -27,7 +31,7 @@ async function getOrganizationData(orgId: string): Promise<OrganizationData | nu
 
   const { data, error } = await supabase
     .from('organizations')
-    .select('id, name, gmail_email, address, phone, created_at, required_order_fields, system_prompt')
+    .select('id, name, gmail_email, address, phone, created_at, required_order_fields, system_prompt, billing_address_payment, payment_link, bank_information')
     .eq('id', orgId)
     .single()
 
@@ -92,6 +96,17 @@ export default async function SettingsPage() {
               address={org.address}
               phone={org.phone}
               createdAt={org.created_at}
+            />
+          </section>
+
+          {/* Payment Section */}
+          <section>
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Payment</h2>
+            <PaymentSettings
+              organizationId={orgId}
+              billingAddressPayment={org.billing_address_payment}
+              paymentLink={org.payment_link}
+              bankInformation={org.bank_information}
             />
           </section>
 
