@@ -6,18 +6,26 @@
 import { getAttachmentType, isSupportedAttachment, processAttachment } from '../lib/email/attachments'
 import type { EmailAttachment } from '../lib/email/gmail/client'
 
-// Sample HTML content (base64 encoded)
+// Sample HTML content (base64 encoded) - more realistic order HTML
 const sampleHtmlContent = Buffer.from(`
 <!DOCTYPE html>
 <html>
-<head><title>Order</title></head>
+<head>
+  <title>Order</title>
+  <style>body { font-family: Arial; }</style>
+  <script>console.log('test');</script>
+</head>
 <body>
   <h1>Order #160367981</h1>
   <p>Customer: Whole Foods Market</p>
+  <p>Store: Portsmouth</p>
   <table>
-    <tr><td>Product A</td><td>10</td><td>$5.00</td></tr>
-    <tr><td>Product B</td><td>5</td><td>$10.00</td></tr>
+    <tr><th>Product</th><th>Qty</th><th>Price</th></tr>
+    <tr><td>Wine A</td><td>10</td><td>$5.00</td></tr>
+    <tr><td>Wine B</td><td>5</td><td>$10.00</td></tr>
   </table>
+  <p>Total: $100.00</p>
+  <p>&copy; 2024 Whole Foods &amp; Market</p>
 </body>
 </html>
 `).toString('base64')
@@ -34,6 +42,7 @@ async function testHtmlAttachment() {
 
   // Test 2: Check isSupportedAttachment
   const mockAttachment: EmailAttachment = {
+    attachmentId: 'test-attachment-id',
     filename: 'order_160367981.html',
     mimeType: 'text/html',
     size: 4291,

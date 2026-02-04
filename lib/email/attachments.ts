@@ -245,7 +245,7 @@ function processExcel(attachment: EmailAttachment): ProcessedAttachment {
 /**
  * Process an HTML attachment by extracting text content
  * HTML files often contain order information in a structured format
- * Uses jsdom for proper HTML parsing
+ * Uses regex-based extraction (serverless-compatible, no jsdom dependency issues)
  */
 async function processHtml(attachment: EmailAttachment): Promise<ProcessedAttachment> {
   if (!attachment.data) {
@@ -257,29 +257,43 @@ async function processHtml(attachment: EmailAttachment): Promise<ProcessedAttach
     // Decode base64 to UTF-8 text
     const htmlString = Buffer.from(attachment.data, 'base64').toString('utf-8')
 
-    // Use jsdom to parse HTML and extract text content
-    const { JSDOM } = await import('jsdom')
-    const dom = new JSDOM(htmlString)
-    const document = dom.window.document
+    // Remove script and style tags and their content
+    let text = htmlString
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
 
-    // Remove script and style elements (not useful for order extraction)
-    document.querySelectorAll('script, style').forEach((el: Element) => el.remove())
+    // Replace common block elements with newlines for structure
+    text = text
+      .replace(/<\/?(div|p|br|tr|li|h[1-6])[^>]*>/gi, '\n')
+      .replace(/<\/?(td|th)[^>]*>/gi, ' | ')
 
-    // Get text content - jsdom handles whitespace normalization
-    const textContent = document.body?.textContent || ''
+    // Remove all remaining HTML tags
+    text = text.replace(/<[^>]+>/g, '')
 
-    // Clean up excessive whitespace while preserving structure
-    const cleanedText = textContent
-      .replace(/\s+/g, ' ')
-      .replace(/ +/g, ' ')
+    // Decode common HTML entities
+    text = text
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+
+    // Clean up whitespace while preserving some structure
+    text = text
+      .split('\n')
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(line => line.length > 0)
+      .join('\n')
       .trim()
 
-    console.log(`📄 Processed HTML ${attachment.filename}: ${cleanedText.length} chars extracted`)
+    console.log(`📄 Processed HTML ${attachment.filename}: ${text.length} chars extracted`)
 
     return {
       filename: attachment.filename,
       type: 'html',
-      htmlContent: cleanedText,
+      htmlContent: text,
     }
   } catch (error) {
     console.error(`Failed to process HTML ${attachment.filename}:`, error)
