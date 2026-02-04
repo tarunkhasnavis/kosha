@@ -4,6 +4,7 @@ import { getUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { storeOAuthTokens } from '@/lib/organizations/oauth'
 import { startGmailWatch } from '@/lib/email/gmail/watch'
+import { syncEmailsFromDaysBack } from '@/lib/email/gmail/sync'
 import { getOnboardingSession } from '@/lib/onboarding/actions'
 
 /**
@@ -173,6 +174,21 @@ export async function GET(request: Request) {
           if (watchResult) {
             console.log('✅ Gmail watch refreshed')
           }
+
+          // Catch-up sync: Process any emails missed while token was invalid
+          // This runs in the background - don't block the redirect
+          syncEmailsFromDaysBack(profile.organization_id, 7, 50)
+            .then((result) => {
+              if (result.processed > 0) {
+                console.log(`✅ Catch-up sync: processed ${result.processed} missed emails`)
+              }
+              if (result.errors.length > 0) {
+                console.error('⚠️ Catch-up sync errors:', result.errors)
+              }
+            })
+            .catch((error) => {
+              console.error('⚠️ Catch-up sync failed:', error)
+            })
         } catch (error) {
           console.error('Failed to store OAuth tokens during login:', error)
           // Don't fail the login
