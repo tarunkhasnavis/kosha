@@ -26,6 +26,7 @@ export interface OrgInfo {
   website?: string
   billingAddressPayment?: string
   bankInformation?: string
+  paymentLink?: string
 }
 
 export type DocumentType = 'order_form' | 'invoice'
@@ -835,6 +836,108 @@ function drawTotalsBox(ctx: DrawContext, order: Order, documentType: DocumentTyp
   return y - lineHeight - 20
 }
 
+function drawPaymentDetails(ctx: DrawContext, org: OrgInfo): number {
+  const { page, fonts } = ctx
+  let y = ctx.y - 10 // Small spacing after totals box
+
+  // Always show the default payment acceptance text for invoices
+  page.drawText('PAYMENT DETAILS', {
+    x: PAGE.MARGIN_LEFT,
+    y,
+    size: FONTS.SMALL,
+    font: fonts.bold,
+    color: COLORS.GRAY,
+  })
+  y -= 14
+
+  // Default payment acceptance text
+  page.drawText('We accept checks and ACH.', {
+    x: PAGE.MARGIN_LEFT,
+    y,
+    size: FONTS.BODY,
+    font: fonts.regular,
+    color: COLORS.BLACK,
+  })
+  y -= 14
+
+  // Payment link if available
+  if (org.paymentLink) {
+    page.drawText('Pay online:', {
+      x: PAGE.MARGIN_LEFT,
+      y,
+      size: FONTS.BODY,
+      font: fonts.regular,
+      color: COLORS.BLACK,
+    })
+
+    const linkX = PAGE.MARGIN_LEFT + fonts.regular.widthOfTextAtSize('Pay online: ', FONTS.BODY)
+    page.drawText(org.paymentLink, {
+      x: linkX,
+      y,
+      size: FONTS.BODY,
+      font: fonts.regular,
+      color: COLORS.PRIMARY,
+    })
+    y -= 14
+  }
+
+  // Billing address if available
+  if (org.billingAddressPayment) {
+    y -= 6 // Extra spacing before section
+    page.drawText('Send checks to:', {
+      x: PAGE.MARGIN_LEFT,
+      y,
+      size: FONTS.BODY,
+      font: fonts.bold,
+      color: COLORS.BLACK,
+    })
+    y -= 12
+
+    const addressLines = org.billingAddressPayment.split('\n')
+    for (const line of addressLines) {
+      if (line.trim()) {
+        page.drawText(line.trim(), {
+          x: PAGE.MARGIN_LEFT,
+          y,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        y -= 12
+      }
+    }
+  }
+
+  // Bank information if available
+  if (org.bankInformation) {
+    y -= 6 // Extra spacing before section
+    page.drawText('Bank details for ACH/wire:', {
+      x: PAGE.MARGIN_LEFT,
+      y,
+      size: FONTS.BODY,
+      font: fonts.bold,
+      color: COLORS.BLACK,
+    })
+    y -= 12
+
+    const bankLines = org.bankInformation.split('\n')
+    for (const line of bankLines) {
+      if (line.trim()) {
+        page.drawText(line.trim(), {
+          x: PAGE.MARGIN_LEFT,
+          y,
+          size: FONTS.BODY,
+          font: fonts.regular,
+          color: COLORS.BLACK,
+        })
+        y -= 12
+      }
+    }
+  }
+
+  return y - 10
+}
+
 function drawNotes(ctx: DrawContext, order: Order): number {
   const { page, fonts } = ctx
   let y = ctx.y - 15 // Add spacing after table
@@ -894,62 +997,8 @@ function drawFooter(ctx: DrawContext, org: OrgInfo, documentType: DocumentType =
   const { page, fonts } = ctx
   const footerY = PAGE.MARGIN_BOTTOM + 40
 
-  // For invoices, draw billing address and bank info on the left
-  if (documentType === 'invoice' && (org.billingAddressPayment || org.bankInformation)) {
-    let paymentY = footerY + 60
-
-    // Billing Address section
-    if (org.billingAddressPayment) {
-      page.drawText('BILLING ADDRESS', {
-        x: PAGE.MARGIN_LEFT,
-        y: paymentY,
-        size: FONTS.SMALL,
-        font: fonts.bold,
-        color: COLORS.GRAY,
-      })
-      paymentY -= 12
-
-      // Split billing address by newlines
-      const addressLines = org.billingAddressPayment.split('\n')
-      for (const line of addressLines) {
-        page.drawText(line.trim(), {
-          x: PAGE.MARGIN_LEFT,
-          y: paymentY,
-          size: FONTS.BODY,
-          font: fonts.regular,
-          color: COLORS.BLACK,
-        })
-        paymentY -= 12
-      }
-      paymentY -= 8 // Extra spacing between sections
-    }
-
-    // Bank Information section
-    if (org.bankInformation) {
-      page.drawText('BANK INFORMATION', {
-        x: PAGE.MARGIN_LEFT,
-        y: paymentY,
-        size: FONTS.SMALL,
-        font: fonts.bold,
-        color: COLORS.GRAY,
-      })
-      paymentY -= 12
-
-      // Split bank info by newlines
-      const bankLines = org.bankInformation.split('\n')
-      for (const line of bankLines) {
-        page.drawText(line.trim(), {
-          x: PAGE.MARGIN_LEFT,
-          y: paymentY,
-          size: FONTS.BODY,
-          font: fonts.regular,
-          color: COLORS.BLACK,
-        })
-        paymentY -= 12
-      }
-    }
-  } else {
-    // "THANK YOU" text for order forms (using Bitter font)
+  // "THANK YOU" text for order forms (using Bitter font)
+  if (documentType === 'order_form') {
     page.drawText('THANK YOU', {
       x: PAGE.MARGIN_LEFT,
       y: footerY + 20,
@@ -1073,7 +1122,13 @@ export async function generateOrderPdf(input: OrderPdfInput): Promise<Uint8Array
       if (includeNotes) {
         ctx.y = drawNotes(ctx, order)
       }
-      drawTotalsBox(ctx, order, documentType)
+      ctx.y = drawTotalsBox(ctx, order, documentType)
+
+      // Draw payment details section for invoices (right below totals)
+      if (documentType === 'invoice') {
+        ctx.y = drawPaymentDetails(ctx, org)
+      }
+
       drawFooter(ctx, org, documentType)
     }
 

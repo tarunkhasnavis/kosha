@@ -158,6 +158,7 @@ export interface OrgInfoForPdf {
   website?: string
   billingAddressPayment?: string
   bankInformation?: string
+  paymentLink?: string
 }
 
 /**
@@ -169,7 +170,7 @@ export async function getOrganizationForPdf(organizationId: string): Promise<Org
 
   const { data: org, error } = await supabase
     .from('organizations')
-    .select('id, name, gmail_email, address, phone, billing_address_payment, bank_information')
+    .select('id, name, gmail_email, address, phone, billing_address_payment, bank_information, payment_link')
     .eq('id', organizationId)
     .single()
 
@@ -186,5 +187,6 @@ export async function getOrganizationForPdf(organizationId: string): Promise<Org
     phone: org.phone || undefined,
     billingAddressPayment: org.billing_address_payment || undefined,
     bankInformation: org.bank_information || undefined,
+    paymentLink: org.payment_link || undefined,
   }
 }

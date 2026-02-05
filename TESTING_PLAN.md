@@ -1,7 +1,7 @@
 # Testing Plan
 
 ## Current Status
-- **Coverage**: 1.8% statements, 18 tests passing
+- **Coverage**: 7.06% statements, 156 tests passing
 - **Target**: 80%+ on `lib/` directory
 
 ## Phase 1: Foundation ✅
@@ -9,17 +9,17 @@
 - [x] Add test scripts to package.json
 - [x] Create first tests for utility files
 
-## Phase 2: Quick Wins - Pure Functions 🔄
+## Phase 2: Quick Wins - Pure Functions ✅
 Pure functions with zero dependencies:
 
-| File | Status | Tests |
-|------|--------|-------|
-| `lib/orders/completeness.ts` | ⬜ | ~15 |
-| `lib/orders/field-config.ts` | ⬜ | ~10 |
-| `lib/email/attachments.ts` | ⬜ | ~8 |
-| `types/orders.ts` | ⬜ | ~5 |
+| File | Status | Tests | Coverage |
+|------|--------|-------|----------|
+| `lib/orders/completeness.ts` | ✅ | 34 | 96.55% |
+| `lib/orders/field-config.ts` | ✅ | 47 | 100% |
+| `lib/email/attachments.ts` | ✅ | 40 | partial |
+| `types/orders.ts` | ✅ | 17 | 100% |
 
-## Phase 3: Database Layer (Medium)
+## Phase 3: Database Layer (Medium) 🔄
 Requires Supabase mocking:
 
 | File | Status | Tests |

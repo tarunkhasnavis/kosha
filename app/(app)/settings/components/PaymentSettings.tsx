@@ -1,17 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useToast } from '@/hooks/use-toast'
 import { MapPin, Link, Building, Loader2, Pencil, X, Check } from 'lucide-react'
 import { updatePaymentSettings } from '@/lib/organizations/actions'
 
 interface PaymentSettingsProps {
   organizationId: string
+  organizationAddress: string | null
   billingAddressPayment: string | null
   paymentLink: string | null
   bankInformation: string | null
@@ -19,6 +21,7 @@ interface PaymentSettingsProps {
 
 export function PaymentSettings({
   organizationId,
+  organizationAddress,
   billingAddressPayment,
   paymentLink,
   bankInformation,
@@ -31,6 +34,14 @@ export function PaymentSettings({
   const [editedBillingAddress, setEditedBillingAddress] = useState(billingAddressPayment || '')
   const [editedPaymentLink, setEditedPaymentLink] = useState(paymentLink || '')
   const [editedBankInfo, setEditedBankInfo] = useState(bankInformation || '')
+  const [sameAsOrgAddress, setSameAsOrgAddress] = useState(false)
+
+  // When checkbox is toggled, update billing address accordingly
+  useEffect(() => {
+    if (sameAsOrgAddress && organizationAddress) {
+      setEditedBillingAddress(organizationAddress)
+    }
+  }, [sameAsOrgAddress, organizationAddress])
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -63,6 +74,7 @@ export function PaymentSettings({
     setEditedBillingAddress(billingAddressPayment || '')
     setEditedPaymentLink(paymentLink || '')
     setEditedBankInfo(bankInformation || '')
+    setSameAsOrgAddress(false)
     setIsEditing(false)
   }
 
@@ -109,13 +121,31 @@ export function PaymentSettings({
             <Label className="text-sm font-medium text-gray-500">Billing Address</Label>
             <p className="text-xs text-gray-400 mb-1">Displayed on invoices</p>
             {isEditing ? (
-              <Textarea
-                value={editedBillingAddress}
-                onChange={(e) => setEditedBillingAddress(e.target.value)}
-                placeholder="Enter your billing address"
-                className="mt-1"
-                rows={3}
-              />
+              <div className="space-y-2">
+                {organizationAddress && (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="sameAsOrgAddress"
+                      checked={sameAsOrgAddress}
+                      onCheckedChange={(checked) => setSameAsOrgAddress(checked === true)}
+                    />
+                    <label
+                      htmlFor="sameAsOrgAddress"
+                      className="text-sm text-gray-600 cursor-pointer"
+                    >
+                      Same as organization address
+                    </label>
+                  </div>
+                )}
+                <Textarea
+                  value={editedBillingAddress}
+                  onChange={(e) => setEditedBillingAddress(e.target.value)}
+                  placeholder="Enter your billing address"
+                  rows={3}
+                  disabled={sameAsOrgAddress}
+                  className={sameAsOrgAddress ? 'bg-gray-50' : ''}
+                />
+              </div>
             ) : billingAddressPayment ? (
               <p className="text-base text-gray-900 whitespace-pre-line">{billingAddressPayment}</p>
             ) : (
@@ -182,7 +212,7 @@ export function PaymentSettings({
         {/* Info note */}
         <div className="pt-4 border-t">
           <p className="text-sm text-gray-500">
-            Billing address and bank information will appear on the bottom left of invoice PDFs when set.
+            Payment details will appear below the items table on invoice PDFs.
           </p>
         </div>
       </CardContent>

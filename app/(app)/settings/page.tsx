@@ -104,6 +104,7 @@ export default async function SettingsPage() {
             <h2 className="text-lg font-medium text-gray-900 mb-4">Payment</h2>
             <PaymentSettings
               organizationId={orgId}
+              organizationAddress={org.address}
               billingAddressPayment={org.billing_address_payment}
               paymentLink={org.payment_link}
               bankInformation={org.bank_information}
