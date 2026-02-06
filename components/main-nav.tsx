@@ -9,6 +9,7 @@ import { Young_Serif } from "next/font/google"
 import {
   ShoppingCart,
   Package,
+  Users,
   ChevronDown,
   Shield,
   Check,
@@ -35,6 +36,7 @@ const youngSerif = Young_Serif({ weight: "400", subsets: ["latin"] })
 
 const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
+  { name: "Customers", href: "/customers", icon: Users },
   { name: "Products", href: "/products", icon: Package },
 ]
 

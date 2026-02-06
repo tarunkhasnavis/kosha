@@ -596,6 +596,7 @@ export async function saveOrderChanges(
     include_notes_in_pdf?: boolean
     company_name?: string
     contact_name?: string
+    customer_id?: string | null
   },
   deletedItemIds?: string[]
 ) {
@@ -626,6 +627,16 @@ export async function saveOrderChanges(
   }
   if (orderFields.contact_name !== undefined) {
     updateData.contact_name = orderFields.contact_name || null
+  }
+
+  // Update customer link if provided
+  if (orderFields.customer_id !== undefined) {
+    updateData.customer_id = orderFields.customer_id || null
+    // Clear suggestion fields when customer is confirmed
+    if (orderFields.customer_id) {
+      updateData.suggested_customer_id = null
+      updateData.suggested_customer_confidence = null
+    }
   }
 
   // Store org-specific fields in custom_fields JSONB column
@@ -697,6 +708,7 @@ export async function saveAndAnalyzeOrder(
     include_notes_in_pdf?: boolean
     company_name?: string
     contact_name?: string
+    customer_id?: string | null
   },
   deletedItemIds?: string[]
 ): Promise<SaveAndAnalyzeResult> {
@@ -883,6 +895,7 @@ export async function saveAndApproveOrder(
     include_notes_in_pdf?: boolean
     company_name?: string
     contact_name?: string
+    customer_id?: string | null
   },
   customApprovalEmail?: string,
   deletedItems?: EditableItemInput[]
@@ -915,6 +928,16 @@ export async function saveAndApproveOrder(
   }
   if (orderFields.contact_name !== undefined) {
     updateData.contact_name = orderFields.contact_name || null
+  }
+
+  // Update customer link if provided
+  if (orderFields.customer_id !== undefined) {
+    updateData.customer_id = orderFields.customer_id || null
+    // Clear suggestion fields when customer is confirmed
+    if (orderFields.customer_id) {
+      updateData.suggested_customer_id = null
+      updateData.suggested_customer_confidence = null
+    }
   }
 
   // Store org-specific fields in custom_fields JSONB column

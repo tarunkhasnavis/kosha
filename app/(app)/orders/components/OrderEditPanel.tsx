@@ -44,9 +44,12 @@ import {
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 import type { Product } from "@/types/products"
+import type { Customer } from "@/types/customers"
 import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/actions"
 import { generateApprovalEmailPreview, getOrderAttachmentsAction } from "@/lib/orders/actions"
 import { getProducts } from "@/lib/products/actions"
+import { fetchCustomers, fetchCustomer, setOrderCustomer, createCustomerAndLinkToOrder } from "@/lib/customers/actions"
+import { CustomerCombobox } from "@/components/CustomerCombobox"
 import type { OrgRequiredField } from "@/lib/orders/field-config"
 import { AttachmentViewer } from "./AttachmentViewer"
 import { EmailHtmlViewer } from "./EmailHtmlViewer"
@@ -94,6 +97,7 @@ export interface OrderFieldsWithOrgFields {
   include_notes_in_pdf?: boolean
   company_name?: string
   contact_name?: string
+  customer_id?: string | null
 }
 
 interface OrderEditPanelProps {
@@ -162,6 +166,12 @@ export function OrderEditPanel({
   // Products state for SKU dropdown
   const [products, setProducts] = useState<Product[]>([])
 
+  // Customer state for customer linking
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [suggestedCustomer, setSuggestedCustomer] = useState<Customer | null>(null)
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false)
+
   // Load products once when component mounts
   useEffect(() => {
     async function loadProducts() {
@@ -169,6 +179,17 @@ export function OrderEditPanel({
       setProducts(loadedProducts)
     }
     loadProducts()
+  }, [])
+
+  // Load customers once when component mounts
+  useEffect(() => {
+    async function loadCustomers() {
+      setIsLoadingCustomers(true)
+      const { customers: loadedCustomers } = await fetchCustomers()
+      setCustomers(loadedCustomers)
+      setIsLoadingCustomers(false)
+    }
+    loadCustomers()
   }, [])
 
   // Initialize form when order changes
@@ -207,6 +228,24 @@ export function OrderEditPanel({
       setCompanyName(order.company_name || "")
       setContactName(order.contact_name || "")
       setIsEditingCustomer(false)
+
+      // Load linked customer if exists
+      if (order.customer_id) {
+        fetchCustomer(order.customer_id).then(({ customer }) => {
+          setSelectedCustomer(customer)
+        })
+      } else {
+        setSelectedCustomer(null)
+      }
+
+      // Load suggested customer if exists
+      if (order.suggested_customer_id) {
+        fetchCustomer(order.suggested_customer_id).then(({ customer }) => {
+          setSuggestedCustomer(customer)
+        })
+      } else {
+        setSuggestedCustomer(null)
+      }
 
       // Initialize org field values from order.custom_fields
       const initialOrgFields: Record<string, string | number | null> = {}
@@ -271,6 +310,11 @@ export function OrderEditPanel({
     if (companyName !== (order.company_name || "")) return true
     if (contactName !== (order.contact_name || "")) return true
 
+    // Check if linked customer changed
+    const currentCustomerId = selectedCustomer?.id || null
+    const originalCustomerId = order.customer_id || null
+    if (currentCustomerId !== originalCustomerId) return true
+
     // Check if org fields changed
     const customFields = order.custom_fields || {}
     for (const field of orgRequiredFields) {
@@ -280,7 +324,7 @@ export function OrderEditPanel({
     }
 
     return false
-  }, [order, items, originalItems, notes, deliveryDate, shipVia, companyName, contactName, orgFieldValues, orgRequiredFields])
+  }, [order, items, originalItems, notes, deliveryDate, shipVia, companyName, contactName, selectedCustomer, orgFieldValues, orgRequiredFields])
 
   // Check if clarification message was edited
   const isClarificationMessageDirty = useMemo(() => {
@@ -389,7 +433,7 @@ export function OrderEditPanel({
     setSavingAction("save")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, deletedItems)
+      await onSave(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined, customer_id: selectedCustomer?.id || null }, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -406,7 +450,7 @@ export function OrderEditPanel({
       // Only send approval email if toggle is on, otherwise pass undefined to skip sending
       // We use a special marker "__SKIP_EMAIL__" to indicate no email should be sent
       const customEmail = sendApprovalEmail ? (editableApprovalEmail.trim() || undefined) : "__SKIP_EMAIL__"
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, customEmail, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined, customer_id: selectedCustomer?.id || null }, customEmail, deletedItems)
       onClose()
     } finally {
       setIsSaving(false)
@@ -440,7 +484,7 @@ export function OrderEditPanel({
     setSavingAction("continue")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, deletedItems)
+      const result = await onSaveAndAnalyze(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, orgFields: orgFieldValues, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined, customer_id: selectedCustomer?.id || null }, deletedItems)
 
       // Show inline result instead of dialog
       setContinueResult({
@@ -476,7 +520,7 @@ export function OrderEditPanel({
     setSavingAction("approve")
     try {
       const deliveryDateStr = deliveryDate ? deliveryDate.toISOString().split('T')[0] : undefined
-      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined }, undefined, deletedItems)
+      await onSaveAndApprove(order.id, items, { notes, expected_date: deliveryDateStr, ship_via: shipVia || undefined, include_notes_in_pdf: includeNotesInPdf, company_name: companyName || undefined, contact_name: contactName || undefined, customer_id: selectedCustomer?.id || null }, undefined, deletedItems)
       setContinueResult(null)
       onClose()
     } finally {
@@ -861,7 +905,7 @@ export function OrderEditPanel({
             <div className="grid grid-cols-2 gap-6">
               {/* LEFT COLUMN: Customer Info + Clarification/Approval Email */}
               <div className="space-y-5">
-                {/* Customer Info (read-only) */}
+                {/* Customer Linking */}
                 <motion.div
                   className="bg-white border border-slate-200/60 rounded-xl p-4"
                   custom={0}
@@ -874,74 +918,100 @@ export function OrderEditPanel({
                       <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                         Customer
                       </h3>
-                      {completeness && completeness.missingRequiredFields.some(f =>
-                        f === 'Company Name'
-                      ) && (
+                      {!selectedCustomer && (
                         <span className="text-xs text-[hsl(var(--attention-700))] bg-[hsl(var(--attention-100))] px-2 py-0.5 rounded-full">
-                          Missing
+                          Required
                         </span>
                       )}
                     </div>
-                    {!isEditingCustomer && (
+                    {!isEditingCustomer && selectedCustomer && (
                       <button
                         onClick={() => setIsEditingCustomer(true)}
                         className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
                       >
                         <Pencil className="h-3 w-3" />
-                        <span>Edit</span>
+                        <span>Change</span>
                       </button>
                     )}
                   </div>
 
-                  {isEditingCustomer ? (
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-xs text-slate-500">Company Name *</Label>
-                        <Input
-                          value={companyName}
-                          onChange={(e) => setCompanyName(e.target.value)}
-                          placeholder="Company name (required)"
-                          className="mt-1 h-8 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-slate-500">Contact Name *</Label>
-                        <Input
-                          value={contactName}
-                          onChange={(e) => setContactName(e.target.value)}
-                          placeholder="Contact name (required)"
-                          className="mt-1 h-8 text-sm"
-                        />
-                      </div>
-                      <div className="flex justify-end pt-1">
-                        <button
-                          onClick={() => setIsEditingCustomer(false)}
-                          className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
-                        >
-                          Done
-                        </button>
-                      </div>
+                  {/* Customer Combobox - show when no customer selected or editing */}
+                  {(!selectedCustomer || isEditingCustomer) && (
+                    <div className="space-y-3">
+                      <CustomerCombobox
+                        customers={customers}
+                        selectedCustomer={selectedCustomer}
+                        suggestedCustomer={suggestedCustomer}
+                        suggestionConfidence={order.suggested_customer_confidence ?? undefined}
+                        onCustomerSelect={(customer) => {
+                          setSelectedCustomer(customer)
+                          // Auto-fill company name from customer
+                          if (customer) {
+                            setCompanyName(customer.name)
+                            if (customer.primary_contact_name) {
+                              setContactName(customer.primary_contact_name)
+                            }
+                          }
+                          setIsEditingCustomer(false)
+                        }}
+                        onCreateNew={async (name) => {
+                          // Create a new customer and link to order
+                          const result = await createCustomerAndLinkToOrder(
+                            { name, primary_contact_name: contactName || undefined },
+                            order.id
+                          )
+                          if (result.customer) {
+                            setSelectedCustomer(result.customer)
+                            setCompanyName(result.customer.name)
+                            // Refresh customers list
+                            const { customers: updatedCustomers } = await fetchCustomers()
+                            setCustomers(updatedCustomers)
+                          }
+                          setIsEditingCustomer(false)
+                        }}
+                      />
+
+                      {/* Show extracted info from email */}
+                      {companyName && !selectedCustomer && (
+                        <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">
+                          <span className="font-medium">From email:</span> {companyName}
+                          {contactName && ` (${contactName})`}
+                        </div>
+                      )}
+
+                      {isEditingCustomer && (
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => setIsEditingCustomer(false)}
+                            className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className={`${!companyName ? 'text-[hsl(var(--attention-700))]' : 'text-slate-900'}`}>
-                      <p className="font-medium">
-                        {companyName || "Unknown Company"}
-                        {!companyName && (
-                          <span className="ml-2 text-xs font-normal text-[hsl(var(--attention-500))]">(required)</span>
-                        )}
-                      </p>
-                      {contactName ? (
+                  )}
+
+                  {/* Show selected customer details when not editing */}
+                  {selectedCustomer && !isEditingCustomer && (
+                    <div className="text-slate-900">
+                      <p className="font-medium">{selectedCustomer.name}</p>
+                      {selectedCustomer.customer_number && (
+                        <p className="text-xs text-slate-500">#{selectedCustomer.customer_number}</p>
+                      )}
+                      {selectedCustomer.primary_contact_name && (
                         <p className="text-sm text-slate-500 mt-0.5">
-                          {contactName}
-                          {order.contact_email && ` · ${order.contact_email}`}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-[hsl(var(--attention-500))] mt-0.5">
-                          No contact name <span className="text-xs">(required)</span>
+                          {selectedCustomer.primary_contact_name}
+                          {selectedCustomer.primary_contact_email && ` · ${selectedCustomer.primary_contact_email}`}
                         </p>
                       )}
-                      {order.phone && (
-                        <p className="text-sm text-slate-500">{order.phone}</p>
+                      {selectedCustomer.primary_contact_phone && (
+                        <p className="text-sm text-slate-500">{selectedCustomer.primary_contact_phone}</p>
+                      )}
+                      {selectedCustomer.total_orders > 0 && (
+                        <p className="text-xs text-slate-400 mt-2">
+                          {selectedCustomer.total_orders} orders · ${selectedCustomer.total_spend.toLocaleString()} total
+                        </p>
                       )}
                     </div>
                   )}

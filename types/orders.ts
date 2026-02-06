@@ -31,6 +31,11 @@ export interface Order {
   original_email_date?: string | null  // Date/time the original email was sent
   include_notes_in_pdf?: boolean  // Whether to include notes in PDF download (default: false)
   rejection_reason?: string | null  // Reason for rejection (stored when status = 'rejected')
+
+  // Customer linking
+  customer_id?: string | null  // FK to customers table (set after human confirmation)
+  suggested_customer_id?: string | null  // AI's suggestion (not a FK, just a hint)
+  suggested_customer_confidence?: number | null  // Confidence of AI's suggestion (0.00 to 1.00)
 }
 
 export interface OrderItem {
