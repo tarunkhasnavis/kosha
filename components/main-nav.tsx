@@ -18,6 +18,7 @@ import {
   Settings,
   LogOut,
   Building2,
+  Sparkles,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -38,6 +39,7 @@ const navigation = [
   { name: "Orders", href: "/orders", icon: ShoppingCart },
   { name: "Customers", href: "/customers", icon: Users },
   { name: "Products", href: "/products", icon: Package },
+  { name: "Insights", href: "/insights", icon: Sparkles },
 ]
 
 interface Organization {
