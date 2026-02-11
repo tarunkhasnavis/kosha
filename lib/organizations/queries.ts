@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@/utils/supabase/server'
+import { createServiceClient } from '@/utils/supabase/service'
 import { getUser } from '@/lib/auth'
 import { cookies } from 'next/headers'
 
@@ -141,6 +142,32 @@ export async function getAllOrganizations() {
 export async function getOrganizationId() {
   const org = await getUserOrganization()
   return org?.id || null
+}
+
+/**
+ * Check if an organization's Gmail connection needs re-authentication
+ * Uses service client to check token columns without RLS restrictions
+ */
+export async function getGmailConnectionStatus(orgId: string): Promise<{
+  hasGmail: boolean
+  needsReconnect: boolean
+}> {
+  const supabase = createServiceClient()
+
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('gmail_email, gmail_refresh_token')
+    .eq('id', orgId)
+    .single()
+
+  if (error || !data) {
+    return { hasGmail: false, needsReconnect: false }
+  }
+
+  const hasGmail = !!data.gmail_email
+  const needsReconnect = hasGmail && !data.gmail_refresh_token
+
+  return { hasGmail, needsReconnect }
 }
 
 /**

@@ -137,17 +137,28 @@ export async function refreshAccessToken(
     })
 
     if (!response.ok) {
-      console.error('Failed to refresh token:', await response.text())
+      const errorText = await response.text()
+      console.error('Failed to refresh token:', errorText)
+
+      // If refresh token is permanently invalid, clear it so UI can detect
+      if (errorText.includes('invalid_grant')) {
+        const supabase = createServiceClient()
+        await supabase
+          .from('organizations')
+          .update({ gmail_refresh_token: null })
+          .eq('id', organizationId)
+      }
+
       return null
     }
 
     const data = await response.json()
 
-    // Store new access token
+    // Store new tokens - Google may rotate the refresh token
     const newExpiresAt = new Date(Date.now() + data.expires_in * 1000)
     await storeOAuthTokens(organizationId, {
       accessToken: data.access_token,
-      refreshToken: tokens.refreshToken, // Reuse existing refresh token
+      refreshToken: data.refresh_token ?? tokens.refreshToken,
       expiresAt: newExpiresAt,
     })
 

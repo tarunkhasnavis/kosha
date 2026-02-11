@@ -176,19 +176,34 @@ export async function GET(request: Request) {
           }
 
           // Catch-up sync: Process any emails missed while token was invalid
-          // This runs in the background - don't block the redirect
-          syncEmailsFromDaysBack(profile.organization_id, 7, 50)
-            .then((result) => {
-              if (result.processed > 0) {
-                console.log(`✅ Catch-up sync: processed ${result.processed} missed emails`)
-              }
-              if (result.errors.length > 0) {
-                console.error('⚠️ Catch-up sync errors:', result.errors)
-              }
-            })
-            .catch((error) => {
-              console.error('⚠️ Catch-up sync failed:', error)
-            })
+          // Calculate actual gap from last sync instead of hardcoded 7 days
+          const { data: orgData } = await serviceClient
+            .from('organizations')
+            .select('gmail_last_synced_at')
+            .eq('id', profile.organization_id)
+            .single()
+
+          const lastSynced = orgData?.gmail_last_synced_at
+            ? new Date(orgData.gmail_last_synced_at)
+            : null
+          const msGap = lastSynced
+            ? Date.now() - lastSynced.getTime()
+            : 7 * 24 * 60 * 60 * 1000
+          const daysBack = Math.min(Math.ceil(msGap / (24 * 60 * 60 * 1000)), 30)
+
+          // Await the catch-up sync before redirecting
+          // Dangling promises get killed on Vercel when the response is sent
+          try {
+            const syncResult = await syncEmailsFromDaysBack(profile.organization_id, daysBack, 50)
+            if (syncResult.processed > 0) {
+              console.log(`✅ Catch-up sync: processed ${syncResult.processed} missed emails (${daysBack} days back)`)
+            }
+            if (syncResult.errors.length > 0) {
+              console.error('⚠️ Catch-up sync errors:', syncResult.errors)
+            }
+          } catch (syncError) {
+            console.error('⚠️ Catch-up sync failed:', syncError)
+          }
         } catch (error) {
           console.error('Failed to store OAuth tokens during login:', error)
           // Don't fail the login

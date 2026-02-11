@@ -1,9 +1,10 @@
 import { requireAuth } from '@/lib/auth'
-import { getUserOrganization, getAllOrganizations } from '@/lib/organizations/queries'
+import { getUserOrganization, getAllOrganizations, getGmailConnectionStatus } from '@/lib/organizations/queries'
 import { MainNav } from '@/components/main-nav'
 import { redirect } from 'next/navigation'
 import { getOnboardingSession } from '@/lib/onboarding/actions'
 import { AppLayoutWrapper } from '@/components/app-layout-wrapper'
+import { GmailReconnectBanner } from '@/components/gmail-reconnect-banner'
 
 export default async function AuthenticatedLayout({
   children,
@@ -32,6 +33,9 @@ export default async function AuthenticatedLayout({
   // Get all orgs for super admin switcher
   const allOrgs = org?.isSuperAdmin ? await getAllOrganizations() : []
 
+  // Check Gmail connection health
+  const gmailStatus = org?.id ? await getGmailConnectionStatus(org.id) : null
+
   return (
     <AppLayoutWrapper>
       <MainNav
@@ -43,6 +47,7 @@ export default async function AuthenticatedLayout({
         userId={user?.id}
         userEmail={user?.email}
       />
+      {gmailStatus?.needsReconnect && <GmailReconnectBanner />}
       {children}
     </AppLayoutWrapper>
   )
