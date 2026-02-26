@@ -13,6 +13,15 @@ const envSchema = z.object({
     .regex(/^[0-9a-f]{64}$/i),
   DATABASE_URL: z.string().url().optional(),
   RESEND_API_KEY: z.string().min(1),
+  // QuickBooks Online (optional - only needed when QBO integration is used)
+  QUICKBOOKS_CLIENT_ID: z.string().min(1).optional(),
+  QUICKBOOKS_CLIENT_SECRET: z.string().min(1).optional(),
+  QUICKBOOKS_ENVIRONMENT: z.enum(['sandbox', 'production']).optional(),
+  QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN: z.string().min(1).optional(),
+  // QuickBooks Desktop via Conductor (optional - only needed when QBD integration is used)
+  CONDUCTOR_SECRET_KEY: z.string().min(1).optional(),
+  CONDUCTOR_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_APP_URL: z.string().url().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

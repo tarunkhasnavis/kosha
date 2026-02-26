@@ -133,6 +133,10 @@ export function CustomerSlideOut({
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs whitespace-nowrap">Approved</Badge>
       case 'processing':
         return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 text-xs whitespace-nowrap">Processing</Badge>
+      case 'invoiced':
+        return <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-300 text-xs whitespace-nowrap">Invoiced</Badge>
+      case 'paid':
+        return <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 text-xs whitespace-nowrap">Paid</Badge>
       case 'archived':
         return <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-300 text-xs whitespace-nowrap">Archived</Badge>
       case 'rejected':

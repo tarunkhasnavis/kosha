@@ -8,6 +8,7 @@
  */
 
 import { onOrderCompleted as wooCommerceSync } from './woocommerce'
+import { pushInvoiceToErp } from './sync/invoices'
 
 interface OrderItem {
   sku?: string | null
@@ -21,7 +22,7 @@ interface OrderContext {
 
 interface IntegrationResults {
   woocommerce?: { success: boolean; message?: string; error?: string }
-  // Add more integrations here as needed
+  erp?: { success: boolean; error?: string }
 }
 
 /**
@@ -53,10 +54,17 @@ export async function triggerOrderCompleted(
     }
   }
 
-  // Add more integrations here:
-  // try {
-  //   results.shopify = await shopifySync(organizationId, orderId, items)
-  // } catch (error) { ... }
+  // ERP integration (generic -- works with QBO, QB Desktop, etc.)
+  // Creates an invoice in the connected ERP when an order is approved.
+  // Non-blocking: errors don't fail the approval.
+  try {
+    results.erp = await pushInvoiceToErp(organizationId, orderId)
+  } catch (error) {
+    results.erp = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
 
   return results
 }

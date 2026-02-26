@@ -19,7 +19,19 @@ import { sendGmailReply } from '@/lib/email/gmail/reply'
 import { replaceOrderItems, hardDeleteAllOrderItems, type OrderItemInput } from './services'
 import { triggerOrderCompleted } from '@/lib/integrations/dispatcher'
 import { getOrgRequiredFields, validateBaseRequiredFields, validateOrgRequiredFields } from './field-config'
-import { saveOrderExample } from '@/lib/ai/embeddings'
+import { saveOrderExample, type OrderExample } from '@/lib/ai/embeddings'
+import type { CustomerOrderHistory } from './queries'
+
+/** Shape returned by Supabase when selecting order_items in a join */
+type SelectedOrderItem = {
+  id: string
+  name: string
+  sku: string | null
+  quantity: number
+  quantity_unit: string
+  unit_price: number
+  total: number
+}
 
 // ============================================
 // USER-FACING SERVER ACTIONS (UI interactions)
@@ -81,7 +93,7 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
       .limit(1)
       .single()
 
-    const integrationItems = (order.order_items || []).map((item: any) => ({
+    const integrationItems = (order.order_items || []).map((item: SelectedOrderItem) => ({
       sku: item.sku,
       name: item.name,
       quantity: item.quantity,
@@ -108,7 +120,7 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
           orderNumber: order.order_number,
           companyName: order.company_name || undefined,
           contactName: order.contact_name || undefined,
-          items: (order.order_items || []).map((item: any) => ({
+          items: (order.order_items || []).map((item: SelectedOrderItem) => ({
             id: item.id,
             order_id: orderId,
             name: item.name,
@@ -153,7 +165,7 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
         companyName: order.company_name,
         orderNumber: order.order_number,
         orderValue: order.order_value,
-        items: (order.order_items || []).map((item: any) => ({
+        items: (order.order_items || []).map((item: SelectedOrderItem) => ({
           name: item.name,
           sku: item.sku,
           quantity: item.quantity,
@@ -167,7 +179,7 @@ export async function approveOrder(orderId: string, customEmailMessage?: string)
 
       // Determine if order was edited by comparing item counts or values
       // (Simple heuristic - could be more sophisticated)
-      const originalItems = learningData.originalExtraction?.items_added as any[] | undefined
+      const originalItems = learningData.originalExtraction?.items_added as unknown[] | undefined
       const wasEdited = !originalItems ||
         originalItems.length !== (order.order_items || []).length ||
         order.order_value !== learningData.originalExtraction?.order_value
@@ -270,7 +282,7 @@ export async function rejectOrder(orderId: string, reason?: string, skipEmail: b
             orderNumber: order.order_number,
             companyName: order.company_name || undefined,
             contactName: order.contact_name || undefined,
-            items: (order.order_items || []).map((item: any) => ({
+            items: (order.order_items || []).map((item: SelectedOrderItem) => ({
               id: item.id,
               order_id: orderId,
               name: item.name,
@@ -329,6 +341,48 @@ export async function markOrderPdfDownloaded(orderId: string) {
   if (error) {
     console.error('Failed to mark PDF as downloaded:', error)
     throw new Error(`Failed to mark PDF as downloaded: ${error.message}`)
+  }
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
+/**
+ * Mark an approved order as invoiced
+ * Indicates an invoice has been created (pushed to ERP or manually marked)
+ */
+export async function markOrderInvoiced(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'invoiced' })
+    .eq('id', orderId)
+
+  if (error) {
+    console.error('Failed to mark order as invoiced:', error)
+    throw new Error(`Failed to mark order as invoiced: ${error.message}`)
+  }
+
+  revalidatePath('/orders')
+  return { success: true }
+}
+
+/**
+ * Mark an invoiced order as paid
+ * Indicates payment has been received (detected via ERP webhook or manually marked)
+ */
+export async function markOrderPaid(orderId: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'paid' })
+    .eq('id', orderId)
+
+  if (error) {
+    console.error('Failed to mark order as paid:', error)
+    throw new Error(`Failed to mark order as paid: ${error.message}`)
   }
 
   revalidatePath('/orders')
@@ -1055,7 +1109,7 @@ export async function saveAndApproveOrder(
             orderNumber: updatedOrder.order_number,
             companyName: updatedOrder.company_name || undefined,
             contactName: updatedOrder.contact_name || undefined,
-            items: (updatedOrder.order_items || []).map((item: any) => ({
+            items: (updatedOrder.order_items || []).map((item: SelectedOrderItem) => ({
               id: item.id,
               order_id: orderId,
               name: item.name,
@@ -1277,7 +1331,7 @@ export async function retryOrderProcessing(
     date: emailData.email_date,
     body: emailData.email_body,
     snippet: emailData.email_body.slice(0, 200), // Create snippet from body
-    attachments: [] as any[],
+    attachments: [],
     messageId: emailData.gmail_message_id,
   }
 
@@ -1287,7 +1341,7 @@ export async function retryOrderProcessing(
 
   // Get RAG examples
   const rawInputForRAG = `Subject: ${parsedEmail.subject}\nFrom: ${parsedEmail.from}\n\n${parsedEmail.body}`
-  let ragExamples: any[] = []
+  let ragExamples: OrderExample[] = []
   try {
     ragExamples = await retrieveSimilarExamples(rawInputForRAG, organizationId)
   } catch (error) {
@@ -1295,7 +1349,7 @@ export async function retryOrderProcessing(
   }
 
   // Get customer history
-  let customerHistory: any[] = []
+  let customerHistory: CustomerOrderHistory[] = []
   try {
     customerHistory = await getCustomerOrderHistory(parsedEmail.from, organizationId, 2)
   } catch (error) {
@@ -1489,7 +1543,7 @@ export async function generateApprovalEmailPreview(
         unit_price: parseFloat(item.unit_price) || 0,
         total: item.total,
       }))
-    : (order.order_items || []).map((item: any) => ({
+    : (order.order_items || []).map((item: SelectedOrderItem) => ({
         id: item.id,
         order_id: orderId,
         name: item.name,
@@ -1597,7 +1651,7 @@ export async function getOrderAttachmentsAction(
     return []
   }
 
-  return data.map(row => ({
+  return data.map((row: { id: string; filename: string; mime_type: string; file_size: number; storage_path: string | null; processed_content: string | null; processed_type: string | null }) => ({
     id: row.id,
     filename: row.filename,
     mimeType: row.mime_type,

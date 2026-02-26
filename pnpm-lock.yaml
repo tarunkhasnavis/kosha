@@ -113,6 +113,9 @@ importers:
       cmdk:
         specifier: 1.0.4
         version: 1.0.4(@types/react-dom@19.2.0(@types/react@19.2.0))(@types/react@19.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      conductor-node:
+        specifier: ^14.3.0
+        version: 14.3.0
       date-fns:
         specifier: latest
         version: 4.1.0
@@ -2259,6 +2262,10 @@ packages:
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
+
+  conductor-node@14.3.0:
+    resolution: {integrity: sha512-HvnRfGy5yLB7HyUdTpKNt4DseNSoazSreuJsk4NnsXLJrsaiw5JxO4ve+7MVzq9x00kEtGDfPvWPQsc9i4fJXQ==}
+    hasBin: true
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -5682,6 +5689,8 @@ snapshots:
   commander@4.1.1: {}
 
   concat-map@0.0.1: {}
+
+  conductor-node@14.3.0: {}
 
   convert-source-map@2.0.0: {}
 

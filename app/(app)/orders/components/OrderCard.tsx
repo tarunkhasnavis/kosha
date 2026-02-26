@@ -58,6 +58,8 @@ const statusBorderColors: Record<string, string> = {
   waiting_review: "border-l-blue-500",
   awaiting_clarification: "border-l-orange-600",
   approved: "border-l-green-500",
+  invoiced: "border-l-sky-500",
+  paid: "border-l-teal-500",
   rejected: "border-l-red-500",
   archived: "border-l-gray-400",
 }
@@ -240,6 +242,7 @@ interface ApprovedActionsProps {
 }
 
 function ApprovedActions({
+  order,
   isLoading,
   hasBeenDownloaded,
   justDownloaded,
@@ -247,12 +250,14 @@ function ApprovedActions({
   onDownload
 }: ApprovedActionsProps) {
   const isDownloaded = hasBeenDownloaded || justDownloaded
+  const statusLabel = order.status === "paid" ? "Paid" : order.status === "invoiced" ? "Invoiced" : "Approved"
+  const statusColor = order.status === "paid" ? "text-teal-600" : order.status === "invoiced" ? "text-sky-600" : "text-green-600"
 
   return (
     <div className="flex items-center justify-between pt-4">
-      <div className="flex items-center gap-2 text-green-600 text-sm">
+      <div className={`flex items-center gap-2 ${statusColor} text-sm`}>
         <CheckCircle className="h-4 w-4" />
-        <span className="font-medium">Approved</span>
+        <span className="font-medium">{statusLabel}</span>
       </div>
       <div className="flex items-center gap-2">
         <TooltipProvider delayDuration={100}>
@@ -507,7 +512,7 @@ export function OrderCard({ order, onClick, onReject, onApprove, onRequestInfo, 
           />
         )}
 
-        {order.status === "approved" && (
+        {(order.status === "approved" || order.status === "invoiced" || order.status === "paid") && (
           <ApprovedActions
             order={order}
             isLoading={isLoading}

@@ -3,6 +3,7 @@ import { getOrganizationId, isSuperAdmin } from '@/lib/organizations/queries'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
 import { WooCommerceSettings } from './components/WooCommerceSettings'
+import { ErpSettings } from './components/ErpSettings'
 import { CustomFieldsSettings } from './components/CustomFieldsSettings'
 import { OrganizationInfoSettings } from './components/OrganizationInfoSettings'
 import { PaymentSettings } from './components/PaymentSettings'
@@ -129,7 +130,10 @@ export default async function SettingsPage() {
           {/* Integrations Section */}
           <section>
             <h2 className="text-lg font-medium text-gray-900 mb-4">Integrations</h2>
-            <WooCommerceSettings organizationId={orgId} />
+            <div className="space-y-6">
+              <ErpSettings organizationId={orgId} />
+              <WooCommerceSettings organizationId={orgId} />
+            </div>
           </section>
 
           {/* Admin Section - Super Admin Only */}

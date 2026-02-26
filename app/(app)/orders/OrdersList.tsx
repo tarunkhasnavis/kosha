@@ -44,7 +44,7 @@ const tabs: TabConfig[] = [
   { key: "all", label: "All", filter: (o) => o.status !== "archived" },
   { key: "needsInfo", label: "Needs Info", filter: (o) => o.status === "awaiting_clarification" },
   { key: "pendingReview", label: "Pending Review", filter: (o) => o.status === "waiting_review" },
-  { key: "approved", label: "Approved", filter: (o) => o.status === "approved" },
+  { key: "approved", label: "Approved", filter: (o) => o.status === "approved" || o.status === "invoiced" || o.status === "paid" },
   { key: "archived", label: "Archived", filter: (o) => o.status === "archived" },
 ]
 
@@ -53,7 +53,9 @@ const STATUS_PRIORITY: Record<string, number> = {
   awaiting_clarification: 1, // Needs Info
   waiting_review: 2,          // Pending Review
   approved: 3,
-  archived: 4,
+  invoiced: 4,
+  paid: 5,
+  archived: 6,
 }
 
 // =============================================================================

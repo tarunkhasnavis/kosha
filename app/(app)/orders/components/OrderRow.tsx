@@ -31,7 +31,7 @@ import { DownloadModal, type DocumentType } from "./DownloadModal"
 // Status Configuration (muted/desaturated colors per spec)
 // =============================================================================
 
-type OrderStatus = "waiting_review" | "awaiting_clarification" | "approved" | "archived"
+type OrderStatus = "waiting_review" | "awaiting_clarification" | "approved" | "invoiced" | "paid" | "archived"
 
 interface StatusConfig {
   dotColor: string
@@ -50,6 +50,14 @@ const statusConfig: Record<OrderStatus, StatusConfig> = {
   approved: {
     dotColor: "bg-emerald-500",
     accentColor: "bg-emerald-500",
+  },
+  invoiced: {
+    dotColor: "bg-sky-500",
+    accentColor: "bg-sky-500",
+  },
+  paid: {
+    dotColor: "bg-teal-500",
+    accentColor: "bg-teal-500",
   },
   archived: {
     dotColor: "bg-slate-400",
@@ -286,6 +294,10 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
               ? "bg-amber-50 text-amber-700"
               : order.status === "approved"
               ? "bg-emerald-50 text-emerald-700"
+              : order.status === "invoiced"
+              ? "bg-sky-50 text-sky-700"
+              : order.status === "paid"
+              ? "bg-teal-50 text-teal-700"
               : "bg-slate-100 text-slate-600"
           }`}
         >
@@ -295,6 +307,10 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
             ? "Needs Info"
             : order.status === "approved"
             ? "Approved"
+            : order.status === "invoiced"
+            ? "Invoiced"
+            : order.status === "paid"
+            ? "Paid"
             : order.status === "archived"
             ? "Archived"
             : order.status.replace("_", " ")}
@@ -423,8 +439,8 @@ export function OrderRow({ order, onClick, onRejectClick, onApprove, onRequestIn
           </>
         )}
 
-        {/* Approved: Archive + Download (icon-only below xl breakpoint) */}
-        {order.status === "approved" && (
+        {/* Approved/Invoiced/Paid: Archive + Download (icon-only below xl breakpoint) */}
+        {(order.status === "approved" || order.status === "invoiced" || order.status === "paid") && (
           <>
             <TooltipProvider delayDuration={100}>
               <Tooltip>

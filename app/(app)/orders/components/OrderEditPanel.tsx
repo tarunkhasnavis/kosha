@@ -41,11 +41,15 @@ import {
   RotateCcw,
   Paperclip,
   Pencil,
+  Building2,
+  CreditCard,
+  AlertCircle,
 } from "lucide-react"
 import type { Order } from "@/types/orders"
 import type { Product } from "@/types/products"
 import type { Customer } from "@/types/customers"
 import type { SaveAndAnalyzeResult, OrderAttachmentData } from "@/lib/orders/actions"
+import { pushInvoiceToErp, checkInvoiceStatus } from "@/lib/integrations/actions"
 import { generateApprovalEmailPreview, getOrderAttachmentsAction } from "@/lib/orders/actions"
 import { getProducts } from "@/lib/products/actions"
 import { fetchCustomers, fetchCustomer, setOrderCustomer, createCustomerAndLinkToOrder } from "@/lib/customers/actions"
@@ -151,6 +155,10 @@ export function OrderEditPanel({
   const [sendApprovalEmail, setSendApprovalEmail] = useState(false) // Toggle for sending approval email
   const [isRetrying, setIsRetrying] = useState(false)
   const [showRetryConfirm, setShowRetryConfirm] = useState(false)
+
+  // ERP actions
+  const [isPushingInvoice, setIsPushingInvoice] = useState(false)
+  const [isCheckingPayment, setIsCheckingPayment] = useState(false)
 
   // Inline continuation result (replaces dialog)
   const [continueResult, setContinueResult] = useState<{
@@ -579,9 +587,47 @@ export function OrderEditPanel({
     }
   }
 
+  // Handle push invoice to ERP
+  const handlePushInvoice = async () => {
+    if (!order) return
+    setIsPushingInvoice(true)
+    try {
+      const result = await pushInvoiceToErp(order.id)
+      if (result.success) {
+        onClose()
+      } else {
+        console.error('Failed to push invoice:', result.error)
+      }
+    } catch (error) {
+      console.error('Error pushing invoice:', error)
+    } finally {
+      setIsPushingInvoice(false)
+    }
+  }
+
+  // Handle check payment status
+  const handleCheckPayment = async () => {
+    if (!order) return
+    setIsCheckingPayment(true)
+    try {
+      const result = await checkInvoiceStatus(order.id)
+      if (result.success) {
+        onClose()
+      } else {
+        console.error('Failed to check payment:', result.error)
+      }
+    } catch (error) {
+      console.error('Error checking payment:', error)
+    } finally {
+      setIsCheckingPayment(false)
+    }
+  }
+
   const isNeedsInfo = order.status === "awaiting_clarification"
   const isPendingReview = order.status === "waiting_review"
   const isApproved = order.status === "approved"
+  const isInvoiced = order.status === "invoiced"
+  const isPaid = order.status === "paid"
   const isArchived = order.status === "archived"
   const hasClarificationMessage = order.clarification_message !== null && order.clarification_message !== undefined
 
@@ -628,6 +674,10 @@ export function OrderEditPanel({
                   ? "bg-[hsl(var(--status-needs-info-bg))] text-[hsl(var(--status-needs-info-text))]"
                   : order.status === "approved"
                   ? "bg-[hsl(var(--status-approved-bg))] text-[hsl(var(--status-approved-text))]"
+                  : order.status === "invoiced"
+                  ? "bg-[hsl(var(--status-invoiced-bg))] text-[hsl(var(--status-invoiced-text))]"
+                  : order.status === "paid"
+                  ? "bg-[hsl(var(--status-paid-bg))] text-[hsl(var(--status-paid-text))]"
                   : "bg-[hsl(var(--status-archived-bg))] text-[hsl(var(--status-archived-text))]"
               )}
             >
@@ -637,6 +687,10 @@ export function OrderEditPanel({
                 ? "Needs Info"
                 : order.status === "approved"
                 ? "Approved"
+                : order.status === "invoiced"
+                ? "Invoiced"
+                : order.status === "paid"
+                ? "Paid"
                 : order.status.replace("_", " ")}
             </Badge>
             {/* Completeness indicator */}
@@ -727,18 +781,54 @@ export function OrderEditPanel({
                   </>
                 )}
 
-                {/* Approved: Only Save button */}
+                {/* Approved: Save + Create Invoice */}
                 {isApproved && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="h-8 px-3 rounded-lg border-slate-200 text-slate-600 hover:bg-slate-50"
+                    >
+                      {savingAction === "save" ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : null}
+                      Save
+                    </Button>
+                    {!order.erp_entity_id && (
+                      <Button
+                        size="sm"
+                        onClick={handlePushInvoice}
+                        disabled={isPushingInvoice || isSaving}
+                        className="h-8 px-3 rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-sm"
+                      >
+                        {isPushingInvoice ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Building2 className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Create Invoice
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* Invoiced: Check Payment Status */}
+                {isInvoiced && (
                   <Button
                     size="sm"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white shadow-sm"
+                    variant="outline"
+                    onClick={handleCheckPayment}
+                    disabled={isCheckingPayment}
+                    className="h-8 px-3 rounded-lg border-teal-300 text-teal-700 hover:bg-teal-50"
                   >
-                    {savingAction === "save" ? (
+                    {isCheckingPayment ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                    ) : null}
-                    Save Changes
+                    ) : (
+                      <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Check Payment
                   </Button>
                 )}
               </>
@@ -1423,6 +1513,77 @@ export function OrderEditPanel({
                   </div>
                 )}
               </motion.div>
+
+              {/* ERP Sync Status */}
+              {(order.erp_entity_id || order.erp_sync_status === 'error') && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={4}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Building2 className="h-4 w-4 text-slate-400" />
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      ERP Invoice
+                    </h3>
+                  </div>
+                  <div className="space-y-2">
+                    {order.erp_sync_status === 'error' && (
+                      <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-2.5">
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <span>{order.erp_sync_error || 'Sync failed'}</span>
+                      </div>
+                    )}
+                    {order.erp_entity_id && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Invoice</span>
+                          <span className="font-medium text-slate-700">{order.erp_display_name || order.erp_entity_id}</span>
+                        </div>
+                        {order.erp_synced_at && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-500">Last synced</span>
+                            <span className="text-slate-600">{new Date(order.erp_synced_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {isInvoiced && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleCheckPayment}
+                        disabled={isCheckingPayment}
+                        className="w-full mt-2 border-teal-200 text-teal-700 hover:bg-teal-50"
+                      >
+                        {isCheckingPayment ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Check Payment Status
+                      </Button>
+                    )}
+                    {isApproved && !order.erp_entity_id && (
+                      <Button
+                        size="sm"
+                        onClick={handlePushInvoice}
+                        disabled={isPushingInvoice}
+                        className="w-full mt-2 bg-sky-600 hover:bg-sky-700 text-white"
+                      >
+                        {isPushingInvoice ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Building2 className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Retry Create Invoice
+                      </Button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
               </div>
             </div>
           ) : (
@@ -1726,6 +1887,77 @@ export function OrderEditPanel({
                   </div>
                 )}
               </motion.div>
+
+              {/* ERP Sync Status - Peek mode */}
+              {(order.erp_entity_id || order.erp_sync_status === 'error') && (
+                <motion.div
+                  className="bg-white border border-slate-200/60 rounded-xl p-4"
+                  custom={5}
+                  initial="hidden"
+                  animate="visible"
+                  variants={sectionVariants}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Building2 className="h-4 w-4 text-slate-400" />
+                    <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      ERP Invoice
+                    </h3>
+                  </div>
+                  <div className="space-y-2">
+                    {order.erp_sync_status === 'error' && (
+                      <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-2.5">
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <span>{order.erp_sync_error || 'Sync failed'}</span>
+                      </div>
+                    )}
+                    {order.erp_entity_id && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Invoice</span>
+                          <span className="font-medium text-slate-700">{order.erp_display_name || order.erp_entity_id}</span>
+                        </div>
+                        {order.erp_synced_at && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-500">Last synced</span>
+                            <span className="text-slate-600">{new Date(order.erp_synced_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {isInvoiced && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleCheckPayment}
+                        disabled={isCheckingPayment}
+                        className="w-full mt-2 border-teal-200 text-teal-700 hover:bg-teal-50"
+                      >
+                        {isCheckingPayment ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Check Payment Status
+                      </Button>
+                    )}
+                    {isApproved && !order.erp_entity_id && (
+                      <Button
+                        size="sm"
+                        onClick={handlePushInvoice}
+                        disabled={isPushingInvoice}
+                        className="w-full mt-2 bg-sky-600 hover:bg-sky-700 text-white"
+                      >
+                        {isPushingInvoice ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Building2 className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Retry Create Invoice
+                      </Button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
 
               {/* Clarification Email Section - At bottom in peek mode */}
               {isNeedsInfo && hasClarificationMessage && !continueResult && (

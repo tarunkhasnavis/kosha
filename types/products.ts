@@ -13,6 +13,14 @@ export interface Product {
   is_active: boolean
   created_at: string
   updated_at: string
+
+  // ERP sync tracking fields
+  erp_entity_id: string | null
+  erp_display_name: string | null
+  erp_synced_at: string | null
+  erp_sync_status: 'pending' | 'synced' | 'error' | null
+  erp_sync_error: string | null
+  erp_metadata: Record<string, unknown> | null
 }
 
 // For creating a new product (id and timestamps are auto-generated)

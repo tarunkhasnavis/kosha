@@ -5,7 +5,7 @@ export interface Order {
   order_number: string
   company_name: string
   source: "email" | "text" | "voicemail" | "spreadsheet" | "pdf"
-  status: "waiting_review" | "approved" | "rejected" | "processing" | "awaiting_clarification" | "archived"
+  status: "waiting_review" | "approved" | "rejected" | "processing" | "invoiced" | "paid" | "awaiting_clarification" | "archived"
   received_date: string
   expected_date?: string  // When customer wants pickup OR delivery
   order_value: number
@@ -36,6 +36,14 @@ export interface Order {
   customer_id?: string | null  // FK to customers table (set after human confirmation)
   suggested_customer_id?: string | null  // AI's suggestion (not a FK, just a hint)
   suggested_customer_confidence?: number | null  // Confidence of AI's suggestion (0.00 to 1.00)
+
+  // ERP sync tracking (Kosha's metadata about the sync relationship)
+  erp_entity_id?: string | null
+  erp_display_name?: string | null
+  erp_synced_at?: string | null
+  erp_sync_status?: 'synced' | 'pending' | 'error' | null
+  erp_sync_error?: string | null
+  erp_metadata?: Record<string, unknown> | null
 }
 
 export interface OrderItem {
@@ -62,7 +70,7 @@ export interface OrderStats {
 
 // Type guards
 export const isOrderStatus = (status: string): status is Order['status'] => {
-  return ['waiting_review', 'approved', 'rejected', 'processing', 'awaiting_clarification', 'archived'].includes(status)
+  return ['waiting_review', 'approved', 'rejected', 'processing', 'invoiced', 'paid', 'awaiting_clarification', 'archived'].includes(status)
 }
 
 // Helper types
