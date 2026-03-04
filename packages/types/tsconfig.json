@@ -1,0 +1,7 @@
+{
+  "extends": "@kosha/typescript-config/library.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

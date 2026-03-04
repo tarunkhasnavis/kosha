@@ -1,14 +1,13 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
-/node_modules
+node_modules
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production
 /build
+dist/
 
 # debug
 npm-debug.log*
@@ -27,7 +26,10 @@ yarn-error.log*
 next-env.d.ts
 
 # test coverage
-/coverage
+coverage/
+
+# turbo
+.turbo
 
 # macOS
 .DS_Store

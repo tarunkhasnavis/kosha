@@ -1,0 +1,14 @@
+{
+  "name": "@kosha/types",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "echo 'no lint configured'"
+  },
+  "devDependencies": {
+    "@kosha/typescript-config": "workspace:*",
+    "typescript": "^5"
+  }
+}

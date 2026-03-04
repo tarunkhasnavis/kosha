@@ -1,0 +1,9 @@
+{
+  "name": "@kosha/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "files": ["base.js", "next.js"],
+  "devDependencies": {
+    "eslint-config-prettier": "^10.1.8"
+  }
+}

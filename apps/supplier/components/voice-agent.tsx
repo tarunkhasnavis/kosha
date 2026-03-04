@@ -1,0 +1,678 @@
+'use client'
+
+import { useState, useRef, useCallback, useEffect } from 'react'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Badge,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  ScrollArea,
+  Separator,
+} from '@kosha/ui'
+import { Mic, MicOff, Loader2, CheckCircle2, X, RotateCcw } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
+import type { Account } from '@kosha/types'
+
+type AgentState = 'idle' | 'connecting' | 'active' | 'extracting' | 'saving' | 'done'
+
+interface TranscriptEntry {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+interface ExtractedSignalItem {
+  type: string
+  description: string
+  confidence: number
+  category: string
+  suggestedAction: string
+}
+
+interface ExtractedTaskItem {
+  task: string
+  priority: string
+}
+
+interface ExtractedCapture {
+  signals: ExtractedSignalItem[]
+  tasks: ExtractedTaskItem[]
+}
+
+interface VoiceAgentProps {
+  accounts: Account[]
+}
+
+const signalTypeConfig: Record<string, { label: string; className: string }> = {
+  demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
+  competitive: { label: 'Competitive', className: 'bg-red-100 text-red-700' },
+  friction: { label: 'Friction', className: 'bg-amber-100 text-amber-700' },
+  expansion: { label: 'Expansion', className: 'bg-emerald-100 text-emerald-700' },
+  relationship: { label: 'Relationship', className: 'bg-blue-100 text-blue-700' },
+}
+
+const priorityConfig: Record<string, { label: string; className: string }> = {
+  high: { label: 'High', className: 'bg-red-100 text-red-700' },
+  medium: { label: 'Medium', className: 'bg-amber-100 text-amber-700' },
+  low: { label: 'Low', className: 'bg-slate-100 text-slate-600' },
+}
+
+export function VoiceAgent({ accounts }: VoiceAgentProps) {
+  const [state, setState] = useState<AgentState>('idle')
+  const [accountId, setAccountId] = useState('')
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  const [extractedCapture, setExtractedCapture] = useState<ExtractedCapture | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const dcRef = useRef<RTCDataChannel | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const currentAssistantTextRef = useRef('')
+  const fullTranscriptRef = useRef('')
+  const functionCallArgsRef = useRef('')
+
+  const selectedAccount = accounts.find((a) => a.id === accountId)
+
+  // Auto-scroll transcript
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [transcript])
+
+  const cleanup = useCallback(() => {
+    if (dcRef.current) {
+      dcRef.current.close()
+      dcRef.current = null
+    }
+    if (pcRef.current) {
+      pcRef.current.close()
+      pcRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+    if (audioRef.current) {
+      audioRef.current.srcObject = null
+      audioRef.current = null
+    }
+  }, [])
+
+  const startCapture = useCallback(async () => {
+    if (!accountId || !selectedAccount) return
+
+    setState('connecting')
+    setTranscript([])
+    setExtractedCapture(null)
+    setIsSpeaking(false)
+    currentAssistantTextRef.current = ''
+    fullTranscriptRef.current = ''
+    functionCallArgsRef.current = ''
+
+    try {
+      // 1. Get ephemeral token
+      const sessionRes = await fetch('/api/capture/session', { method: 'POST' })
+      if (!sessionRes.ok) {
+        const err = await sessionRes.json()
+        throw new Error(err.error || 'Failed to create session')
+      }
+      const { client_secret } = await sessionRes.json()
+      if (!client_secret) throw new Error('No client secret returned')
+
+      // 2. Create peer connection
+      const pc = new RTCPeerConnection()
+      pcRef.current = pc
+
+      // 3. Set up remote audio playback
+      const audio = document.createElement('audio')
+      audio.autoplay = true
+      audioRef.current = audio
+
+      pc.ontrack = (event) => {
+        audio.srcObject = event.streams[0]
+      }
+
+      // 4. Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      pc.addTrack(stream.getAudioTracks()[0], stream)
+
+      // 5. Create data channel for events
+      const dc = pc.createDataChannel('oai-events')
+      dcRef.current = dc
+
+      dc.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data)
+          handleRealtimeEvent(event)
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      // 6. Create SDP offer
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+
+      // 7. Send offer to OpenAI Realtime API
+      const sdpRes = await fetch(
+        'https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
+        {
+          method: 'POST',
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${client_secret}`,
+            'Content-Type': 'application/sdp',
+          },
+        }
+      )
+
+      if (!sdpRes.ok) {
+        throw new Error('Failed to connect to voice service')
+      }
+
+      const answerSdp = await sdpRes.text()
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+
+      setState('active')
+    } catch (error) {
+      console.error('Failed to start capture:', error)
+      cleanup()
+      setState('idle')
+      toast({
+        title: 'Connection failed',
+        description: error instanceof Error ? error.message : 'Failed to start voice capture',
+        variant: 'destructive',
+      })
+    }
+  }, [accountId, selectedAccount, cleanup])
+
+  const handleRealtimeEvent = useCallback((event: Record<string, unknown>) => {
+    const type = event.type as string
+
+    switch (type) {
+      // User speech transcription
+      case 'conversation.item.input_audio_transcription.completed': {
+        const userText = (event.transcript as string || '').trim()
+        if (userText) {
+          setTranscript((prev) => [...prev, { role: 'user', text: userText }])
+          fullTranscriptRef.current += `Rep: ${userText}\n`
+        }
+        break
+      }
+
+      // Assistant audio transcript delta — AI is speaking
+      case 'response.audio_transcript.delta': {
+        const delta = event.delta as string || ''
+        currentAssistantTextRef.current += delta
+        setIsSpeaking(true)
+        break
+      }
+
+      // Assistant audio transcript complete — AI stopped speaking
+      case 'response.audio_transcript.done': {
+        const assistantText = (event.transcript as string || currentAssistantTextRef.current).trim()
+        if (assistantText) {
+          setTranscript((prev) => [...prev, { role: 'assistant', text: assistantText }])
+          fullTranscriptRef.current += `Assistant: ${assistantText}\n`
+        }
+        currentAssistantTextRef.current = ''
+        setIsSpeaking(false)
+        break
+      }
+
+      // Function call arguments streaming in
+      case 'response.function_call_arguments.delta': {
+        const delta = event.delta as string || ''
+        functionCallArgsRef.current += delta
+        break
+      }
+
+      // Function call completed — agent wants to save
+      case 'response.function_call_arguments.done': {
+        const name = event.name as string
+        if (name === 'save_capture') {
+          // Use event.arguments first, fall back to accumulated deltas
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+
+          try {
+            const args = JSON.parse(argsString) as ExtractedCapture
+            // Validate that we actually have signals
+            if (!args.signals || args.signals.length === 0) {
+              console.error('save_capture called with no signals')
+              toast({
+                title: 'Capture issue',
+                description: 'No signals were extracted. Try having a longer conversation.',
+                variant: 'destructive',
+              })
+              return
+            }
+            setExtractedCapture(args)
+            setState('saving')
+          } catch (err) {
+            console.error('Failed to parse save_capture args:', argsString, err)
+            toast({
+              title: 'Capture failed',
+              description: 'Failed to process the AI response. Please try again.',
+              variant: 'destructive',
+            })
+          }
+        } else {
+          functionCallArgsRef.current = ''
+        }
+        break
+      }
+
+      default:
+        break
+    }
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    if (streamRef.current) {
+      const audioTrack = streamRef.current.getAudioTracks()[0]
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled
+        setIsMuted(!audioTrack.enabled)
+      }
+    }
+  }, [])
+
+  const stopCapture = useCallback(async () => {
+    cleanup()
+
+    // If the AI already extracted capture, do nothing (saving state handles it)
+    if (extractedCapture) return
+
+    // If there's transcript content, use fallback extraction
+    const transcriptText = fullTranscriptRef.current.trim()
+    if (transcript.length > 0 && transcriptText) {
+      setState('extracting')
+      try {
+        const res = await fetch('/api/capture/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: transcriptText }),
+        })
+
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err.error || 'Extraction failed')
+        }
+
+        const data = await res.json() as ExtractedCapture
+        if (data.signals && data.signals.length > 0) {
+          setExtractedCapture(data)
+          setState('saving')
+        } else {
+          setState('idle')
+          toast({ title: 'Capture ended', description: 'No signals could be extracted from the conversation.' })
+        }
+      } catch (error) {
+        console.error('Fallback extraction failed:', error)
+        setState('idle')
+        toast({
+          title: 'Extraction failed',
+          description: error instanceof Error ? error.message : 'Could not process the conversation.',
+          variant: 'destructive',
+        })
+      }
+    } else {
+      setState('idle')
+    }
+  }, [cleanup, transcript.length, extractedCapture])
+
+  const saveCapture = useCallback(async () => {
+    if (!extractedCapture || !selectedAccount) return
+
+    setSaving(true)
+    try {
+      const res = await fetch('/api/capture/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: accountId,
+          account_name: selectedAccount.name,
+          signals: extractedCapture.signals,
+          tasks: extractedCapture.tasks,
+          transcript: fullTranscriptRef.current || null,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to save capture')
+      }
+
+      cleanup()
+      setState('done')
+      toast({ title: 'Capture saved' })
+    } catch (error) {
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Failed to save capture',
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }, [extractedCapture, selectedAccount, accountId, cleanup])
+
+  const discardCapture = useCallback(() => {
+    cleanup()
+    setExtractedCapture(null)
+    setState('idle')
+  }, [cleanup])
+
+  const reset = useCallback(() => {
+    setState('idle')
+    setTranscript([])
+    setExtractedCapture(null)
+    setAccountId('')
+    fullTranscriptRef.current = ''
+  }, [])
+
+  // ─── Idle State ───────────────────────────────────────────
+  if (state === 'idle') {
+    return (
+      <div className="flex flex-col items-center text-center max-w-md mx-auto">
+        <h2 className="text-xl font-bold text-slate-900">Quick Capture</h2>
+        <p className="text-sm text-muted-foreground mt-1 mb-8">
+          Select an account and start your post-meeting summary
+        </p>
+
+        {/* Account selector */}
+        <div className="w-full">
+          <Select value={accountId} onValueChange={setAccountId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select an account" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Hero mic icon with subtle glow */}
+        <div className="relative flex items-center justify-center mt-16 mb-14">
+          {/* Soft glow ring */}
+          <div
+            className="absolute h-36 w-36 rounded-full bg-blue-100/40"
+            style={{ animation: 'pulse-glow 3s ease-in-out infinite' }}
+          />
+          {/* Static outer ring */}
+          <div className="absolute h-28 w-28 rounded-full border border-slate-200/80" />
+          {/* Mic circle */}
+          <div className="h-20 w-20 rounded-full bg-white border border-slate-200 flex items-center justify-center z-10 shadow-sm">
+            <Mic className="h-8 w-8 text-blue-500" />
+          </div>
+        </div>
+
+        {/* Label + dynamic text */}
+        <h3 className="text-lg font-semibold text-slate-900">Post-Meeting Capture</h3>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+          {selectedAccount ? (
+            <>
+              Tap to start a quick voice conversation about your visit with{' '}
+              <span className="font-medium text-slate-700">{selectedAccount.name}</span>.
+            </>
+          ) : (
+            'Select an account above to begin capturing field intelligence.'
+          )}
+        </p>
+
+        {/* CTA button */}
+        <Button
+          className="w-full mt-10 bg-blue-500 hover:bg-blue-600 text-white"
+          size="lg"
+          disabled={!accountId}
+          onClick={startCapture}
+        >
+          <Mic className="h-5 w-5 mr-2" />
+          Start Summary
+        </Button>
+      </div>
+    )
+  }
+
+  // ─── Connecting State ─────────────────────────────────────
+  if (state === 'connecting') {
+    return (
+      <div className="flex flex-col items-center text-center py-16">
+        <div className="relative flex items-center justify-center mb-6">
+          <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
+            <Mic className="h-8 w-8 text-blue-500" />
+          </div>
+          <div className="absolute h-24 w-24 rounded-full border-2 border-blue-400/40 border-t-transparent animate-spin" />
+        </div>
+        <p className="text-sm text-muted-foreground">Connecting to AI assistant...</p>
+      </div>
+    )
+  }
+
+  // ─── Active State ─────────────────────────────────────────
+  if (state === 'active') {
+    return (
+      <div className="flex flex-col items-center w-full max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between w-full mb-8">
+          <div className="flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-sm font-medium text-slate-700">
+              {selectedAccount?.name}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={isMuted ? 'default' : 'outline'}
+              size="sm"
+              onClick={toggleMute}
+              className={isMuted ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
+            >
+              {isMuted ? <MicOff className="h-4 w-4 mr-1.5" /> : <Mic className="h-4 w-4 mr-1.5" />}
+              {isMuted ? 'Muted' : 'Mute'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={stopCapture}>
+              <MicOff className="h-4 w-4 mr-1.5" />
+              End
+            </Button>
+          </div>
+        </div>
+
+        {/* AI Orb — ChatGPT-inspired */}
+        <div className="flex flex-col items-center mb-8">
+          <div
+            className="h-24 w-24 rounded-full bg-gradient-to-br from-blue-400 via-sky-300 to-blue-500 flex items-center justify-center transition-all duration-500"
+            style={{
+              animation: isSpeaking
+                ? 'orb-speak 1.2s ease-in-out infinite'
+                : 'orb-breathe 3s ease-in-out infinite',
+            }}
+          >
+            <Mic className="h-8 w-8 text-white" />
+          </div>
+          <p className="text-xs text-muted-foreground mt-4">
+            {isMuted ? 'Muted' : isSpeaking ? 'AI is speaking...' : 'Listening...'}
+          </p>
+        </div>
+
+        {/* Transcript */}
+        <Card className="w-full">
+          <CardContent className="p-0">
+            <ScrollArea className="h-[50vh] min-h-[320px] p-4" ref={scrollRef}>
+              {transcript.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-12">
+                  Start speaking about your observation.
+                </p>
+              ) : (
+                <div className="space-y-3 px-1">
+                  {transcript.map((entry, i) => (
+                    <div
+                      key={i}
+                      className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                          entry.role === 'user'
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-900'
+                        }`}
+                      >
+                        {entry.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // ─── Extracting State ────────────────────────────────────
+  if (state === 'extracting') {
+    return (
+      <div className="flex flex-col items-center text-center py-16">
+        <div className="relative flex items-center justify-center mb-6">
+          <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+          </div>
+        </div>
+        <h3 className="text-lg font-semibold text-slate-900 mb-1">Processing Conversation</h3>
+        <p className="text-sm text-muted-foreground">
+          Extracting signals and tasks from your conversation...
+        </p>
+      </div>
+    )
+  }
+
+  // ─── Saving State ─────────────────────────────────────────
+  if (state === 'saving' && extractedCapture) {
+    return (
+      <Card className="w-full max-w-lg mx-auto">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Review Capture</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            The AI extracted the following from your conversation
+          </p>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-4 space-y-5">
+          {/* Signals */}
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+              Signals ({extractedCapture.signals.length})
+            </Label>
+            <div className="mt-2 space-y-3">
+              {extractedCapture.signals.map((signal, i) => {
+                const config = signalTypeConfig[signal.type] || signalTypeConfig.demand
+                return (
+                  <div key={i} className="border border-border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={config.className}>{config.label}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {Math.round(signal.confidence * 100)}% confidence
+                      </span>
+                      {signal.category && (
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {signal.category}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm leading-relaxed">{signal.description}</p>
+                    {signal.suggestedAction && (
+                      <p className="text-xs text-muted-foreground">
+                        Next step: {signal.suggestedAction}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Tasks */}
+          {extractedCapture.tasks.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                  Follow-up Tasks ({extractedCapture.tasks.length})
+                </Label>
+                <div className="mt-2 space-y-2">
+                  {extractedCapture.tasks.map((task, i) => {
+                    const pConfig = priorityConfig[task.priority] || priorityConfig.medium
+                    return (
+                      <div key={i} className="flex items-start gap-2">
+                        <div className="h-4 w-4 rounded-sm border border-slate-300 mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm leading-relaxed">{task.task}</p>
+                          <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1 ${pConfig.className}`}>
+                            {pConfig.label}
+                          </Badge>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button className="flex-1" onClick={saveCapture} disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Save Capture
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={discardCapture} disabled={saving}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ─── Done State ───────────────────────────────────────────
+  return (
+    <div className="flex flex-col items-center text-center py-12">
+      <CheckCircle2 className="h-14 w-14 text-emerald-500 mb-4" />
+      <h3 className="text-lg font-semibold text-slate-900 mb-1">Capture Saved</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        Your field intelligence and follow-up tasks have been saved.
+      </p>
+      <Button onClick={reset}>
+        <RotateCcw className="h-4 w-4 mr-2" />
+        Capture Another
+      </Button>
+    </div>
+  )
+}
