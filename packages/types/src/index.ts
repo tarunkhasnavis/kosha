@@ -49,3 +49,7 @@ export type {
   Task,
   TaskPriority,
 } from './tasks'
+
+export type {
+  Capture,
+} from './captures'

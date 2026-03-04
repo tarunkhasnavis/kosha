@@ -44,11 +44,16 @@ export async function createVisit(
     return { visit: null, error: 'Failed to create visit' }
   }
 
-  // Update account's last_contact
-  await supabase
-    .from('accounts')
-    .update({ last_contact: input.visit_date })
-    .eq('id', input.account_id)
+  // Only update last_contact if the visit is today or in the past
+  const visitDate = new Date(input.visit_date)
+  const today = new Date()
+  today.setHours(23, 59, 59, 999)
+  if (visitDate <= today) {
+    await supabase
+      .from('accounts')
+      .update({ last_contact: input.visit_date })
+      .eq('id', input.account_id)
+  }
 
   revalidatePath('/visits')
   revalidatePath('/dashboard')

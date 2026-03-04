@@ -3,6 +3,7 @@ import { getAccount } from '@/lib/accounts/queries'
 import { getVisitsForAccount } from '@/lib/visits/queries'
 import { getSignalsForAccount } from '@/lib/signals/queries'
 import { getTasksForAccount } from '@/lib/tasks/queries'
+import { getCapturesForAccount } from '@/lib/captures/queries'
 import { AccountDetail } from '@/components/account-detail'
 import { Button } from '@kosha/ui'
 import { ArrowLeft } from 'lucide-react'
@@ -14,11 +15,12 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [{ account, error }, { visits }, { signals }, { tasks }] = await Promise.all([
+  const [{ account, error }, { visits }, { signals }, { tasks }, { captures }] = await Promise.all([
     getAccount(id),
     getVisitsForAccount(id),
     getSignalsForAccount(id),
     getTasksForAccount(id),
+    getCapturesForAccount(id),
   ])
 
   if (!account || error) {
@@ -33,7 +35,7 @@ export default async function AccountDetailPage({
           Back to Accounts
         </Button>
       </Link>
-      <AccountDetail account={account} visits={visits} signals={signals} tasks={tasks} />
+      <AccountDetail account={account} visits={visits} signals={signals} tasks={tasks} captures={captures} />
     </div>
   )
 }

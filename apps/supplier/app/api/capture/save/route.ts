@@ -31,6 +31,24 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const captureId = crypto.randomUUID()
 
+  // Insert capture record (transcript storage)
+  if (transcript) {
+    const { error: captureError } = await supabase
+      .from('captures')
+      .insert({
+        id: captureId,
+        user_id: user.id,
+        organization_id: orgId,
+        account_id,
+        account_name,
+        transcript,
+      })
+
+    if (captureError) {
+      console.error('Failed to save capture:', captureError)
+    }
+  }
+
   // Insert signals
   const signalRows = signals.map((s: {
     type: string

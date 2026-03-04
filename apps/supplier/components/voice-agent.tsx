@@ -110,6 +110,47 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     }
   }, [])
 
+  const fallbackExtract = useCallback(async () => {
+    cleanup()
+
+    const transcriptText = fullTranscriptRef.current.trim()
+    if (!transcriptText) {
+      setState('idle')
+      return
+    }
+
+    setState('extracting')
+    try {
+      const res = await fetch('/api/capture/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: transcriptText }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Extraction failed')
+      }
+
+      const data = await res.json() as ExtractedCapture
+      if (data.signals && data.signals.length > 0) {
+        setExtractedCapture(data)
+        setState('saving')
+      } else {
+        setState('idle')
+        toast({ title: 'Capture ended', description: 'No signals could be extracted from the conversation.' })
+      }
+    } catch (error) {
+      console.error('Fallback extraction failed:', error)
+      setState('idle')
+      toast({
+        title: 'Extraction failed',
+        description: error instanceof Error ? error.message : 'Could not process the conversation.',
+        variant: 'destructive',
+      })
+    }
+  }, [cleanup])
+
   const startCapture = useCallback(async () => {
     if (!accountId || !selectedAccount) return
 
@@ -145,7 +186,13 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       }
 
       // 4. Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
       streamRef.current = stream
       pc.addTrack(stream.getAudioTracks()[0], stream)
 
@@ -252,23 +299,15 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
             const args = JSON.parse(argsString) as ExtractedCapture
             // Validate that we actually have signals
             if (!args.signals || args.signals.length === 0) {
-              console.error('save_capture called with no signals')
-              toast({
-                title: 'Capture issue',
-                description: 'No signals were extracted. Try having a longer conversation.',
-                variant: 'destructive',
-              })
+              console.warn('save_capture called with no signals, falling back to transcript extraction')
+              fallbackExtract()
               return
             }
             setExtractedCapture(args)
             setState('saving')
           } catch (err) {
-            console.error('Failed to parse save_capture args:', argsString, err)
-            toast({
-              title: 'Capture failed',
-              description: 'Failed to process the AI response. Please try again.',
-              variant: 'destructive',
-            })
+            console.warn('Failed to parse save_capture args, falling back to transcript extraction:', err)
+            fallbackExtract()
           }
         } else {
           functionCallArgsRef.current = ''
@@ -279,7 +318,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       default:
         break
     }
-  }, [])
+  }, [fallbackExtract])
 
   const toggleMute = useCallback(() => {
     if (streamRef.current) {
@@ -292,48 +331,20 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   }, [])
 
   const stopCapture = useCallback(async () => {
-    cleanup()
+    // If the AI already extracted capture, just clean up (saving state handles it)
+    if (extractedCapture) {
+      cleanup()
+      return
+    }
 
-    // If the AI already extracted capture, do nothing (saving state handles it)
-    if (extractedCapture) return
-
-    // If there's transcript content, use fallback extraction
-    const transcriptText = fullTranscriptRef.current.trim()
-    if (transcript.length > 0 && transcriptText) {
-      setState('extracting')
-      try {
-        const res = await fetch('/api/capture/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript: transcriptText }),
-        })
-
-        if (!res.ok) {
-          const err = await res.json()
-          throw new Error(err.error || 'Extraction failed')
-        }
-
-        const data = await res.json() as ExtractedCapture
-        if (data.signals && data.signals.length > 0) {
-          setExtractedCapture(data)
-          setState('saving')
-        } else {
-          setState('idle')
-          toast({ title: 'Capture ended', description: 'No signals could be extracted from the conversation.' })
-        }
-      } catch (error) {
-        console.error('Fallback extraction failed:', error)
-        setState('idle')
-        toast({
-          title: 'Extraction failed',
-          description: error instanceof Error ? error.message : 'Could not process the conversation.',
-          variant: 'destructive',
-        })
-      }
+    // If there's transcript content, fallbackExtract handles cleanup + extraction
+    if (transcript.length > 0) {
+      await fallbackExtract()
     } else {
+      cleanup()
       setState('idle')
     }
-  }, [cleanup, transcript.length, extractedCapture])
+  }, [cleanup, transcript.length, extractedCapture, fallbackExtract])
 
   const saveCapture = useCallback(async () => {
     if (!extractedCapture || !selectedAccount) return
