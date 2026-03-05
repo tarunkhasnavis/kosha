@@ -81,13 +81,16 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   const currentAssistantTextRef = useRef('')
   const fullTranscriptRef = useRef('')
   const functionCallArgsRef = useRef('')
+  const isMutedRef = useRef(false)
 
   const selectedAccount = accounts.find((a) => a.id === accountId)
 
-  // Auto-scroll transcript
+  // Auto-scroll transcript — target the Radix ScrollArea viewport
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]')
+      const target = viewport || scrollRef.current
+      target.scrollTop = target.scrollHeight
     }
   }, [transcript])
 
@@ -264,6 +267,11 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       case 'response.audio_transcript.delta': {
         const delta = event.delta as string || ''
         currentAssistantTextRef.current += delta
+        // Auto-mute mic while AI speaks to prevent echo triggering VAD
+        if (streamRef.current && !isMutedRef.current) {
+          const track = streamRef.current.getAudioTracks()[0]
+          if (track) track.enabled = false
+        }
         setIsSpeaking(true)
         break
       }
@@ -277,6 +285,11 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         }
         currentAssistantTextRef.current = ''
         setIsSpeaking(false)
+        // Re-enable mic after AI finishes (unless user manually muted)
+        if (streamRef.current && !isMutedRef.current) {
+          const track = streamRef.current.getAudioTracks()[0]
+          if (track) track.enabled = true
+        }
         break
       }
 
@@ -325,6 +338,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       const audioTrack = streamRef.current.getAudioTracks()[0]
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled
+        isMutedRef.current = !audioTrack.enabled
         setIsMuted(!audioTrack.enabled)
       }
     }

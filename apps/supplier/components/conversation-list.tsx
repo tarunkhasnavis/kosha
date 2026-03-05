@@ -102,7 +102,7 @@ export function ConversationList({ captures }: ConversationListProps) {
           if (!open) setSelectedCapture(null)
         }}
       >
-        <DialogContent className="sm:max-w-2xl max-h-[80vh]">
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] [&>button]:hidden">
           <DialogHeader>
             <DialogTitle>
               {selectedCapture?.account_name} &mdash;{' '}

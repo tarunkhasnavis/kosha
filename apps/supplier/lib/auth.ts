@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@kosha/supabase/server'
 import { getUser } from '@kosha/supabase'
 import type { SupplierRole } from '@kosha/types'
@@ -6,12 +7,13 @@ import type { SupplierRole } from '@kosha/types'
  * Get the current user's role and organization from supplier_profiles.
  * Uses supplier_profiles (not profiles) to keep supplier and distributor separate.
  * Returns null if not authenticated or no supplier profile found.
+ * Cached per request — safe to call from multiple queries in parallel.
  */
-export async function getUserWithRole(): Promise<{
+export const getUserWithRole = cache(async (): Promise<{
   userId: string
   orgId: string | null
   role: SupplierRole
-} | null> {
+} | null> => {
   const user = await getUser()
   if (!user) return null
 
@@ -29,7 +31,7 @@ export async function getUserWithRole(): Promise<{
     orgId: profile.organization_id,
     role: (profile.role as SupplierRole) || 'rep',
   }
-}
+})
 
 /**
  * Get just the organization ID for the current user.

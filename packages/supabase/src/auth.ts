@@ -5,18 +5,20 @@
  * All other files should import from here.
  */
 
+import { cache } from 'react'
 import { createClient } from './server'
 import { redirect } from 'next/navigation'
 
 /**
  * Get the current authenticated user
  * Returns null if not authenticated
+ * Cached per request — safe to call from multiple queries in parallel.
  */
-export async function getUser() {
+export const getUser = cache(async () => {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   return user
-}
+})
 
 /**
  * Require authentication - redirects to /login if not authenticated
