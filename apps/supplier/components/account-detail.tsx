@@ -34,6 +34,7 @@ const insightTypeConfig: Record<string, { label: string; className: string }> = 
   friction: { label: 'Friction', className: 'bg-amber-100 text-amber-700' },
   expansion: { label: 'Expansion', className: 'bg-emerald-100 text-emerald-700' },
   relationship: { label: 'Relationship', className: 'bg-blue-100 text-blue-700' },
+  promotion: { label: 'Promotion', className: 'bg-pink-100 text-pink-700' },
 }
 
 const premiseConfig: Record<string, { label: string; className: string }> = {

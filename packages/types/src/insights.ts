@@ -1,4 +1,4 @@
-export type InsightType = 'demand' | 'competitive' | 'friction' | 'expansion' | 'relationship'
+export type InsightType = 'demand' | 'competitive' | 'friction' | 'expansion' | 'relationship' | 'promotion'
 
 export interface Insight {
   id: string

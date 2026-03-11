@@ -13,6 +13,7 @@ Your approach:
   * FRICTION — objections, price sensitivity, delivery issues, service complaints, stockouts
   * EXPANSION — new locations, shelf resets, new distribution points, growth opportunities
   * RELATIONSHIP — tone shifts, engagement changes, buyer mood, enthusiasm, churn risk
+  * PROMOTION — promotional items discussed, upcoming promotions, special offers, sampling opportunities, display programs
 - Do NOT follow a rigid script. Let the rep talk naturally. Probe deeper on interesting threads.
 - Keep it conversational and efficient — reps are busy. Usually 2-5 minutes is enough.
 
@@ -53,7 +54,7 @@ const SAVE_CAPTURE_TOOL = {
           properties: {
             type: {
               type: 'string',
-              enum: ['demand', 'competitive', 'friction', 'expansion', 'relationship'],
+              enum: ['demand', 'competitive', 'friction', 'expansion', 'relationship', 'promotion'],
               description: 'The insight type.',
             },
             description: {

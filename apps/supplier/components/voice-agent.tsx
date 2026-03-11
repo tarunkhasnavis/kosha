@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
   Badge,
+  Input,
   Label,
   Select,
   SelectContent,
@@ -16,8 +17,9 @@ import {
   SelectValue,
   ScrollArea,
   Separator,
+  Textarea,
 } from '@kosha/ui'
-import { Mic, MicOff, Loader2, CheckCircle2, X, RotateCcw } from 'lucide-react'
+import { Mic, MicOff, Loader2, CheckCircle2, X, RotateCcw, Trash2, Pencil } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import type { Account } from '@kosha/types'
 
@@ -57,6 +59,7 @@ const insightTypeConfig: Record<string, { label: string; className: string }> = 
   friction: { label: 'Friction', className: 'bg-amber-100 text-amber-700' },
   expansion: { label: 'Expansion', className: 'bg-emerald-100 text-emerald-700' },
   relationship: { label: 'Relationship', className: 'bg-blue-100 text-blue-700' },
+  promotion: { label: 'Promotion', className: 'bg-pink-100 text-pink-700' },
 }
 
 const priorityConfig: Record<string, { label: string; className: string }> = {
@@ -71,6 +74,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const [extractedCapture, setExtractedCapture] = useState<ExtractedCapture | null>(null)
   const [saving, setSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
 
@@ -622,7 +626,45 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
   // ─── Saving State ─────────────────────────────────────────
   if (state === 'saving' && extractedCapture) {
-    // Group insights by type
+    const updateSummary = (summary: string) => {
+      setExtractedCapture((prev) => prev ? { ...prev, summary } : prev)
+    }
+
+    const updateInsight = (index: number, field: keyof ExtractedInsightItem, value: string) => {
+      setExtractedCapture((prev) => {
+        if (!prev) return prev
+        const insights = [...prev.insights]
+        insights[index] = { ...insights[index], [field]: value }
+        return { ...prev, insights }
+      })
+    }
+
+    const removeInsight = (index: number) => {
+      setExtractedCapture((prev) => {
+        if (!prev) return prev
+        return { ...prev, insights: prev.insights.filter((_, i) => i !== index) }
+      })
+    }
+
+    const updateTask = (index: number, field: keyof ExtractedTaskItem, value: string) => {
+      setExtractedCapture((prev) => {
+        if (!prev) return prev
+        const tasks = [...prev.tasks]
+        tasks[index] = { ...tasks[index], [field]: value }
+        return { ...prev, tasks }
+      })
+    }
+
+    const removeTask = (index: number) => {
+      setExtractedCapture((prev) => {
+        if (!prev) return prev
+        return { ...prev, tasks: prev.tasks.filter((_, i) => i !== index) }
+      })
+    }
+
+    const insightTypes = ['demand', 'competitive', 'friction', 'expansion', 'relationship', 'promotion'] as const
+
+    // Group insights by type for read-only view
     const insightsByType = extractedCapture.insights.reduce<Record<string, ExtractedInsightItem[]>>(
       (acc, item) => {
         const key = item.type
@@ -635,36 +677,99 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
     return (
       <Card className="w-full max-w-lg mx-auto">
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Review Capture</CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={() => setIsEditing(!isEditing)}
+          >
+            <Pencil className={`h-4 w-4 ${isEditing ? 'text-amber-600' : 'text-muted-foreground'}`} />
+          </Button>
         </CardHeader>
         <Separator />
         <CardContent className="pt-4 space-y-5">
           {/* Summary */}
-          {extractedCapture.summary && (
-            <p className="text-sm leading-relaxed text-slate-700">
-              {extractedCapture.summary}
-            </p>
+          {isEditing ? (
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Summary</Label>
+              <Textarea
+                value={extractedCapture.summary}
+                onChange={(e) => updateSummary(e.target.value)}
+                className="mt-1.5 text-sm resize-none"
+                rows={3}
+              />
+            </div>
+          ) : (
+            extractedCapture.summary && (
+              <p className="text-sm leading-relaxed text-slate-700">
+                {extractedCapture.summary}
+              </p>
+            )
           )}
 
-          {/* Insights grouped by category */}
-          {Object.entries(insightsByType).map(([type, items]) => {
-            const config = insightTypeConfig[type] || insightTypeConfig.demand
-            return (
-              <div key={type}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge className={config.className}>{config.label}</Badge>
-                </div>
-                <ul className="space-y-1 pl-4">
-                  {items.map((item, i) => (
-                    <li key={i} className="text-sm text-slate-700 list-disc">
-                      {item.description}
-                    </li>
-                  ))}
-                </ul>
+          {/* Insights */}
+          {isEditing ? (
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Insights</Label>
+              <div className="mt-2 space-y-3">
+                {extractedCapture.insights.map((item, i) => {
+                  const config = insightTypeConfig[item.type] || insightTypeConfig.demand
+                  return (
+                    <div key={i} className="border rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Select value={item.type} onValueChange={(v) => updateInsight(i, 'type', v)}>
+                          <SelectTrigger className="h-7 w-auto">
+                            <Badge className={config.className}>{config.label}</Badge>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {insightTypes.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {insightTypeConfig[t].label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                          onClick={() => removeInsight(i)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateInsight(i, 'description', e.target.value)}
+                        placeholder="Description"
+                        className="text-sm h-8"
+                      />
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            </div>
+          ) : (
+            Object.entries(insightsByType).map(([type, items]) => {
+              const config = insightTypeConfig[type] || insightTypeConfig.demand
+              return (
+                <div key={type}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge className={config.className}>{config.label}</Badge>
+                  </div>
+                  <ul className="space-y-1 pl-4">
+                    {items.map((item, i) => (
+                      <li key={i} className="text-sm text-slate-700 list-disc">
+                        {item.description}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })
+          )}
 
           {/* Tasks */}
           {extractedCapture.tasks.length > 0 && (
@@ -674,28 +779,72 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">
                   Follow-up Tasks
                 </Label>
-                <div className="mt-2 space-y-2">
-                  {extractedCapture.tasks.map((task, i) => {
-                    const pConfig = priorityConfig[task.priority] || priorityConfig.medium
-                    return (
-                      <div key={i} className="flex items-start gap-2">
-                        <div className="h-4 w-4 rounded-sm border border-slate-300 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm">{task.task}</p>
-                          <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1 ${pConfig.className}`}>
-                            {pConfig.label}
-                          </Badge>
+                {isEditing ? (
+                  <div className="mt-2 space-y-3">
+                    {extractedCapture.tasks.map((task, i) => {
+                      const pConfig = priorityConfig[task.priority] || priorityConfig.medium
+                      return (
+                        <div key={i} className="border rounded-lg p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Select value={task.priority} onValueChange={(v) => updateTask(i, 'priority', v)}>
+                              <SelectTrigger className="h-7 w-auto">
+                                <Badge variant="secondary" className={`${pConfig.className}`}>
+                                  {pConfig.label}
+                                </Badge>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="high">High</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="low">Low</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                              onClick={() => removeTask(i)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                          <Input
+                            value={task.task}
+                            onChange={(e) => updateTask(i, 'task', e.target.value)}
+                            placeholder="Task description"
+                            className="text-sm h-8"
+                          />
                         </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {extractedCapture.tasks.map((task, i) => {
+                      const pConfig = priorityConfig[task.priority] || priorityConfig.medium
+                      return (
+                        <div key={i} className="flex items-start gap-2">
+                          <div className="h-4 w-4 rounded-sm border border-slate-300 mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm">{task.task}</p>
+                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1 ${pConfig.className}`}>
+                              {pConfig.label}
+                            </Badge>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </>
           )}
 
           <div className="flex gap-2 pt-2">
-            <Button className="flex-1" onClick={saveCapture} disabled={saving}>
+            <Button
+              className="flex-1"
+              onClick={saveCapture}
+              disabled={saving || extractedCapture.insights.length === 0}
+            >
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
