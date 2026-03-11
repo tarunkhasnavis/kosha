@@ -1,14 +1,13 @@
-export type SignalType = 'demand' | 'competitive' | 'friction' | 'expansion' | 'relationship'
+export type InsightType = 'demand' | 'competitive' | 'friction' | 'expansion' | 'relationship'
 
-export interface Signal {
+export interface Insight {
   id: string
   user_id: string
   organization_id: string
   account_id: string
   account_name: string
-  signal_type: SignalType
+  insight_type: InsightType
   description: string
-  confidence: number
   sub_category: string
   suggested_action: string
   transcript: string | null

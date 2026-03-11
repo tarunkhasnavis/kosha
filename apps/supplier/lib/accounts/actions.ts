@@ -11,6 +11,7 @@ import { createClient } from '@kosha/supabase/server'
 import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { geocodeAddress } from '@/lib/geocoding'
 import type { Account, CreateAccountInput, UpdateAccountInput } from '@kosha/types'
 
 /**
@@ -31,6 +32,17 @@ export async function createAccount(
 
   const supabase = await createClient()
 
+  // Auto-geocode if address provided but no coordinates
+  let latitude = input.latitude || null
+  let longitude = input.longitude || null
+  if (input.address?.trim() && !latitude && !longitude) {
+    const coords = await geocodeAddress(input.address.trim())
+    if (coords) {
+      latitude = coords.latitude
+      longitude = coords.longitude
+    }
+  }
+
   const { data, error } = await supabase
     .from('accounts')
     .insert({
@@ -38,12 +50,10 @@ export async function createAccount(
       organization_id: orgId,
       name: input.name.trim(),
       industry: input.industry?.trim() || null,
-      health: input.health || 'healthy',
-      arr: input.arr || 0,
       address: input.address?.trim() || null,
       premise_type: input.premise_type || null,
-      latitude: input.latitude || null,
-      longitude: input.longitude || null,
+      latitude,
+      longitude,
     })
     .select()
     .single()
@@ -54,7 +64,8 @@ export async function createAccount(
   }
 
   revalidatePath('/accounts')
-  revalidatePath('/dashboard')
+
+  revalidatePath('/territory')
   return { account: data as Account }
 }
 
@@ -75,13 +86,26 @@ export async function updateAccount(
   const updateData: Record<string, unknown> = {}
   if (input.name !== undefined) updateData.name = input.name.trim()
   if (input.industry !== undefined) updateData.industry = input.industry?.trim() || null
-  if (input.health !== undefined) updateData.health = input.health
-  if (input.arr !== undefined) updateData.arr = input.arr
   if (input.address !== undefined) updateData.address = input.address?.trim() || null
   if (input.premise_type !== undefined) updateData.premise_type = input.premise_type
   if (input.last_contact !== undefined) updateData.last_contact = input.last_contact
   if (input.latitude !== undefined) updateData.latitude = input.latitude
   if (input.longitude !== undefined) updateData.longitude = input.longitude
+
+  // Re-geocode if address changed and no explicit coordinates provided
+  if (input.address !== undefined && input.latitude === undefined && input.longitude === undefined) {
+    const trimmed = input.address?.trim()
+    if (trimmed) {
+      const coords = await geocodeAddress(trimmed)
+      if (coords) {
+        updateData.latitude = coords.latitude
+        updateData.longitude = coords.longitude
+      }
+    } else {
+      updateData.latitude = null
+      updateData.longitude = null
+    }
+  }
 
   const { data, error } = await supabase
     .from('accounts')
@@ -97,7 +121,8 @@ export async function updateAccount(
 
   revalidatePath('/accounts')
   revalidatePath(`/accounts/${accountId}`)
-  revalidatePath('/dashboard')
+
+  revalidatePath('/territory')
   return { account: data as Account }
 }
 
@@ -125,6 +150,7 @@ export async function deleteAccount(
   }
 
   revalidatePath('/accounts')
-  revalidatePath('/dashboard')
+
+  revalidatePath('/territory')
   return { success: true }
 }

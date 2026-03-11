@@ -4,10 +4,6 @@ import { useState } from 'react'
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -22,20 +18,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
   Separator,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
+  Skeleton,
 } from '@kosha/ui'
-import { Pencil, Trash2, Building2, DollarSign, MapPin, Calendar, Tag } from 'lucide-react'
+import { Pencil, Building2, MapPin, Calendar } from 'lucide-react'
 import { AccountForm } from './account-form'
 import { TaskList } from './task-list'
 import { ConversationList } from './conversation-list'
 import { deleteAccount } from '@/lib/accounts/actions'
 import { toast } from '@/hooks/use-toast'
-import type { Account, Visit, Signal, Task, Capture } from '@kosha/types'
+import type { Account, Visit, Insight, Task, Capture } from '@kosha/types'
 
-const signalTypeConfig: Record<string, { label: string; className: string }> = {
+const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
   competitive: { label: 'Competitive', className: 'bg-red-100 text-red-700' },
   friction: { label: 'Friction', className: 'bg-amber-100 text-amber-700' },
@@ -43,45 +36,29 @@ const signalTypeConfig: Record<string, { label: string; className: string }> = {
   relationship: { label: 'Relationship', className: 'bg-blue-100 text-blue-700' },
 }
 
-const healthConfig = {
-  healthy: { label: 'Healthy', className: 'bg-emerald-100 text-emerald-700' },
-  at_risk: { label: 'At Risk', className: 'bg-amber-100 text-amber-700' },
-  critical: { label: 'Critical', className: 'bg-red-100 text-red-700' },
+const premiseConfig: Record<string, { label: string; className: string }> = {
+  on_premise: { label: 'On Premise', className: 'bg-emerald-50 text-emerald-700' },
+  off_premise: { label: 'Off Premise', className: 'bg-blue-50 text-blue-700' },
+  hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 
-const premiseLabels: Record<string, string> = {
-  on_premise: 'On Premise',
-  off_premise: 'Off Premise',
-  hybrid: 'Hybrid',
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
-function formatConfidence(value: number): string {
-  return `${Math.round(value * 100)}%`
-}
+type TabKey = 'summary' | 'conversations'
 
 interface AccountDetailProps {
   account: Account
   visits?: Visit[]
-  signals?: Signal[]
+  insights?: Insight[]
   tasks?: Task[]
   captures?: Capture[]
+  loading?: boolean
   onClose?: () => void
   onDeleted?: () => void
 }
 
-export function AccountDetail({ account, visits, signals, tasks, captures, onClose, onDeleted }: AccountDetailProps) {
+export function AccountDetail({ account, visits, insights, tasks, captures, loading, onClose, onDeleted }: AccountDetailProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const health = healthConfig[account.health] || healthConfig.healthy
+  const [activeTab, setActiveTab] = useState<TabKey>('summary')
 
   async function handleDelete() {
     setDeleting(true)
@@ -98,170 +75,124 @@ export function AccountDetail({ account, visits, signals, tasks, captures, onClo
     onClose?.()
   }
 
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'summary', label: 'Summary' },
+    { key: 'conversations', label: `Conversations${captures && captures.length > 0 ? ` (${captures.length})` : ''}` },
+  ]
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">{account.name}</h2>
-          <div className="flex gap-2 mt-2">
-            <Badge className={health.className}>{health.label}</Badge>
-            {account.industry && <Badge variant="outline">{account.industry}</Badge>}
-            {account.premise_type && (
-              <Badge variant="outline">
-                {premiseLabels[account.premise_type] || account.premise_type}
-              </Badge>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-4 w-4" />
+    <div className="space-y-4">
+      {/* Centered Header */}
+      <div className="text-center space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="w-7" />
+          <h2 className="text-lg font-semibold text-slate-900">{account.name}</h2>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Trash2 className="h-4 w-4 text-red-500" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Account</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to delete &quot;{account.name}&quot;? This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="bg-red-600 hover:bg-red-700"
-                >
-                  {deleting ? 'Deleting...' : 'Delete'}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        </div>
+
+        {/* Premise badge */}
+        {account.premise_type && (() => {
+          const pc = premiseConfig[account.premise_type]
+          return (
+            <Badge className={`${pc?.className || 'bg-slate-100 text-slate-600'} text-xs`}>
+              {pc?.label || account.premise_type}
+            </Badge>
+          )
+        })()}
+
+        {/* Compact metadata */}
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+          {account.address && (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="line-clamp-1">{account.address}</span>
+            </span>
+          )}
+          {account.industry && (
+            <span className="flex items-center gap-1">
+              <Building2 className="h-3.5 w-3.5 shrink-0" />
+              {account.industry}
+            </span>
+          )}
+          {account.last_contact && (
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5 shrink-0" />
+              {new Date(account.last_contact).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+              })}
+            </span>
+          )}
         </div>
       </div>
 
       <Separator />
 
-      <Tabs defaultValue="summary">
-        <TabsList>
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="conversations">
-            Conversations{captures && captures.length > 0 ? ` (${captures.length})` : ''}
-          </TabsTrigger>
-        </TabsList>
+      {/* Tabs — distributor style */}
+      <div className="bg-slate-100/80 rounded-xl p-1.5 flex">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`
+              flex-1 flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg
+              transition-all duration-150
+              ${activeTab === tab.key
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'}
+            `}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="summary" className="space-y-6 mt-4">
-          {/* Overview Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">ARR</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">
-                  {account.arr > 0 ? formatCurrency(account.arr) : '—'}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">Industry</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">{account.industry || '—'}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <Tag className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">Premise Type</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">
-                  {account.premise_type ? premiseLabels[account.premise_type] || account.premise_type : '—'}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">Last Contact</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">
-                  {account.last_contact
-                    ? new Date(account.last_contact).toLocaleDateString()
-                    : '—'}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {account.address && (
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">Address</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm">{account.address}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Signals, Tasks, and Visit History */}
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Signals
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!signals || signals.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No signals captured yet.
+      {/* Tab Content */}
+      {activeTab === 'summary' && (
+        <div className="space-y-5">
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : (
+            <>
+              {/* Insights */}
+              <div>
+                <h3 className="text-sm font-medium text-muted-foreground mb-3">Insights</h3>
+                {!insights || insights.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">
+                    No insights captured yet.
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {signals.map((signal) => {
-                      const typeInfo = signalTypeConfig[signal.signal_type] || signalTypeConfig.demand
+                    {insights.map((insight) => {
+                      const typeInfo = insightTypeConfig[insight.insight_type] || insightTypeConfig.demand
 
                       return (
-                        <div key={signal.id} className="flex items-start gap-3 border-l-2 border-slate-200 pl-3">
+                        <div key={insight.id} className="flex items-start gap-3 border-l-2 border-slate-200 pl-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 mb-0.5">
                               <Badge className={typeInfo.className}>{typeInfo.label}</Badge>
-                              <span className="text-xs font-medium text-muted-foreground">
-                                {formatConfidence(signal.confidence)}
-                              </span>
                               <span className="text-xs text-muted-foreground ml-auto">
-                                {new Date(signal.created_at).toLocaleDateString('en-US', {
+                                {new Date(insight.created_at).toLocaleDateString('en-US', {
                                   month: 'short',
                                   day: 'numeric',
                                 })}
                               </span>
                             </div>
-                            <p className="text-sm mt-1">{signal.description}</p>
-                            {signal.sub_category && (
+                            <p className="text-sm mt-1">{insight.description}</p>
+                            {insight.sub_category && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {signal.sub_category}
+                                {insight.sub_category}
                               </p>
                             )}
-                            {signal.suggested_action && (
+                            {insight.suggested_action && (
                               <p className="text-xs text-blue-600 mt-1">
-                                {signal.suggested_action}
+                                {insight.suggested_action}
                               </p>
                             )}
                           </div>
@@ -270,20 +201,20 @@ export function AccountDetail({ account, visits, signals, tasks, captures, onClo
                     })}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
 
-            <TaskList tasks={tasks || []} />
+              <Separator />
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Visit History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+              {/* Tasks */}
+              <TaskList tasks={tasks || []} />
+
+              <Separator />
+
+              {/* Visit History */}
+              <div>
+                <h3 className="text-sm font-medium text-muted-foreground mb-3">Visit History</h3>
                 {!visits || visits.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
+                  <p className="text-sm text-muted-foreground py-2">
                     No visits recorded yet.
                   </p>
                 ) : (
@@ -309,17 +240,26 @@ export function AccountDetail({ account, visits, signals, tasks, captures, onClo
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
-        <TabsContent value="conversations" className="mt-4">
-          <ConversationList captures={captures || []} />
-        </TabsContent>
-      </Tabs>
+      {activeTab === 'conversations' && (
+        <div>
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : (
+            <ConversationList captures={captures || []} />
+          )}
+        </div>
+      )}
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog — includes delete option */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -330,6 +270,32 @@ export function AccountDetail({ account, visits, signals, tasks, captures, onClo
             onSuccess={() => setEditOpen(false)}
             onCancel={() => setEditOpen(false)}
           />
+          <Separator />
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                Delete Account
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete &quot;{account.name}&quot;? This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </DialogContent>
       </Dialog>
     </div>

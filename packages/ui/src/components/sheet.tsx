@@ -42,7 +42,7 @@ const sheetVariants = cva(
     variants: {
       side: {
         top: "inset-x-0 top-0 border-b p-6",
-        bottom: "inset-x-0 bottom-0 border-t p-6",
+        bottom: "inset-x-0 bottom-0 border-t rounded-t-2xl max-h-[90vh]",
         left: "inset-y-0 left-0 h-full w-3/4 border-r p-6 sm:max-w-sm",
         right: "inset-y-0 right-0 h-full border-l",
       },

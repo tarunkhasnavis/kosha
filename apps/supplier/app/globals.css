@@ -11,7 +11,7 @@
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;     /* neutral primary accent */
+    --primary: 24 80% 42%;      /* warm orange — matches attention-600 */
     --primary-foreground: 0 0% 100%;
     --secondary: 220 13% 95%;   /* #F2F4F7 - soft surface */
     --secondary-foreground: 222 47% 11%;
@@ -23,7 +23,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 220 13% 91%;      /* subtle border */
     --input: 220 13% 91%;
-    --ring: 222 47% 11%;
+    --ring: 24 80% 42%;
     --radius: 0.5rem;
 
     /* Action button - ties into pending blue status color */
@@ -145,22 +145,22 @@
 @keyframes orb-speak {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3);
+    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3);
   }
   25% {
     transform: scale(1.08);
-    box-shadow: 0 0 20px 8px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 0 20px 8px rgba(217, 119, 6, 0.15);
   }
   50% {
     transform: scale(0.97);
-    box-shadow: 0 0 10px 4px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 10px 4px rgba(217, 119, 6, 0.1);
   }
   75% {
     transform: scale(1.05);
-    box-shadow: 0 0 16px 6px rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 16px 6px rgba(217, 119, 6, 0.12);
   }
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3);
+    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3);
   }
 }

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { getAccount } from '@/lib/accounts/queries'
 import { getVisitsForAccount } from '@/lib/visits/queries'
-import { getSignalsForAccount } from '@/lib/signals/queries'
+import { getInsightsForAccount } from '@/lib/insights/queries'
 import { getTasksForAccount } from '@/lib/tasks/queries'
 import { getCapturesForAccount } from '@/lib/captures/queries'
 import { AccountDetail } from '@/components/account-detail'
@@ -15,10 +15,10 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [{ account, error }, { visits }, { signals }, { tasks }, { captures }] = await Promise.all([
+  const [{ account, error }, { visits }, { insights }, { tasks }, { captures }] = await Promise.all([
     getAccount(id),
     getVisitsForAccount(id),
-    getSignalsForAccount(id),
+    getInsightsForAccount(id),
     getTasksForAccount(id),
     getCapturesForAccount(id),
   ])
@@ -35,7 +35,7 @@ export default async function AccountDetailPage({
           Back to Accounts
         </Button>
       </Link>
-      <AccountDetail account={account} visits={visits} signals={signals} tasks={tasks} captures={captures} />
+      <AccountDetail account={account} visits={visits} insights={insights} tasks={tasks} captures={captures} />
     </div>
   )
 }

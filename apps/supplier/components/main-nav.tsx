@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils'
 import { Young_Serif } from 'next/font/google'
 import { Badge } from '@kosha/ui'
 import {
-  LayoutDashboard,
   Mic,
   Building2,
   MapPin,
@@ -20,11 +19,10 @@ import { createClient } from '@kosha/supabase/client'
 const youngSerif = Young_Serif({ weight: '400', subsets: ['latin'] })
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Capture', href: '/capture', icon: Mic },
   { name: 'Accounts', href: '/accounts', icon: Building2 },
   { name: 'Visits', href: '/visits', icon: MapPin },
-  { name: 'Territory', href: '/territory', icon: Map },
+  { name: 'Map', href: '/territory', icon: Map },
 ]
 
 const navVariants = {
@@ -85,7 +83,7 @@ export function MainNav({ role, orgName }: MainNavProps) {
       >
         {/* Logo + Org */}
         <motion.div className="px-6 pt-5 pb-3" variants={navItemVariants}>
-          <Link href="/dashboard">
+          <Link href="/capture">
             <span className={`text-[22px] text-slate-900 ${youngSerif.className}`}>kosha</span>
           </Link>
           {orgName && (

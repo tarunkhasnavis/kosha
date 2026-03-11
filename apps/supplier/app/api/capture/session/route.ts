@@ -6,8 +6,8 @@ const SYSTEM_PROMPT = `You are a field intelligence assistant for a CPG/beverage
 
 Your approach:
 - Start by asking what happened during the visit. Keep it open-ended.
-- Listen actively. As they talk, mentally categorize what you hear into signal types.
-- Ask targeted follow-up questions to fill gaps. You are probing for these signal types:
+- Listen actively. As they talk, mentally categorize what you hear into insight types.
+- Ask targeted follow-up questions to fill gaps. You are probing for these insight types:
   * DEMAND — purchase intent, category interest, new product requests, reorder signals
   * COMPETITIVE — competitor mentions, pricing comparisons, lost shelf space, competitive wins
   * FRICTION — objections, price sensitivity, delivery issues, service complaints, stockouts
@@ -17,27 +17,36 @@ Your approach:
 - Keep it conversational and efficient — reps are busy. Usually 2-5 minutes is enough.
 
 Extraction rules:
-- ALWAYS extract at least one signal. If the rep talked about anything, there is intelligence to capture.
-- You may extract MULTIPLE signals from one conversation — capture everything meaningful.
-- For each signal, assess confidence (0.0 to 1.0) based on how specific and actionable the intel is.
+- ALWAYS extract at least one insight. If the rep talked about anything, there is intelligence to capture.
+- You may extract MULTIPLE insights from one conversation — capture everything meaningful.
+- Keep insight descriptions super concise — short phrases, not full sentences.
 - Assign a sub-category label (e.g. "reorder intent", "competitor pricing", "delivery complaint").
-- Suggest one concrete next step per signal.
+- Suggest one concrete next step per insight.
 - Also extract follow-up TASKS — concrete actions the rep committed to or should take.
 - Assign task priority: high (do within 2 days), medium (within a week), low (within 2 weeks).
+- Write a 2-4 sentence summary of the entire conversation covering the key takeaways.
 
-When the conversation feels complete, briefly confirm: "Here is what I captured — [brief summary]. Sound right?"
-Then call the save_capture function ONCE with ALL extracted signals and tasks.
+When the conversation feels complete — either because the rep has covered everything, or they verbally signal they're done (e.g. "that's it", "let's wrap up", "I'm good", "that's all I got", "wrap up the meeting") — briefly confirm: "Here is what I captured — [brief summary]. Sound right?"
+Then call the save_capture function ONCE with ALL extracted insights and tasks. Do NOT keep asking more questions after the rep signals they want to end.
 
-IMPORTANT: Always speak in English. Never switch to Spanish or any other language, even if the user speaks in another language. Respond in English only.`
+IMPORTANT: Always speak in English. Never switch to Spanish or any other language, even if the user speaks in another language. Respond in English only.
+
+IMPORTANT: Speak at a brisk, efficient pace. Keep responses concise and avoid unnecessary pauses or filler words. Reps are busy — be snappy.
+
+IMPORTANT: ZERO acknowledgment or commentary. Never say things like "Great, that sounds like...", "Good to know...", "Got it, so it sounds like...", "That's a good insight", "Perfect, that's a clear action item", or ANY form of parroting, summarizing, or commenting on what was said. Just ask your next question immediately. No filler, no transitions, no validation. Go straight to the next question. The ONLY exception is if there is genuine ambiguity that needs clarification.`
 
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
   name: 'save_capture',
-  description: 'Save all extracted signals and follow-up tasks from the conversation. Call once at the end with everything.',
+  description: 'Save all extracted insights, tasks, and a conversation summary. Call once at the end with everything.',
   parameters: {
     type: 'object',
     properties: {
-      signals: {
+      summary: {
+        type: 'string',
+        description: 'A 2-4 sentence summary of the entire conversation covering key takeaways.',
+      },
+      insights: {
         type: 'array',
         items: {
           type: 'object',
@@ -45,28 +54,24 @@ const SAVE_CAPTURE_TOOL = {
             type: {
               type: 'string',
               enum: ['demand', 'competitive', 'friction', 'expansion', 'relationship'],
-              description: 'The signal type.',
+              description: 'The insight type.',
             },
             description: {
               type: 'string',
-              description: 'What was specifically observed (1-2 sentences).',
-            },
-            confidence: {
-              type: 'number',
-              description: 'Confidence level from 0.0 to 1.0.',
+              description: 'Concise phrase of what was observed.',
             },
             category: {
               type: 'string',
-              description: 'Sub-category label within the signal type.',
+              description: 'Sub-category label within the insight type.',
             },
             suggestedAction: {
               type: 'string',
               description: 'One concrete next step for the rep.',
             },
           },
-          required: ['type', 'description', 'confidence', 'category', 'suggestedAction'],
+          required: ['type', 'description', 'category', 'suggestedAction'],
         },
-        description: 'Array of signals extracted from the conversation.',
+        description: 'Array of insights extracted from the conversation.',
       },
       tasks: {
         type: 'array',
@@ -88,7 +93,7 @@ const SAVE_CAPTURE_TOOL = {
         description: 'Array of follow-up tasks extracted from the conversation.',
       },
     },
-    required: ['signals', 'tasks'],
+    required: ['summary', 'insights', 'tasks'],
   },
 }
 
@@ -122,7 +127,7 @@ export async function POST() {
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
-        voice: 'verse',
+        voice: 'marin',
         instructions: SYSTEM_PROMPT,
         tools: [SAVE_CAPTURE_TOOL],
         tool_choice: 'auto',
@@ -130,11 +135,13 @@ export async function POST() {
           model: 'whisper-1',
           language: 'en',
         },
+        temperature: 0.6,
+        max_response_output_tokens: 400,
         turn_detection: {
-          type: 'server_vad',
-          threshold: 0.8,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 700,
+          type: 'semantic_vad',
+          eagerness: 'high',
+          create_response: true,
+          interrupt_response: true,
         },
       }),
     })

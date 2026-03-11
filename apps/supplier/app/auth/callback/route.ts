@@ -13,7 +13,7 @@ import { cookies } from 'next/headers'
  * Flow:
  * 1. If invite_token cookie exists AND user is new → join existing org as rep
  * 2. If no invite AND user is new → create new org as admin → /onboarding
- * 3. If user already has a profile → /dashboard
+ * 3. If user already has a profile → /capture
  */
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
               }
 
               // Clear the invite token cookie
-              const response = NextResponse.redirect(new URL('/dashboard', request.url))
+              const response = NextResponse.redirect(new URL('/capture', request.url))
               response.cookies.delete('invite_token')
               return response
             }
@@ -117,5 +117,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(new URL('/dashboard', request.url))
+  return NextResponse.redirect(new URL('/capture', request.url))
 }

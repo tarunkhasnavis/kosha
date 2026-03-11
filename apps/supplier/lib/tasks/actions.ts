@@ -33,7 +33,6 @@ export async function toggleTaskCompleted(
   }
 
   revalidatePath('/accounts')
-  revalidatePath('/dashboard')
   return { success: true }
 }
 
@@ -59,6 +58,5 @@ export async function deleteTask(
   }
 
   revalidatePath('/accounts')
-  revalidatePath('/dashboard')
   return { success: true }
 }

@@ -1,6 +1,5 @@
 // Centralized type definitions for Supplier Accounts feature
 
-export type AccountHealth = 'healthy' | 'at_risk' | 'critical'
 export type PremiseType = 'on_premise' | 'off_premise' | 'hybrid'
 export type SupplierRole = 'admin' | 'rep'
 
@@ -10,8 +9,6 @@ export interface Account {
   organization_id: string
   name: string
   industry: string | null
-  health: AccountHealth
-  arr: number
   address: string | null
   premise_type: PremiseType | null
   last_contact: string | null
@@ -24,8 +21,6 @@ export interface Account {
 export interface CreateAccountInput {
   name: string
   industry?: string
-  health?: AccountHealth
-  arr?: number
   address?: string
   premise_type?: PremiseType
   latitude?: number
@@ -35,8 +30,6 @@ export interface CreateAccountInput {
 export interface UpdateAccountInput {
   name?: string
   industry?: string
-  health?: AccountHealth
-  arr?: number
   address?: string
   premise_type?: PremiseType
   last_contact?: string
@@ -46,8 +39,7 @@ export interface UpdateAccountInput {
 
 export interface AccountFilters {
   search?: string
-  health?: AccountHealth
   premise_type?: PremiseType
-  sortBy?: 'name' | 'arr' | 'last_contact' | 'created_at'
+  sortBy?: 'name' | 'last_contact' | 'created_at'
   sortOrder?: 'asc' | 'desc'
 }

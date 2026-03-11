@@ -1,19 +1,20 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Button,
   Input,
-  Badge,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  ScrollArea,
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
   Table,
   TableBody,
   TableCell,
@@ -23,35 +24,17 @@ import {
 } from '@kosha/ui'
 import { Plus, Search, Building2 } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { fetchAccountDetails } from '@/lib/territory/actions'
 import { AccountCard } from './account-card'
 import { AccountDetail } from './account-detail'
 import { AccountForm } from './account-form'
-import type { Account, AccountHealth } from '@kosha/types'
+import type { Account, Capture, Insight, Task, Visit } from '@kosha/types'
 
-const healthConfig: Record<string, { label: string; className: string }> = {
-  healthy: { label: 'Healthy', className: 'bg-emerald-100 text-emerald-700' },
-  at_risk: { label: 'At Risk', className: 'bg-amber-100 text-amber-700' },
-  critical: { label: 'Critical', className: 'bg-red-100 text-red-700' },
+const premiseConfig: Record<string, { label: string; className: string }> = {
+  on_premise: { label: 'On Premise', className: 'bg-emerald-50 text-emerald-700' },
+  off_premise: { label: 'Off Premise', className: 'bg-blue-50 text-blue-700' },
+  hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
-
-const premiseLabels: Record<string, string> = {
-  on_premise: 'On Premise',
-  off_premise: 'Off Premise',
-  hybrid: 'Hybrid',
-}
-
-function formatCurrency(value: number): string {
-  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`
-  if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`
-  return `$${value.toFixed(0)}`
-}
-
-const healthFilters: { value: AccountHealth | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'healthy', label: 'Healthy' },
-  { value: 'at_risk', label: 'At Risk' },
-  { value: 'critical', label: 'Critical' },
-]
 
 interface AccountsListProps {
   initialAccounts: Account[]
@@ -62,10 +45,16 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
   const isDesktop = useMediaQuery('(min-width: 768px)')
 
   const [search, setSearch] = useState('')
-  const [healthFilter, setHealthFilter] = useState<AccountHealth | 'all'>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+
+  // Detail data fetched on-demand when sheet opens
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [insights, setInsights] = useState<Insight[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [visits, setVisits] = useState<Visit[]>([])
+  const [captures, setCaptures] = useState<Capture[]>([])
 
   const filtered = useMemo(() => {
     let result = initialAccounts
@@ -80,20 +69,27 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
       )
     }
 
-    if (healthFilter !== 'all') {
-      result = result.filter((a) => a.health === healthFilter)
-    }
-
     return result
-  }, [initialAccounts, search, healthFilter])
+  }, [initialAccounts, search])
+
+  // Fetch detail data when an account is selected
+  useEffect(() => {
+    if (!selectedAccount || !sheetOpen) return
+
+    setDetailLoading(true)
+    fetchAccountDetails(selectedAccount.id)
+      .then((details) => {
+        setInsights(details.insights)
+        setTasks(details.tasks)
+        setVisits(details.visits)
+        setCaptures(details.captures)
+      })
+      .finally(() => setDetailLoading(false))
+  }, [selectedAccount?.id, sheetOpen])
 
   function handleAccountClick(account: Account) {
-    if (isDesktop) {
-      setSelectedAccount(account)
-      setSheetOpen(true)
-    } else {
-      router.push(`/accounts/${account.id}`)
-    }
+    setSelectedAccount(account)
+    setSheetOpen(true)
   }
 
   function handleCreateSuccess() {
@@ -104,6 +100,10 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
   function handleDetailClose() {
     setSheetOpen(false)
     setSelectedAccount(null)
+    setInsights([])
+    setTasks([])
+    setVisits([])
+    setCaptures([])
     router.refresh()
   }
 
@@ -128,19 +128,6 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
-        </div>
-        <div className="flex gap-2 overflow-x-auto">
-          {healthFilters.map((f) => (
-            <Button
-              key={f.value}
-              variant={healthFilter === f.value ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setHealthFilter(f.value)}
-              className="whitespace-nowrap"
-            >
-              {f.label}
-            </Button>
-          ))}
         </div>
       </div>
 
@@ -172,15 +159,12 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Industry</TableHead>
-                <TableHead>Health</TableHead>
-                <TableHead>ARR</TableHead>
                 <TableHead>Premise</TableHead>
                 <TableHead>Last Contact</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((account) => {
-                const health = healthConfig[account.health] || healthConfig.healthy
                 return (
                   <TableRow
                     key={account.id}
@@ -190,14 +174,8 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
                     <TableCell className="font-medium">{account.name}</TableCell>
                     <TableCell>{account.industry || '—'}</TableCell>
                     <TableCell>
-                      <Badge className={health.className}>{health.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {account.arr > 0 ? formatCurrency(account.arr) : '—'}
-                    </TableCell>
-                    <TableCell>
                       {account.premise_type
-                        ? premiseLabels[account.premise_type] || account.premise_type
+                        ? premiseConfig[account.premise_type]?.label || account.premise_type
                         : '—'}
                     </TableCell>
                     <TableCell>
@@ -226,20 +204,69 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
         </div>
       )}
 
-      {/* Desktop: Sheet detail */}
+      {/* Account Detail Sheet — bottom on mobile, right on desktop */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-4xl overflow-y-auto p-8">
-          <SheetHeader>
-            <SheetTitle>Account Details</SheetTitle>
-          </SheetHeader>
-          {selectedAccount && (
-            <div className="mt-4">
-              <AccountDetail
-                account={selectedAccount}
-                onClose={handleDetailClose}
-                onDeleted={handleDetailClose}
-              />
-            </div>
+        <SheetContent
+          side={isDesktop ? 'right' : 'bottom'}
+          hideCloseButton={!isDesktop}
+          className={
+            isDesktop
+              ? 'w-full sm:max-w-4xl overflow-y-auto p-8 bg-white'
+              : 'flex flex-col p-0 bg-white h-[85vh]'
+          }
+        >
+          {isDesktop ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>Account Details</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Details for {selectedAccount?.name}
+                </SheetDescription>
+              </SheetHeader>
+              {selectedAccount && (
+                <div className="mt-4">
+                  <AccountDetail
+                    account={selectedAccount}
+                    visits={visits}
+                    insights={insights}
+                    tasks={tasks}
+                    captures={captures}
+                    loading={detailLoading}
+                    onClose={handleDetailClose}
+                    onDeleted={handleDetailClose}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-slate-300" />
+              </div>
+              <SheetHeader className="sr-only">
+                <SheetTitle>Account Details</SheetTitle>
+                <SheetDescription>
+                  Details for {selectedAccount?.name}
+                </SheetDescription>
+              </SheetHeader>
+              <ScrollArea className="flex-1 overflow-y-auto">
+                <div className="px-5 pb-8 pt-2">
+                  {selectedAccount && (
+                    <AccountDetail
+                      account={selectedAccount}
+                      visits={visits}
+                      insights={insights}
+                      tasks={tasks}
+                      captures={captures}
+                      loading={detailLoading}
+                      onClose={handleDetailClose}
+                      onDeleted={handleDetailClose}
+                    />
+                  )}
+                </div>
+              </ScrollArea>
+            </>
           )}
         </SheetContent>
       </Sheet>

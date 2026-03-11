@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@kosha/ui'
 import { createAccount, updateAccount } from '@/lib/accounts/actions'
-import type { Account, AccountHealth, PremiseType } from '@kosha/types'
+import type { Account, PremiseType } from '@kosha/types'
 import { toast } from '@/hooks/use-toast'
 
 interface AccountFormProps {
@@ -25,8 +25,6 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
   const [loading, setLoading] = useState(false)
   const [name, setName] = useState(account?.name || '')
   const [industry, setIndustry] = useState(account?.industry || '')
-  const [health, setHealth] = useState<AccountHealth>(account?.health || 'healthy')
-  const [arr, setArr] = useState(account?.arr?.toString() || '')
   const [address, setAddress] = useState(account?.address || '')
   const [premiseType, setPremiseType] = useState<PremiseType | ''>(account?.premise_type || '')
 
@@ -41,8 +39,6 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
     const input = {
       name: name.trim(),
       industry: industry.trim() || undefined,
-      health,
-      arr: arr ? parseFloat(arr) : undefined,
       address: address.trim() || undefined,
       premise_type: premiseType || undefined,
     }
@@ -87,20 +83,6 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Health</Label>
-          <Select value={health} onValueChange={(v) => setHealth(v as AccountHealth)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="healthy">Healthy</SelectItem>
-              <SelectItem value="at_risk">At Risk</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
           <Label>Premise Type</Label>
           <Select value={premiseType} onValueChange={(v) => setPremiseType(v as PremiseType)}>
             <SelectTrigger>
@@ -113,19 +95,6 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="arr">Annual Recurring Revenue ($)</Label>
-        <Input
-          id="arr"
-          type="number"
-          value={arr}
-          onChange={(e) => setArr(e.target.value)}
-          placeholder="0"
-          min="0"
-          step="0.01"
-        />
       </div>
 
       <div className="space-y-2">

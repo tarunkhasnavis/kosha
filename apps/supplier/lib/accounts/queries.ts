@@ -34,10 +34,6 @@ export async function getAccounts(
     )
   }
 
-  if (filters?.health) {
-    query = query.eq('health', filters.health)
-  }
-
   if (filters?.premise_type) {
     query = query.eq('premise_type', filters.premise_type)
   }
@@ -88,29 +84,24 @@ export async function getAccount(
  */
 export async function getAccountStats(): Promise<{
   totalAccounts: number
-  totalArr: number
 }> {
   const orgId = await getOrganizationId()
   if (!orgId) {
-    return { totalAccounts: 0, totalArr: 0 }
+    return { totalAccounts: 0 }
   }
 
   const supabase = await createClient()
 
-  const { data, error } = await supabase
+  const { count, error } = await supabase
     .from('accounts')
-    .select('arr')
+    .select('*', { count: 'exact', head: true })
 
   if (error) {
     console.error('Failed to fetch account stats:', error)
-    return { totalAccounts: 0, totalArr: 0 }
+    return { totalAccounts: 0 }
   }
 
-  const accounts = data || []
-  const totalArr = accounts.reduce((sum, a) => sum + (Number(a.arr) || 0), 0)
-
   return {
-    totalAccounts: accounts.length,
-    totalArr,
+    totalAccounts: count || 0,
   }
 }

@@ -11,10 +11,10 @@ export default async function InvitePage({
 }) {
   const { token } = await params
 
-  // If already logged in, redirect to dashboard
+  // If already logged in, redirect to capture
   const user = await getUser()
   if (user) {
-    redirect('/dashboard')
+    redirect('/capture')
   }
 
   // Look up invite using service client (unauthenticated users can visit this page)

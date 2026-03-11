@@ -7,18 +7,19 @@ const EXTRACTION_PROMPT = `You extract structured intelligence from sales rep co
 
 Given a transcript between a sales rep and an AI assistant, extract:
 
-1. SIGNALS — observations and intelligence from the conversation. Each signal has:
+1. SUMMARY — a 2-4 sentence summary of the entire conversation covering key takeaways.
+
+2. INSIGHTS — observations and intelligence from the conversation. Each insight has:
    - type: one of "demand", "competitive", "friction", "expansion", "relationship"
-   - description: 1-2 sentence summary of what was observed
-   - confidence: 0.0 to 1.0 based on how specific and actionable the intel is
+   - description: concise phrase of what was observed (keep it short, not verbose)
    - category: a sub-category label (e.g. "reorder intent", "competitor pricing", "delivery complaint")
    - suggestedAction: one concrete next step
 
-2. TASKS — follow-up actions the rep committed to or should take. Each task has:
+3. TASKS — follow-up actions the rep committed to or should take. Each task has:
    - task: clear description of the action
    - priority: "high" (do within 2 days), "medium" (within a week), or "low" (within 2 weeks)
 
-Signal type definitions:
+Insight type definitions:
 - DEMAND — purchase intent, category interest, new product requests, reorder signals
 - COMPETITIVE — competitor mentions, pricing comparisons, lost shelf space, competitive wins
 - FRICTION — objections, price sensitivity, delivery issues, service complaints, stockouts
@@ -26,13 +27,14 @@ Signal type definitions:
 - RELATIONSHIP — tone shifts, engagement changes, buyer mood, enthusiasm, churn risk
 
 Rules:
-- ALWAYS extract at least one signal if the transcript contains any substantive conversation.
-- Extract MULTIPLE signals if the conversation covers different topics.
-- If the transcript is too short or empty to extract anything meaningful, return empty arrays.
+- ALWAYS extract at least one insight if the transcript contains any substantive conversation.
+- Extract MULTIPLE insights if the conversation covers different topics.
+- If the transcript is too short or empty to extract anything meaningful, return empty arrays and an empty summary.
 
 Respond with JSON in this exact format:
 {
-  "signals": [{ "type": "...", "description": "...", "confidence": 0.0, "category": "...", "suggestedAction": "..." }],
+  "summary": "...",
+  "insights": [{ "type": "...", "description": "...", "category": "...", "suggestedAction": "..." }],
   "tasks": [{ "task": "...", "priority": "..." }]
 }`
 
@@ -40,7 +42,7 @@ Respond with JSON in this exact format:
  * POST /api/capture/extract
  *
  * Fallback extraction: takes a conversation transcript and uses GPT to
- * extract signals and tasks when the realtime AI didn't call save_capture.
+ * extract insights and tasks when the realtime AI didn't call save_capture.
  */
 export async function POST(request: Request) {
   const user = await getUser()
@@ -78,10 +80,10 @@ export async function POST(request: Request) {
     }
 
     const extracted = JSON.parse(content) as {
-      signals: Array<{
+      summary: string
+      insights: Array<{
         type: string
         description: string
-        confidence: number
         category: string
         suggestedAction: string
       }>
@@ -92,13 +94,14 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      signals: extracted.signals || [],
+      summary: extracted.summary || '',
+      insights: extracted.insights || [],
       tasks: extracted.tasks || [],
     })
   } catch (error) {
     console.error('Failed to extract from transcript:', error)
     return NextResponse.json(
-      { error: 'Failed to extract signals from transcript' },
+      { error: 'Failed to extract insights from transcript' },
       { status: 500 }
     )
   }

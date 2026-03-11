@@ -1,9 +1,9 @@
 'use server'
 
 /**
- * Signal Actions
+ * Insight Actions
  *
- * Mutations for signal management.
+ * Mutations for insight management.
  */
 
 import { createClient } from '@kosha/supabase/server'
@@ -11,10 +11,10 @@ import { getUser } from '@kosha/supabase'
 import { revalidatePath } from 'next/cache'
 
 /**
- * Delete a signal.
+ * Delete an insight.
  */
-export async function deleteSignal(
-  signalId: string
+export async function deleteInsight(
+  insightId: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getUser()
   if (!user) return { success: false, error: 'Not authenticated' }
@@ -22,17 +22,16 @@ export async function deleteSignal(
   const supabase = await createClient()
 
   const { error } = await supabase
-    .from('signals')
+    .from('insights')
     .delete()
-    .eq('id', signalId)
+    .eq('id', insightId)
 
   if (error) {
-    console.error('Failed to delete signal:', error)
-    return { success: false, error: 'Failed to delete signal' }
+    console.error('Failed to delete insight:', error)
+    return { success: false, error: 'Failed to delete insight' }
   }
 
   revalidatePath('/capture')
-  revalidatePath('/dashboard')
   revalidatePath('/accounts')
   return { success: true }
 }

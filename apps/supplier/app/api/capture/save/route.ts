@@ -7,8 +7,8 @@ import { revalidatePath } from 'next/cache'
 /**
  * POST /api/capture/save
  *
- * Persists signals and tasks extracted by the voice agent.
- * Accepts multiple signals and tasks from a single conversation.
+ * Persists insights and tasks extracted by the voice agent.
+ * Accepts multiple insights and tasks from a single conversation.
  */
 export async function POST(request: Request) {
   const user = await getUser()
@@ -22,9 +22,9 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { account_id, account_name, signals, tasks, transcript } = body
+  const { account_id, account_name, insights, tasks, transcript, summary } = body
 
-  if (!account_id || !account_name || !signals?.length) {
+  if (!account_id || !account_name || !insights?.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -42,6 +42,7 @@ export async function POST(request: Request) {
         account_id,
         account_name,
         transcript,
+        summary: summary || null,
       })
 
     if (captureError) {
@@ -49,11 +50,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Insert signals
-  const signalRows = signals.map((s: {
+  // Insert insights
+  const insightRows = insights.map((s: {
     type: string
     description: string
-    confidence: number
     category: string
     suggestedAction: string
   }) => ({
@@ -61,23 +61,22 @@ export async function POST(request: Request) {
     organization_id: orgId,
     account_id,
     account_name,
-    signal_type: s.type,
+    insight_type: s.type,
     description: s.description,
-    confidence: Math.min(1, Math.max(0, s.confidence ?? 0.8)),
     sub_category: s.category || '',
     suggested_action: s.suggestedAction || '',
     transcript: transcript || null,
     capture_id: captureId,
   }))
 
-  const { data: savedSignals, error: signalError } = await supabase
-    .from('signals')
-    .insert(signalRows)
+  const { data: savedInsights, error: insightError } = await supabase
+    .from('insights')
+    .insert(insightRows)
     .select()
 
-  if (signalError) {
-    console.error('Failed to save signals:', signalError)
-    return NextResponse.json({ error: 'Failed to save signals' }, { status: 500 })
+  if (insightError) {
+    console.error('Failed to save insights:', insightError)
+    return NextResponse.json({ error: 'Failed to save insights' }, { status: 500 })
   }
 
   // Insert tasks
@@ -109,16 +108,15 @@ export async function POST(request: Request) {
 
     if (taskError) {
       console.error('Failed to save tasks:', taskError)
-      // Signals were saved successfully, so don't fail the whole request
+      // Insights were saved successfully, so don't fail the whole request
     } else {
       savedTasks = taskData || []
     }
   }
 
   revalidatePath('/capture')
-  revalidatePath('/dashboard')
   revalidatePath('/accounts')
   revalidatePath(`/accounts/${account_id}`)
 
-  return NextResponse.json({ signals: savedSignals, tasks: savedTasks })
+  return NextResponse.json({ insights: savedInsights, tasks: savedTasks })
 }

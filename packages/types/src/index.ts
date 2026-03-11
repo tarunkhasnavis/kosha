@@ -30,7 +30,6 @@ export type {
   CreateAccountInput,
   UpdateAccountInput,
   AccountFilters,
-  AccountHealth,
   PremiseType,
   SupplierRole,
 } from './accounts'
@@ -41,9 +40,9 @@ export type {
 } from './visits'
 
 export type {
-  Signal,
-  SignalType,
-} from './signals'
+  Insight,
+  InsightType,
+} from './insights'
 
 export type {
   Task,

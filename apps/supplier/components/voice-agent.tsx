@@ -26,12 +26,12 @@ type AgentState = 'idle' | 'connecting' | 'active' | 'extracting' | 'saving' | '
 interface TranscriptEntry {
   role: 'user' | 'assistant'
   text: string
+  itemId?: string
 }
 
-interface ExtractedSignalItem {
+interface ExtractedInsightItem {
   type: string
   description: string
-  confidence: number
   category: string
   suggestedAction: string
 }
@@ -42,7 +42,8 @@ interface ExtractedTaskItem {
 }
 
 interface ExtractedCapture {
-  signals: ExtractedSignalItem[]
+  summary: string
+  insights: ExtractedInsightItem[]
   tasks: ExtractedTaskItem[]
 }
 
@@ -50,7 +51,7 @@ interface VoiceAgentProps {
   accounts: Account[]
 }
 
-const signalTypeConfig: Record<string, { label: string; className: string }> = {
+const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
   competitive: { label: 'Competitive', className: 'bg-red-100 text-red-700' },
   friction: { label: 'Friction', className: 'bg-amber-100 text-amber-700' },
@@ -82,6 +83,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   const fullTranscriptRef = useRef('')
   const functionCallArgsRef = useRef('')
   const isMutedRef = useRef(false)
+  const itemOrderRef = useRef<string[]>([])
 
   const selectedAccount = accounts.find((a) => a.id === accountId)
 
@@ -136,12 +138,12 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       }
 
       const data = await res.json() as ExtractedCapture
-      if (data.signals && data.signals.length > 0) {
+      if (data.insights && data.insights.length > 0) {
         setExtractedCapture(data)
         setState('saving')
       } else {
         setState('idle')
-        toast({ title: 'Capture ended', description: 'No signals could be extracted from the conversation.' })
+        toast({ title: 'Capture ended', description: 'No insights could be extracted from the conversation.' })
       }
     } catch (error) {
       console.error('Fallback extraction failed:', error)
@@ -164,6 +166,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     currentAssistantTextRef.current = ''
     fullTranscriptRef.current = ''
     functionCallArgsRef.current = ''
+    itemOrderRef.current = []
 
     try {
       // 1. Get ephemeral token
@@ -249,15 +252,42 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     }
   }, [accountId, selectedAccount, cleanup])
 
+  // Track item creation order from the Realtime API so we can sort transcript entries correctly.
+  // Whisper transcription of user speech can arrive AFTER the assistant response, causing misordering.
+  const trackItemOrder = useCallback((itemId: string) => {
+    if (itemId && !itemOrderRef.current.includes(itemId)) {
+      itemOrderRef.current.push(itemId)
+    }
+  }, [])
+
+  const sortByItemOrder = useCallback((entries: TranscriptEntry[]): TranscriptEntry[] => {
+    return [...entries].sort((a, b) => {
+      const aIdx = a.itemId ? itemOrderRef.current.indexOf(a.itemId) : -1
+      const bIdx = b.itemId ? itemOrderRef.current.indexOf(b.itemId) : -1
+      if (aIdx === -1 || bIdx === -1) return 0
+      return aIdx - bIdx
+    })
+  }, [])
+
   const handleRealtimeEvent = useCallback((event: Record<string, unknown>) => {
     const type = event.type as string
 
     switch (type) {
-      // User speech transcription
+      // Track item creation order — fires in correct conversational order
+      case 'conversation.item.created': {
+        const item = event.item as Record<string, unknown> | undefined
+        const itemId = item?.id as string
+        if (itemId) trackItemOrder(itemId)
+        break
+      }
+
+      // User speech transcription (may arrive late — after assistant response)
       case 'conversation.item.input_audio_transcription.completed': {
         const userText = (event.transcript as string || '').trim()
+        const itemId = event.item_id as string
+        if (itemId) trackItemOrder(itemId)
         if (userText) {
-          setTranscript((prev) => [...prev, { role: 'user', text: userText }])
+          setTranscript((prev) => sortByItemOrder([...prev, { role: 'user', text: userText, itemId }]))
           fullTranscriptRef.current += `Rep: ${userText}\n`
         }
         break
@@ -267,6 +297,8 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       case 'response.audio_transcript.delta': {
         const delta = event.delta as string || ''
         currentAssistantTextRef.current += delta
+        const itemId = event.item_id as string
+        if (itemId) trackItemOrder(itemId)
         // Auto-mute mic while AI speaks to prevent echo triggering VAD
         if (streamRef.current && !isMutedRef.current) {
           const track = streamRef.current.getAudioTracks()[0]
@@ -279,8 +311,10 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       // Assistant audio transcript complete — AI stopped speaking
       case 'response.audio_transcript.done': {
         const assistantText = (event.transcript as string || currentAssistantTextRef.current).trim()
+        const itemId = event.item_id as string
+        if (itemId) trackItemOrder(itemId)
         if (assistantText) {
-          setTranscript((prev) => [...prev, { role: 'assistant', text: assistantText }])
+          setTranscript((prev) => sortByItemOrder([...prev, { role: 'assistant', text: assistantText, itemId }]))
           fullTranscriptRef.current += `Assistant: ${assistantText}\n`
         }
         currentAssistantTextRef.current = ''
@@ -310,9 +344,9 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
           try {
             const args = JSON.parse(argsString) as ExtractedCapture
-            // Validate that we actually have signals
-            if (!args.signals || args.signals.length === 0) {
-              console.warn('save_capture called with no signals, falling back to transcript extraction')
+            // Validate that we actually have insights
+            if (!args.insights || args.insights.length === 0) {
+              console.warn('save_capture called with no insights, falling back to transcript extraction')
               fallbackExtract()
               return
             }
@@ -331,7 +365,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       default:
         break
     }
-  }, [fallbackExtract])
+  }, [fallbackExtract, trackItemOrder, sortByItemOrder])
 
   const toggleMute = useCallback(() => {
     if (streamRef.current) {
@@ -371,7 +405,8 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         body: JSON.stringify({
           account_id: accountId,
           account_name: selectedAccount.name,
-          signals: extractedCapture.signals,
+          summary: extractedCapture.summary,
+          insights: extractedCapture.insights,
           tasks: extractedCapture.tasks,
           transcript: fullTranscriptRef.current || null,
         }),
@@ -414,11 +449,6 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   if (state === 'idle') {
     return (
       <div className="flex flex-col items-center text-center max-w-md mx-auto">
-        <h2 className="text-xl font-bold text-slate-900">Quick Capture</h2>
-        <p className="text-sm text-muted-foreground mt-1 mb-8">
-          Select an account and start your post-meeting summary
-        </p>
-
         {/* Account selector */}
         <div className="w-full">
           <Select value={accountId} onValueChange={setAccountId}>
@@ -439,14 +469,14 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         <div className="relative flex items-center justify-center mt-16 mb-14">
           {/* Soft glow ring */}
           <div
-            className="absolute h-36 w-36 rounded-full bg-blue-100/40"
+            className="absolute h-36 w-36 rounded-full bg-amber-100/40"
             style={{ animation: 'pulse-glow 3s ease-in-out infinite' }}
           />
           {/* Static outer ring */}
           <div className="absolute h-28 w-28 rounded-full border border-slate-200/80" />
           {/* Mic circle */}
           <div className="h-20 w-20 rounded-full bg-white border border-slate-200 flex items-center justify-center z-10 shadow-sm">
-            <Mic className="h-8 w-8 text-blue-500" />
+            <Mic className="h-8 w-8 text-amber-600" />
           </div>
         </div>
 
@@ -465,7 +495,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
         {/* CTA button */}
         <Button
-          className="w-full mt-10 bg-blue-500 hover:bg-blue-600 text-white"
+          className="w-full mt-10"
           size="lg"
           disabled={!accountId}
           onClick={startCapture}
@@ -483,9 +513,9 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       <div className="flex flex-col items-center text-center py-16">
         <div className="relative flex items-center justify-center mb-6">
           <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
-            <Mic className="h-8 w-8 text-blue-500" />
+            <Mic className="h-8 w-8 text-amber-600" />
           </div>
-          <div className="absolute h-24 w-24 rounded-full border-2 border-blue-400/40 border-t-transparent animate-spin" />
+          <div className="absolute h-24 w-24 rounded-full border-2 border-amber-400/40 border-t-transparent animate-spin" />
         </div>
         <p className="text-sm text-muted-foreground">Connecting to AI assistant...</p>
       </div>
@@ -524,7 +554,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         {/* AI Orb — ChatGPT-inspired */}
         <div className="flex flex-col items-center mb-8">
           <div
-            className="h-24 w-24 rounded-full bg-gradient-to-br from-blue-400 via-sky-300 to-blue-500 flex items-center justify-center transition-all duration-500"
+            className="h-24 w-24 rounded-full bg-gradient-to-br from-amber-400 via-orange-300 to-amber-500 flex items-center justify-center transition-all duration-500"
             style={{
               animation: isSpeaking
                 ? 'orb-speak 1.2s ease-in-out infinite'
@@ -579,12 +609,12 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
       <div className="flex flex-col items-center text-center py-16">
         <div className="relative flex items-center justify-center mb-6">
           <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+            <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
           </div>
         </div>
         <h3 className="text-lg font-semibold text-slate-900 mb-1">Processing Conversation</h3>
         <p className="text-sm text-muted-foreground">
-          Extracting signals and tasks from your conversation...
+          Extracting insights and tasks from your conversation...
         </p>
       </div>
     )
@@ -592,48 +622,49 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
   // ─── Saving State ─────────────────────────────────────────
   if (state === 'saving' && extractedCapture) {
+    // Group insights by type
+    const insightsByType = extractedCapture.insights.reduce<Record<string, ExtractedInsightItem[]>>(
+      (acc, item) => {
+        const key = item.type
+        if (!acc[key]) acc[key] = []
+        acc[key].push(item)
+        return acc
+      },
+      {}
+    )
+
     return (
       <Card className="w-full max-w-lg mx-auto">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Review Capture</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            The AI extracted the following from your conversation
-          </p>
         </CardHeader>
         <Separator />
         <CardContent className="pt-4 space-y-5">
-          {/* Signals */}
-          <div>
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-              Signals ({extractedCapture.signals.length})
-            </Label>
-            <div className="mt-2 space-y-3">
-              {extractedCapture.signals.map((signal, i) => {
-                const config = signalTypeConfig[signal.type] || signalTypeConfig.demand
-                return (
-                  <div key={i} className="border border-border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge className={config.className}>{config.label}</Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {Math.round(signal.confidence * 100)}% confidence
-                      </span>
-                      {signal.category && (
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {signal.category}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm leading-relaxed">{signal.description}</p>
-                    {signal.suggestedAction && (
-                      <p className="text-xs text-muted-foreground">
-                        Next step: {signal.suggestedAction}
-                      </p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          {/* Summary */}
+          {extractedCapture.summary && (
+            <p className="text-sm leading-relaxed text-slate-700">
+              {extractedCapture.summary}
+            </p>
+          )}
+
+          {/* Insights grouped by category */}
+          {Object.entries(insightsByType).map(([type, items]) => {
+            const config = insightTypeConfig[type] || insightTypeConfig.demand
+            return (
+              <div key={type}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge className={config.className}>{config.label}</Badge>
+                </div>
+                <ul className="space-y-1 pl-4">
+                  {items.map((item, i) => (
+                    <li key={i} className="text-sm text-slate-700 list-disc">
+                      {item.description}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
 
           {/* Tasks */}
           {extractedCapture.tasks.length > 0 && (
@@ -641,7 +672,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
               <Separator />
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Follow-up Tasks ({extractedCapture.tasks.length})
+                  Follow-up Tasks
                 </Label>
                 <div className="mt-2 space-y-2">
                   {extractedCapture.tasks.map((task, i) => {
@@ -650,7 +681,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
                       <div key={i} className="flex items-start gap-2">
                         <div className="h-4 w-4 rounded-sm border border-slate-300 mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm leading-relaxed">{task.task}</p>
+                          <p className="text-sm">{task.task}</p>
                           <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1 ${pConfig.className}`}>
                             {pConfig.label}
                           </Badge>

@@ -7,7 +7,7 @@ export default async function LoginPage() {
   const user = await getUser()
 
   if (user) {
-    redirect('/dashboard')
+    redirect('/capture')
   }
 
   return (
