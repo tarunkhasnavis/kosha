@@ -54,6 +54,9 @@ export async function createAccount(
       premise_type: input.premise_type || null,
       latitude,
       longitude,
+      phone: input.phone?.trim() || null,
+      website: input.website?.trim() || null,
+      hours: input.hours?.trim() || null,
     })
     .select()
     .single()
@@ -91,6 +94,9 @@ export async function updateAccount(
   if (input.last_contact !== undefined) updateData.last_contact = input.last_contact
   if (input.latitude !== undefined) updateData.latitude = input.latitude
   if (input.longitude !== undefined) updateData.longitude = input.longitude
+  if (input.phone !== undefined) updateData.phone = input.phone?.trim() || null
+  if (input.website !== undefined) updateData.website = input.website?.trim() || null
+  if (input.hours !== undefined) updateData.hours = input.hours?.trim() || null
 
   // Re-geocode if address changed and no explicit coordinates provided
   if (input.address !== undefined && input.latitude === undefined && input.longitude === undefined) {
@@ -152,5 +158,38 @@ export async function deleteAccount(
   revalidatePath('/accounts')
 
   revalidatePath('/territory')
+  return { success: true }
+}
+
+/**
+ * Create a note for an account.
+ */
+export async function createAccountNote(
+  accountId: string,
+  content: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const orgId = await getOrganizationId()
+  if (!orgId) return { success: false, error: 'No organization found' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('account_notes')
+    .insert({
+      organization_id: orgId,
+      account_id: accountId,
+      user_id: user.id,
+      content: content.trim(),
+    })
+
+  if (error) {
+    console.error('Failed to create note:', error)
+    return { success: false, error: 'Failed to create note' }
+  }
+
+  revalidatePath(`/accounts/${accountId}`)
   return { success: true }
 }

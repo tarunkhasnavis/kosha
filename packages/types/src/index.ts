@@ -52,3 +52,14 @@ export type {
 export type {
   Capture,
 } from './captures'
+
+export type {
+  DiscoveredAccount,
+  DiscoveryCategory,
+} from './discovery'
+
+export type {
+  AccountContact,
+  AccountNote,
+  AccountPhoto,
+} from './account-details'

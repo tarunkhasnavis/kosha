@@ -8,7 +8,7 @@ import type { Task } from '@kosha/types'
 const priorityConfig: Record<string, { label: string; className: string }> = {
   high: { label: 'High', className: 'bg-red-100 text-red-700' },
   medium: { label: 'Medium', className: 'bg-amber-100 text-amber-700' },
-  low: { label: 'Low', className: 'bg-slate-100 text-slate-600' },
+  low: { label: 'Low', className: 'bg-stone-100 text-stone-600' },
 }
 
 interface TaskListProps {

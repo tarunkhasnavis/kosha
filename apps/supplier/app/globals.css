@@ -4,92 +4,51 @@
 
 @layer base {
   :root {
-    /* Neutral Pro Ops - Matte Design System */
-    --background: 220 14% 97%;  /* #F7F8FA - page bg */
-    --foreground: 222 47% 11%;  /* #0F172A - primary text */
-    --card: 0 0% 100%;          /* white - card bg */
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 24 80% 42%;      /* warm orange — matches attention-600 */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 95%;   /* #F2F4F7 - soft surface */
-    --secondary-foreground: 222 47% 11%;
-    --muted: 220 13% 95%;
-    --muted-foreground: 215 14% 45%;  /* secondary text */
-    --accent: 220 13% 95%;
-    --accent-foreground: 222 47% 11%;
+    /* Warm Premium Design System — complements gradient orb */
+    --background: 30 25% 97%;       /* warm off-white */
+    --foreground: 25 15% 18%;       /* warm charcoal */
+    --card: 30 20% 99%;             /* slightly warm white */
+    --card-foreground: 25 15% 18%;
+    --popover: 30 20% 99%;
+    --popover-foreground: 25 15% 18%;
+    --primary: 25 40% 38%;          /* warm brown — buttons, active states */
+    --primary-foreground: 30 25% 97%;
+    --secondary: 30 15% 95%;        /* warm stone surface */
+    --secondary-foreground: 25 15% 18%;
+    --muted: 30 15% 95%;
+    --muted-foreground: 25 10% 50%; /* warm gray */
+    --accent: 28 60% 92%;           /* soft peach accent */
+    --accent-foreground: 25 40% 28%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 220 13% 91%;      /* subtle border */
-    --input: 220 13% 91%;
-    --ring: 24 80% 42%;
-    --radius: 0.5rem;
+    --border: 30 15% 90%;           /* warm border */
+    --input: 30 15% 90%;
+    --ring: 25 40% 38%;
+    --radius: 0.75rem;
 
-    /* Action button - ties into pending blue status color */
-    --action: 230 45% 48%;           /* muted pending blue */
-    --action-foreground: 0 0% 100%;
+    /* Status colors */
+    --status-needs-info-bg: 24 89% 93%;
+    --status-needs-info-text: 24 68% 35%;
+    --status-pending-bg: 230 100% 95%;
+    --status-pending-text: 230 51% 36%;
+    --status-approved-bg: 145 44% 93%;
+    --status-approved-text: 142 64% 24%;
+    --status-invoiced-bg: 210 100% 95%;
+    --status-invoiced-text: 210 60% 35%;
+    --status-paid-bg: 160 50% 93%;
+    --status-paid-text: 160 60% 28%;
+    --status-archived-bg: 220 16% 94%;
+    --status-archived-text: 215 16% 47%;
 
-    /* Status colors - muted/desaturated */
-    --status-needs-info-bg: 24 89% 93%;      /* #FBE7DD */
-    --status-needs-info-text: 24 68% 35%;    /* #9A4B18 */
-    --status-pending-bg: 230 100% 95%;       /* #E7ECFF */
-    --status-pending-text: 230 51% 36%;      /* #2E3A8C */
-    --status-approved-bg: 145 44% 93%;       /* #E3F4EA */
-    --status-approved-text: 142 64% 24%;     /* #166534 */
-    --status-invoiced-bg: 210 100% 95%;      /* #E7F3FF */
-    --status-invoiced-text: 210 60% 35%;     /* #24547A */
-    --status-paid-bg: 160 50% 93%;           /* #DFF5ED */
-    --status-paid-text: 160 60% 28%;         /* #1C6E4A */
-    --status-archived-bg: 220 16% 94%;       /* #EEF1F6 */
-    --status-archived-text: 215 16% 47%;     /* #475569 */
-
-    /* Attention color scale (warm orange family - hue 24) */
-    /* Used for: needs info status, incomplete indicators, missing field highlights */
-    --attention-50: 24 100% 97%;             /* Very light bg for inputs */
-    --attention-100: 24 96% 93%;             /* Light bg for badges */
-    --attention-200: 24 90% 86%;             /* Border for inputs */
-    --attention-500: 24 85% 50%;             /* Dots, icons */
-    --attention-600: 24 80% 42%;             /* % text, secondary emphasis */
-    --attention-700: 24 75% 35%;             /* Primary text on light bg */
-
-    /* Additional design tokens */
-    --border-subtle: rgba(15, 23, 42, 0.06);
-    --border-hover: rgba(15, 23, 42, 0.10);
-    --text-tertiary: rgba(15, 23, 42, 0.45);
+    --border-subtle: rgba(68, 52, 36, 0.06);
+    --border-hover: rgba(68, 52, 36, 0.10);
+    --text-tertiary: rgba(68, 52, 36, 0.45);
 
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
   }
 }
 
@@ -99,68 +58,139 @@
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* View Transitions API support (modern browsers) */
+/* ─── Orb Animations ─────────────────────────────────────────── */
+
+/* Idle: gentle breathing + hue shift */
+@keyframes orb-breathe {
+  0%, 100% {
+    transform: scale(1);
+    filter: hue-rotate(0deg);
+  }
+  50% {
+    transform: scale(1.04);
+    filter: hue-rotate(8deg);
+  }
+}
+
+/* Active speaking: faster pulse with glow */
+@keyframes orb-speak {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.25);
+  }
+  25% {
+    transform: scale(1.08);
+    box-shadow: 0 0 24px 8px rgba(168, 85, 247, 0.15);
+  }
+  50% {
+    transform: scale(0.96);
+    box-shadow: 0 0 12px 4px rgba(168, 85, 247, 0.08);
+  }
+  75% {
+    transform: scale(1.06);
+    box-shadow: 0 0 20px 6px rgba(168, 85, 247, 0.12);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.25);
+  }
+}
+
+/* Small orb pulse in active state header */
+@keyframes orb-pulse-small {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.85;
+  }
+}
+
+/* Waveform bar animation */
+@keyframes waveform-bar {
+  0%, 100% { height: 8px; }
+  50% { height: 24px; }
+}
+
+/* Connecting spinner glow */
+@keyframes connecting-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px 4px rgba(168, 85, 247, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 40px 12px rgba(168, 85, 247, 0.35);
+  }
+}
+
+/* ─── Mapbox Geocoder Override ───────────────────────────────── */
+
+/* Center the geocoder control */
+.mapboxgl-ctrl-top-left {
+  top: 12px;
+  left: 50% !important;
+  transform: translateX(-50%);
+}
+
+.mapboxgl-ctrl-geocoder {
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 9999px !important;
+  box-shadow: 0 2px 12px rgba(68, 52, 36, 0.1) !important;
+  min-width: 260px !important;
+  max-width: 340px !important;
+  border: 1px solid rgba(68, 52, 36, 0.1) !important;
+}
+
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input {
+  color: #44342a !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  padding: 8px 36px !important;
+}
+
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input::placeholder {
+  color: #a8a29e !important;
+}
+
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon-search {
+  fill: #a8a29e !important;
+}
+
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon-close {
+  fill: #a8a29e !important;
+}
+
+.mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--button {
+  background: transparent !important;
+}
+
+.mapboxgl-ctrl-geocoder .suggestions {
+  border-radius: 12px !important;
+  border: 1px solid rgba(68, 52, 36, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(68, 52, 36, 0.1) !important;
+  overflow: hidden !important;
+}
+
+.mapboxgl-ctrl-geocoder .suggestions .active > a {
+  background: rgba(68, 52, 36, 0.05) !important;
+}
+
+/* Hide scrollbar for horizontal pill rows */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* View Transitions API support */
 @supports (view-transition-name: root) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 150ms;
-  }
-}
-
-/* Animation delays for login page orbs */
-.delay-500 {
-  animation-delay: 500ms;
-}
-
-.delay-1000 {
-  animation-delay: 1000ms;
-}
-
-/* Voice agent — subtle glow pulse around mic icon (idle state) */
-@keyframes pulse-glow {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.15;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 0.35;
-  }
-}
-
-/* Voice agent — orb breathing animation (active state, listening) */
-@keyframes orb-breathe {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-
-/* Voice agent — orb active speaking animation (active state, AI talking) */
-@keyframes orb-speak {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3);
-  }
-  25% {
-    transform: scale(1.08);
-    box-shadow: 0 0 20px 8px rgba(217, 119, 6, 0.15);
-  }
-  50% {
-    transform: scale(0.97);
-    box-shadow: 0 0 10px 4px rgba(217, 119, 6, 0.1);
-  }
-  75% {
-    transform: scale(1.05);
-    box-shadow: 0 0 16px 6px rgba(217, 119, 6, 0.12);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3);
   }
 }

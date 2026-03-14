@@ -101,7 +101,7 @@ function InsightsTable({ insights }: { insights: Insight[] }) {
                 <Collapsible key={insight.id} asChild>
                   <>
                     <CollapsibleTrigger asChild>
-                      <TableRow className="cursor-pointer hover:bg-slate-50">
+                      <TableRow className="cursor-pointer hover:bg-stone-50">
                         <TableCell className="font-medium">{insight.account_name}</TableCell>
                         <TableCell>
                           <Badge className={typeInfo.className}>{typeInfo.label}</Badge>
@@ -153,7 +153,7 @@ function InsightsTable({ insights }: { insights: Insight[] }) {
                       </TableRow>
                     </CollapsibleTrigger>
                     <CollapsibleContent asChild>
-                      <TableRow className="bg-slate-50/50">
+                      <TableRow className="bg-stone-50/50">
                         <TableCell colSpan={5} className="py-3">
                           <div className="space-y-2 pl-2">
                             <p className="text-sm">{insight.description}</p>

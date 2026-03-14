@@ -14,6 +14,9 @@ export interface Account {
   last_contact: string | null
   latitude: number | null
   longitude: number | null
+  phone: string | null
+  website: string | null
+  hours: string | null
   created_at: string
   updated_at: string
 }
@@ -25,6 +28,9 @@ export interface CreateAccountInput {
   premise_type?: PremiseType
   latitude?: number
   longitude?: number
+  phone?: string
+  website?: string
+  hours?: string
 }
 
 export interface UpdateAccountInput {
@@ -35,6 +41,9 @@ export interface UpdateAccountInput {
   last_contact?: string
   latitude?: number
   longitude?: number
+  phone?: string
+  website?: string
+  hours?: string
 }
 
 export interface AccountFilters {

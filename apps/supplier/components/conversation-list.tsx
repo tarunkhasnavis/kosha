@@ -15,6 +15,7 @@ import type { Capture } from '@kosha/types'
 
 interface ConversationListProps {
   captures: Capture[]
+  labelOverride?: string
 }
 
 function TranscriptView({ transcript }: { transcript: string }) {
@@ -34,8 +35,8 @@ function TranscriptView({ transcript }: { transcript: string }) {
             <div
               className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 isRep
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-900'
+                  ? 'bg-stone-800 text-white'
+                  : 'bg-stone-100 text-stone-800'
               }`}
             >
               {text}
@@ -47,7 +48,7 @@ function TranscriptView({ transcript }: { transcript: string }) {
   )
 }
 
-export function ConversationList({ captures }: ConversationListProps) {
+export function ConversationList({ captures, labelOverride }: ConversationListProps) {
   const [selectedCapture, setSelectedCapture] = useState<Capture | null>(null)
 
   if (captures.length === 0) {
@@ -67,7 +68,7 @@ export function ConversationList({ captures }: ConversationListProps) {
         {captures.map((capture) => (
           <Card
             key={capture.id}
-            className="cursor-pointer hover:bg-slate-50 transition-colors"
+            className="cursor-pointer hover:bg-stone-50 transition-colors"
             onClick={() => setSelectedCapture(capture)}
           >
             <CardContent className="py-3 px-4">
@@ -76,8 +77,8 @@ export function ConversationList({ captures }: ConversationListProps) {
                   <MessageSquare className="h-4 w-4 text-blue-500" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900">
-                    {capture.account_name}
+                  <p className="text-sm font-medium text-stone-800">
+                    {labelOverride || capture.account_name}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(capture.created_at).toLocaleDateString('en-US', {

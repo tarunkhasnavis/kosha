@@ -27,7 +27,6 @@ export default async function AuthenticatedLayout({
     )
   }
 
-  // Check if org still has placeholder name (email) — redirect to onboarding
   const supabase = await createClient()
   const { data: org } = await supabase
     .from('organizations')
@@ -41,8 +40,8 @@ export default async function AuthenticatedLayout({
 
   return (
     <AppLayoutWrapper>
-      <MainNav role={userInfo.role} orgName={org?.name} />
-      <main className="md:ml-60 pb-20 md:pb-0 min-h-screen">
+      <MainNav />
+      <main className="pb-20 min-h-screen">
         {children}
       </main>
     </AppLayoutWrapper>

@@ -88,7 +88,7 @@ export function VisitsList({ upcomingVisits, pastVisits, accounts }: VisitsListP
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-900">Visits</h1>
+        <h1 className="text-2xl font-semibold text-stone-800">Visits</h1>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Schedule Visit
@@ -98,8 +98,8 @@ export function VisitsList({ upcomingVisits, pastVisits, accounts }: VisitsListP
       {/* Empty state */}
       {!hasVisits && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-            <MapPin className="h-6 w-6 text-slate-400" />
+          <div className="h-12 w-12 rounded-full bg-stone-100 flex items-center justify-center mb-4">
+            <MapPin className="h-6 w-6 text-stone-400" />
           </div>
           <p className="text-muted-foreground mb-4">
             No visits scheduled yet. Schedule your first visit to get started.
@@ -221,7 +221,7 @@ function VisitTable({ visits, deletingId, onDelete }: VisitTableProps) {
             <CardContent className="p-4">
               <div className="flex items-start justify-between">
                 <div className="space-y-1 min-w-0 flex-1">
-                  <p className="font-medium text-slate-900">{visit.account_name}</p>
+                  <p className="font-medium text-stone-800">{visit.account_name}</p>
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                     <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
                     <span>{formatDate(visit.visit_date)} at {formatTime(visit.visit_date)}</span>

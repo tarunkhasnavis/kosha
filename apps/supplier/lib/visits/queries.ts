@@ -7,7 +7,11 @@
 
 import { createClient } from '@kosha/supabase/server'
 import { getOrganizationId } from '@/lib/auth'
-import type { Visit } from '@kosha/types'
+import type { Visit, Account } from '@kosha/types'
+
+export interface VisitWithAccount extends Visit {
+  account: Pick<Account, 'id' | 'name' | 'address' | 'latitude' | 'longitude'>
+}
 
 /**
  * Get upcoming visits (visit_date >= now), ordered soonest first.
@@ -54,7 +58,7 @@ export async function getPastVisits(): Promise<{ visits: Visit[]; error?: string
 }
 
 /**
- * Count visits in the current week (Mon–Sun).
+ * Count visits in the current week (Mon-Sun).
  */
 export async function getVisitsThisWeek(): Promise<number> {
   const orgId = await getOrganizationId()
@@ -107,4 +111,33 @@ export async function getVisitsForAccount(
   }
 
   return { visits: (data as Visit[]) || [] }
+}
+
+/**
+ * Get visits for a specific date, joined with account location data for route planning.
+ */
+export async function getVisitsForDate(
+  date: string
+): Promise<{ visits: VisitWithAccount[]; error?: string }> {
+  const orgId = await getOrganizationId()
+  if (!orgId) return { visits: [], error: 'No organization found' }
+
+  const supabase = await createClient()
+
+  const startOfDay = `${date}T00:00:00.000Z`
+  const endOfDay = `${date}T23:59:59.999Z`
+
+  const { data, error } = await supabase
+    .from('visits')
+    .select('*, account:accounts!inner(id, name, address, latitude, longitude)')
+    .gte('visit_date', startOfDay)
+    .lte('visit_date', endOfDay)
+    .order('visit_date', { ascending: true })
+
+  if (error) {
+    console.error('Failed to fetch visits for date:', error)
+    return { visits: [], error: 'Failed to fetch visits' }
+  }
+
+  return { visits: (data as unknown as VisitWithAccount[]) || [] }
 }

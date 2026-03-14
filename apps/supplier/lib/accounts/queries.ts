@@ -7,7 +7,7 @@
 
 import { createClient } from '@kosha/supabase/server'
 import { getOrganizationId } from '@/lib/auth'
-import type { Account, AccountFilters } from '@kosha/types'
+import type { Account, AccountFilters, AccountContact, AccountNote, AccountPhoto } from '@kosha/types'
 
 /**
  * Get all accounts visible to the current user.
@@ -104,4 +104,70 @@ export async function getAccountStats(): Promise<{
   return {
     totalAccounts: count || 0,
   }
+}
+
+/**
+ * Get contacts for an account.
+ */
+export async function getAccountContacts(
+  accountId: string
+): Promise<{ contacts: AccountContact[]; error?: string }> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('account_contacts')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Failed to fetch contacts:', error)
+    return { contacts: [], error: 'Failed to fetch contacts' }
+  }
+
+  return { contacts: (data as AccountContact[]) || [] }
+}
+
+/**
+ * Get notes for an account.
+ */
+export async function getAccountNotes(
+  accountId: string
+): Promise<{ notes: AccountNote[]; error?: string }> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('account_notes')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Failed to fetch notes:', error)
+    return { notes: [], error: 'Failed to fetch notes' }
+  }
+
+  return { notes: (data as AccountNote[]) || [] }
+}
+
+/**
+ * Get photos for an account.
+ */
+export async function getAccountPhotos(
+  accountId: string
+): Promise<{ photos: AccountPhoto[]; error?: string }> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('account_photos')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Failed to fetch photos:', error)
+    return { photos: [], error: 'Failed to fetch photos' }
+  }
+
+  return { photos: (data as AccountPhoto[]) || [] }
 }

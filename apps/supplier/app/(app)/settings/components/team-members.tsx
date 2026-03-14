@@ -179,7 +179,7 @@ export function TeamMembers({ members, currentUserId, activeInvite }: TeamMember
               <div className="flex items-start justify-between">
                 <div className="space-y-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-slate-900">
+                    <p className="font-medium text-stone-800">
                       {member.full_name || '—'}
                     </p>
                     {member.id === currentUserId && (

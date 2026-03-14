@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getAccount } from '@/lib/accounts/queries'
+import { getAccount, getAccountContacts, getAccountNotes, getAccountPhotos } from '@/lib/accounts/queries'
 import { getVisitsForAccount } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
 import { getTasksForAccount } from '@/lib/tasks/queries'
@@ -15,12 +15,24 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [{ account, error }, { visits }, { insights }, { tasks }, { captures }] = await Promise.all([
+  const [
+    { account, error },
+    { visits },
+    { insights },
+    { tasks },
+    { captures },
+    { contacts },
+    { notes },
+    { photos },
+  ] = await Promise.all([
     getAccount(id),
     getVisitsForAccount(id),
     getInsightsForAccount(id),
     getTasksForAccount(id),
     getCapturesForAccount(id),
+    getAccountContacts(id),
+    getAccountNotes(id),
+    getAccountPhotos(id),
   ])
 
   if (!account || error) {
@@ -28,14 +40,23 @@ export default async function AccountDetailPage({
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-3xl">
+    <div className="p-4 max-w-3xl">
       <Link href="/accounts">
         <Button variant="ghost" size="sm" className="mb-4">
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Accounts
+          Back
         </Button>
       </Link>
-      <AccountDetail account={account} visits={visits} insights={insights} tasks={tasks} captures={captures} />
+      <AccountDetail
+        account={account}
+        visits={visits}
+        insights={insights}
+        tasks={tasks}
+        captures={captures}
+        contacts={contacts}
+        notes={notes}
+        photos={photos}
+      />
     </div>
   )
 }

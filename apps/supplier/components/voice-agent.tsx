@@ -1,12 +1,9 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Badge,
   Input,
   Label,
@@ -14,16 +11,43 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
-  ScrollArea,
-  Separator,
   Textarea,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
 } from '@kosha/ui'
-import { Mic, MicOff, Loader2, CheckCircle2, X, RotateCcw, Trash2, Pencil } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  Mic,
+  MicOff,
+  Loader2,
+  CheckCircle2,
+  X,
+  RotateCcw,
+  Trash2,
+  Pencil,
+  Menu,
+  User,
+  Send,
+  Square,
+  Search,
+  Check,
+  ChevronDown,
+} from 'lucide-react'
+import Link from 'next/link'
 import { toast } from '@/hooks/use-toast'
+import { ConversationList } from '@/components/conversation-list'
 import type { Account } from '@kosha/types'
+import type { Capture } from '@kosha/types'
+
+// ─── Types ──────────────────────────────────────────────────
 
 type AgentState = 'idle' | 'connecting' | 'active' | 'extracting' | 'saving' | 'done'
+type CaptureMode = 'voice' | 'text'
 
 interface TranscriptEntry {
   role: 'user' | 'assistant'
@@ -51,7 +75,10 @@ interface ExtractedCapture {
 
 interface VoiceAgentProps {
   accounts: Account[]
+  captures?: Capture[]
 }
+
+// ─── Config ─────────────────────────────────────────────────
 
 const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
@@ -65,18 +92,36 @@ const insightTypeConfig: Record<string, { label: string; className: string }> = 
 const priorityConfig: Record<string, { label: string; className: string }> = {
   high: { label: 'High', className: 'bg-red-100 text-red-700' },
   medium: { label: 'Medium', className: 'bg-amber-100 text-amber-700' },
-  low: { label: 'Low', className: 'bg-slate-100 text-slate-600' },
+  low: { label: 'Low', className: 'bg-slate-100 text-stone-600' },
 }
 
-export function VoiceAgent({ accounts }: VoiceAgentProps) {
+// ─── Component ──────────────────────────────────────────────
+
+export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
+  const searchParams = useSearchParams()
   const [state, setState] = useState<AgentState>('idle')
   const [accountId, setAccountId] = useState('')
+  const [accountSearch, setAccountSearch] = useState('')
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false)
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const [extractedCapture, setExtractedCapture] = useState<ExtractedCapture | null>(null)
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [textInput, setTextInput] = useState('')
+  const [conversationsOpen, setConversationsOpen] = useState(false)
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('voice')
+  const [textSending, setTextSending] = useState(false)
+  const chatHistoryRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+
+  // Pre-select account from URL param (e.g. /capture?accountId=xxx)
+  useEffect(() => {
+    const urlAccountId = searchParams.get('accountId')
+    if (urlAccountId && accounts.some((a) => a.id === urlAccountId)) {
+      setAccountId(urlAccountId)
+    }
+  }, [searchParams, accounts])
 
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const dcRef = useRef<RTCDataChannel | null>(null)
@@ -91,42 +136,31 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
 
   const selectedAccount = accounts.find((a) => a.id === accountId)
 
-  // Auto-scroll transcript — target the Radix ScrollArea viewport
+  // Auto-scroll transcript
   useEffect(() => {
-    if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]')
-      const target = viewport || scrollRef.current
-      target.scrollTop = target.scrollHeight
-    }
-  }, [transcript])
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: 'smooth',
+        })
+      }
+    })
+  }, [transcript, isSpeaking])
+
+  // ─── Core Logic (unchanged) ───────────────────────────────
 
   const cleanup = useCallback(() => {
-    if (dcRef.current) {
-      dcRef.current.close()
-      dcRef.current = null
-    }
-    if (pcRef.current) {
-      pcRef.current.close()
-      pcRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-    }
-    if (audioRef.current) {
-      audioRef.current.srcObject = null
-      audioRef.current = null
-    }
+    if (dcRef.current) { dcRef.current.close(); dcRef.current = null }
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
+    if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null }
+    if (audioRef.current) { audioRef.current.srcObject = null; audioRef.current = null }
   }, [])
 
   const fallbackExtract = useCallback(async () => {
     cleanup()
-
     const transcriptText = fullTranscriptRef.current.trim()
-    if (!transcriptText) {
-      setState('idle')
-      return
-    }
+    if (!transcriptText) { setState('idle'); return }
 
     setState('extracting')
     try {
@@ -135,19 +169,17 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript: transcriptText }),
       })
-
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || 'Extraction failed')
       }
-
       const data = await res.json() as ExtractedCapture
       if (data.insights && data.insights.length > 0) {
         setExtractedCapture(data)
         setState('saving')
       } else {
         setState('idle')
-        toast({ title: 'Capture ended', description: 'No insights could be extracted from the conversation.' })
+        toast({ title: 'Capture ended', description: 'No insights could be extracted.' })
       }
     } catch (error) {
       console.error('Fallback extraction failed:', error)
@@ -160,104 +192,6 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     }
   }, [cleanup])
 
-  const startCapture = useCallback(async () => {
-    if (!accountId || !selectedAccount) return
-
-    setState('connecting')
-    setTranscript([])
-    setExtractedCapture(null)
-    setIsSpeaking(false)
-    currentAssistantTextRef.current = ''
-    fullTranscriptRef.current = ''
-    functionCallArgsRef.current = ''
-    itemOrderRef.current = []
-
-    try {
-      // 1. Get ephemeral token
-      const sessionRes = await fetch('/api/capture/session', { method: 'POST' })
-      if (!sessionRes.ok) {
-        const err = await sessionRes.json()
-        throw new Error(err.error || 'Failed to create session')
-      }
-      const { client_secret } = await sessionRes.json()
-      if (!client_secret) throw new Error('No client secret returned')
-
-      // 2. Create peer connection
-      const pc = new RTCPeerConnection()
-      pcRef.current = pc
-
-      // 3. Set up remote audio playback
-      const audio = document.createElement('audio')
-      audio.autoplay = true
-      audioRef.current = audio
-
-      pc.ontrack = (event) => {
-        audio.srcObject = event.streams[0]
-      }
-
-      // 4. Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
-      streamRef.current = stream
-      pc.addTrack(stream.getAudioTracks()[0], stream)
-
-      // 5. Create data channel for events
-      const dc = pc.createDataChannel('oai-events')
-      dcRef.current = dc
-
-      dc.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data)
-          handleRealtimeEvent(event)
-        } catch {
-          // ignore parse errors
-        }
-      }
-
-      // 6. Create SDP offer
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-
-      // 7. Send offer to OpenAI Realtime API
-      const sdpRes = await fetch(
-        'https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
-        {
-          method: 'POST',
-          body: offer.sdp,
-          headers: {
-            Authorization: `Bearer ${client_secret}`,
-            'Content-Type': 'application/sdp',
-          },
-        }
-      )
-
-      if (!sdpRes.ok) {
-        throw new Error('Failed to connect to voice service')
-      }
-
-      const answerSdp = await sdpRes.text()
-      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
-
-      setState('active')
-    } catch (error) {
-      console.error('Failed to start capture:', error)
-      cleanup()
-      setState('idle')
-      toast({
-        title: 'Connection failed',
-        description: error instanceof Error ? error.message : 'Failed to start voice capture',
-        variant: 'destructive',
-      })
-    }
-  }, [accountId, selectedAccount, cleanup])
-
-  // Track item creation order from the Realtime API so we can sort transcript entries correctly.
-  // Whisper transcription of user speech can arrive AFTER the assistant response, causing misordering.
   const trackItemOrder = useCallback((itemId: string) => {
     if (itemId && !itemOrderRef.current.includes(itemId)) {
       itemOrderRef.current.push(itemId)
@@ -277,15 +211,12 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     const type = event.type as string
 
     switch (type) {
-      // Track item creation order — fires in correct conversational order
       case 'conversation.item.created': {
         const item = event.item as Record<string, unknown> | undefined
         const itemId = item?.id as string
         if (itemId) trackItemOrder(itemId)
         break
       }
-
-      // User speech transcription (may arrive late — after assistant response)
       case 'conversation.item.input_audio_transcription.completed': {
         const userText = (event.transcript as string || '').trim()
         const itemId = event.item_id as string
@@ -296,23 +227,14 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         }
         break
       }
-
-      // Assistant audio transcript delta — AI is speaking
       case 'response.audio_transcript.delta': {
         const delta = event.delta as string || ''
         currentAssistantTextRef.current += delta
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
-        // Auto-mute mic while AI speaks to prevent echo triggering VAD
-        if (streamRef.current && !isMutedRef.current) {
-          const track = streamRef.current.getAudioTracks()[0]
-          if (track) track.enabled = false
-        }
         setIsSpeaking(true)
         break
       }
-
-      // Assistant audio transcript complete — AI stopped speaking
       case 'response.audio_transcript.done': {
         const assistantText = (event.transcript as string || currentAssistantTextRef.current).trim()
         const itemId = event.item_id as string
@@ -323,41 +245,27 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         }
         currentAssistantTextRef.current = ''
         setIsSpeaking(false)
-        // Re-enable mic after AI finishes (unless user manually muted)
-        if (streamRef.current && !isMutedRef.current) {
-          const track = streamRef.current.getAudioTracks()[0]
-          if (track) track.enabled = true
-        }
         break
       }
-
-      // Function call arguments streaming in
       case 'response.function_call_arguments.delta': {
         const delta = event.delta as string || ''
         functionCallArgsRef.current += delta
         break
       }
-
-      // Function call completed — agent wants to save
       case 'response.function_call_arguments.done': {
         const name = event.name as string
         if (name === 'save_capture') {
-          // Use event.arguments first, fall back to accumulated deltas
           const argsString = (event.arguments as string) || functionCallArgsRef.current
           functionCallArgsRef.current = ''
-
           try {
             const args = JSON.parse(argsString) as ExtractedCapture
-            // Validate that we actually have insights
             if (!args.insights || args.insights.length === 0) {
-              console.warn('save_capture called with no insights, falling back to transcript extraction')
               fallbackExtract()
               return
             }
             setExtractedCapture(args)
             setState('saving')
-          } catch (err) {
-            console.warn('Failed to parse save_capture args, falling back to transcript extraction:', err)
+          } catch {
             fallbackExtract()
           }
         } else {
@@ -365,11 +273,76 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         }
         break
       }
-
-      default:
-        break
     }
   }, [fallbackExtract, trackItemOrder, sortByItemOrder])
+
+  const startCapture = useCallback(async () => {
+    setState('connecting')
+    setTranscript([])
+    setExtractedCapture(null)
+    setIsSpeaking(false)
+    currentAssistantTextRef.current = ''
+    fullTranscriptRef.current = ''
+    functionCallArgsRef.current = ''
+    itemOrderRef.current = []
+
+    try {
+      const sessionRes = await fetch('/api/capture/session', { method: 'POST' })
+      if (!sessionRes.ok) {
+        const err = await sessionRes.json()
+        throw new Error(err.error || 'Failed to create session')
+      }
+      const { client_secret } = await sessionRes.json()
+      if (!client_secret) throw new Error('No client secret returned')
+
+      const pc = new RTCPeerConnection()
+      pcRef.current = pc
+
+      const audio = document.createElement('audio')
+      audio.autoplay = true
+      audioRef.current = audio
+
+      pc.ontrack = (event) => { audio.srcObject = event.streams[0] }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      })
+      streamRef.current = stream
+      pc.addTrack(stream.getAudioTracks()[0], stream)
+
+      const dc = pc.createDataChannel('oai-events')
+      dcRef.current = dc
+      dc.onmessage = (e) => {
+        try { handleRealtimeEvent(JSON.parse(e.data)) } catch { /* ignore */ }
+      }
+
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+
+      const sdpRes = await fetch(
+        'https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
+        {
+          method: 'POST',
+          body: offer.sdp,
+          headers: { Authorization: `Bearer ${client_secret}`, 'Content-Type': 'application/sdp' },
+        }
+      )
+      if (!sdpRes.ok) throw new Error('Failed to connect to voice service')
+
+      const answerSdp = await sdpRes.text()
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+      setState('active')
+    } catch (error) {
+      console.error('Failed to start capture:', error)
+      cleanup()
+      setState('idle')
+      toast({
+        title: 'Connection failed',
+        description: error instanceof Error ? error.message : 'Failed to start voice capture',
+        variant: 'destructive',
+      })
+    }
+  }, [cleanup, handleRealtimeEvent])
 
   const toggleMute = useCallback(() => {
     if (streamRef.current) {
@@ -383,13 +356,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   }, [])
 
   const stopCapture = useCallback(async () => {
-    // If the AI already extracted capture, just clean up (saving state handles it)
-    if (extractedCapture) {
-      cleanup()
-      return
-    }
-
-    // If there's transcript content, fallbackExtract handles cleanup + extraction
+    if (extractedCapture) { cleanup(); return }
     if (transcript.length > 0) {
       await fallbackExtract()
     } else {
@@ -399,7 +366,7 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   }, [cleanup, transcript.length, extractedCapture, fallbackExtract])
 
   const saveCapture = useCallback(async () => {
-    if (!extractedCapture || !selectedAccount) return
+    if (!extractedCapture) return
 
     setSaving(true)
     try {
@@ -407,20 +374,18 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          account_id: accountId,
-          account_name: selectedAccount.name,
+          account_id: accountId || null,
+          account_name: selectedAccount?.name || 'Unknown Account',
           summary: extractedCapture.summary,
           insights: extractedCapture.insights,
           tasks: extractedCapture.tasks,
           transcript: fullTranscriptRef.current || null,
         }),
       })
-
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || 'Failed to save capture')
       }
-
       cleanup()
       setState('done')
       toast({ title: 'Capture saved' })
@@ -438,6 +403,8 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
   const discardCapture = useCallback(() => {
     cleanup()
     setExtractedCapture(null)
+    setCaptureMode('voice')
+    chatHistoryRef.current = []
     setState('idle')
   }, [cleanup])
 
@@ -446,438 +413,664 @@ export function VoiceAgent({ accounts }: VoiceAgentProps) {
     setTranscript([])
     setExtractedCapture(null)
     setAccountId('')
+    setCaptureMode('voice')
     fullTranscriptRef.current = ''
+    chatHistoryRef.current = []
   }, [])
 
-  // ─── Idle State ───────────────────────────────────────────
-  if (state === 'idle') {
-    return (
-      <div className="flex flex-col items-center text-center max-w-md mx-auto">
-        {/* Account selector */}
-        <div className="w-full">
-          <Select value={accountId} onValueChange={setAccountId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select an account" />
-            </SelectTrigger>
-            <SelectContent>
-              {accounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  {account.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+  const startTextChat = useCallback(async (initialMessage: string) => {
+    setCaptureMode('text')
+    setState('active')
+    setTranscript([])
+    setExtractedCapture(null)
+    fullTranscriptRef.current = ''
+    chatHistoryRef.current = []
 
-        {/* Hero mic icon with subtle glow */}
-        <div className="relative flex items-center justify-center mt-16 mb-14">
-          {/* Soft glow ring */}
-          <div
-            className="absolute h-36 w-36 rounded-full bg-amber-100/40"
-            style={{ animation: 'pulse-glow 3s ease-in-out infinite' }}
-          />
-          {/* Static outer ring */}
-          <div className="absolute h-28 w-28 rounded-full border border-slate-200/80" />
-          {/* Mic circle */}
-          <div className="h-20 w-20 rounded-full bg-white border border-slate-200 flex items-center justify-center z-10 shadow-sm">
-            <Mic className="h-8 w-8 text-amber-600" />
-          </div>
-        </div>
+    // Add user message
+    const userEntry: TranscriptEntry = { role: 'user', text: initialMessage }
+    setTranscript([userEntry])
+    fullTranscriptRef.current += `Rep: ${initialMessage}\n`
+    chatHistoryRef.current.push({ role: 'user', content: initialMessage })
 
-        {/* Label + dynamic text */}
-        <h3 className="text-lg font-semibold text-slate-900">Post-Meeting Capture</h3>
-        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-          {selectedAccount ? (
-            <>
-              Tap to start a quick voice conversation about your visit with{' '}
-              <span className="font-medium text-slate-700">{selectedAccount.name}</span>.
-            </>
-          ) : (
-            'Select an account above to begin capturing field intelligence.'
-          )}
-        </p>
+    // Get AI response
+    setTextSending(true)
+    try {
+      const res = await fetch('/api/capture/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: chatHistoryRef.current }),
+      })
+      if (!res.ok) throw new Error('Failed to get AI response')
+      const data = await res.json() as { message: string; isComplete: boolean }
 
-        {/* CTA button */}
-        <Button
-          className="w-full mt-10"
-          size="lg"
-          disabled={!accountId}
-          onClick={startCapture}
-        >
-          <Mic className="h-5 w-5 mr-2" />
-          Start Summary
-        </Button>
-      </div>
-    )
-  }
+      chatHistoryRef.current.push({ role: 'assistant', content: data.message })
+      fullTranscriptRef.current += `Assistant: ${data.message}\n`
+      setTranscript((prev) => [...prev, { role: 'assistant', text: data.message }])
 
-  // ─── Connecting State ─────────────────────────────────────
-  if (state === 'connecting') {
-    return (
-      <div className="flex flex-col items-center text-center py-16">
-        <div className="relative flex items-center justify-center mb-6">
-          <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
-            <Mic className="h-8 w-8 text-amber-600" />
-          </div>
-          <div className="absolute h-24 w-24 rounded-full border-2 border-amber-400/40 border-t-transparent animate-spin" />
-        </div>
-        <p className="text-sm text-muted-foreground">Connecting to AI assistant...</p>
-      </div>
-    )
-  }
+      if (data.isComplete) {
+        await fallbackExtract()
+      }
+    } catch (error) {
+      console.error('Text chat error:', error)
+      toast({
+        title: 'Chat error',
+        description: 'Failed to get a response. Try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setTextSending(false)
+    }
+  }, [fallbackExtract])
 
-  // ─── Active State ─────────────────────────────────────────
-  if (state === 'active') {
-    return (
-      <div className="flex flex-col items-center w-full max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between w-full mb-8">
-          <div className="flex items-center gap-2">
-            <div className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-sm font-medium text-slate-700">
-              {selectedAccount?.name}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant={isMuted ? 'default' : 'outline'}
-              size="sm"
-              onClick={toggleMute}
-              className={isMuted ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
-            >
-              {isMuted ? <MicOff className="h-4 w-4 mr-1.5" /> : <Mic className="h-4 w-4 mr-1.5" />}
-              {isMuted ? 'Muted' : 'Mute'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={stopCapture}>
-              <MicOff className="h-4 w-4 mr-1.5" />
-              End
-            </Button>
-          </div>
-        </div>
+  const sendTextMessage = useCallback(async (message: string) => {
+    if (!message.trim() || textSending) return
 
-        {/* AI Orb — ChatGPT-inspired */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="h-24 w-24 rounded-full bg-gradient-to-br from-amber-400 via-orange-300 to-amber-500 flex items-center justify-center transition-all duration-500"
-            style={{
-              animation: isSpeaking
-                ? 'orb-speak 1.2s ease-in-out infinite'
-                : 'orb-breathe 3s ease-in-out infinite',
-            }}
+    const userEntry: TranscriptEntry = { role: 'user', text: message }
+    setTranscript((prev) => [...prev, userEntry])
+    fullTranscriptRef.current += `Rep: ${message}\n`
+    chatHistoryRef.current.push({ role: 'user', content: message })
+
+    setTextSending(true)
+    try {
+      const res = await fetch('/api/capture/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: chatHistoryRef.current }),
+      })
+      if (!res.ok) throw new Error('Failed to get AI response')
+      const data = await res.json() as { message: string; isComplete: boolean }
+
+      chatHistoryRef.current.push({ role: 'assistant', content: data.message })
+      fullTranscriptRef.current += `Assistant: ${data.message}\n`
+      setTranscript((prev) => [...prev, { role: 'assistant', text: data.message }])
+
+      if (data.isComplete) {
+        await fallbackExtract()
+      }
+    } catch (error) {
+      console.error('Text chat error:', error)
+      toast({
+        title: 'Chat error',
+        description: 'Failed to get a response. Try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setTextSending(false)
+    }
+  }, [textSending, fallbackExtract])
+
+  const handleTextSend = useCallback(() => {
+    if (!textInput.trim()) return
+    const message = textInput.trim()
+    setTextInput('')
+
+    if (state === 'idle') {
+      startTextChat(message)
+    } else if (state === 'active' && captureMode === 'text') {
+      sendTextMessage(message)
+    }
+  }, [textInput, state, captureMode, startTextChat, sendTextMessage])
+
+  // ─── Render ───────────────────────────────────────────────
+
+  return (
+    <div className="relative min-h-[calc(100vh-5rem)]">
+      <AnimatePresence mode="wait">
+        {/* ─── Idle State ─────────────────────────────────────── */}
+        {state === 'idle' && (
+          <motion.div
+            key="idle"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col items-center h-[calc(100vh-5rem)] overflow-hidden"
           >
-            <Mic className="h-8 w-8 text-white" />
-          </div>
-          <p className="text-xs text-muted-foreground mt-4">
-            {isMuted ? 'Muted' : isSpeaking ? 'AI is speaking...' : 'Listening...'}
-          </p>
-        </div>
+            {/* Top Bar */}
+            <div className="flex items-center justify-between w-full px-5 pt-5">
+              <button
+                className="p-2 -ml-2 rounded-xl hover:bg-stone-100 transition-colors"
+                onClick={() => setConversationsOpen(true)}
+              >
+                <Menu className="h-6 w-6 text-stone-700" />
+              </button>
 
-        {/* Transcript */}
-        <Card className="w-full">
-          <CardContent className="p-0">
-            <ScrollArea className="h-[50vh] min-h-[320px] p-4" ref={scrollRef}>
+              <Link
+                href="/settings"
+                className="p-2 -mr-2 rounded-xl hover:bg-stone-100 transition-colors ml-auto"
+              >
+                <User className="h-6 w-6 text-stone-700" />
+              </Link>
+            </div>
+
+            {/* Gradient Orb */}
+            <div className="flex-1 flex flex-col items-center justify-center -mt-8">
+              <button
+                onClick={startCapture}
+                className="relative group focus:outline-none"
+                aria-label="Tap to talk with Kosha"
+              >
+                <div
+                  className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40 transition-transform duration-200 group-active:scale-95 flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                    animation: 'orb-breathe 4s ease-in-out infinite',
+                  }}
+                />
+                <div
+                  className="absolute inset-0 h-48 w-48 rounded-full flex items-center justify-center"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="530 267 457 536" fill="none" className="h-14 w-14 drop-shadow-sm">
+                    <g fill="rgba(255,255,255,0.9)">
+                      <path d="M 695.0 783.5 L 573.5 783.0 L 573.5 404.0 L 549.5 374.0 L 695.0 286.5 L 695.0 783.5 Z"/>
+                      <path d="M 898.0 509.5 L 886.0 509.5 L 877.0 507.5 L 854.0 497.5 L 840.0 493.5 L 818.0 494.5 L 806.0 499.5 L 794.5 508.0 L 819.5 457.0 L 836.5 430.0 L 855.0 410.5 L 869.0 402.5 L 882.0 398.5 L 905.0 399.5 L 912.0 401.5 L 926.0 409.5 L 939.5 425.0 L 944.5 437.0 L 946.5 447.0 L 946.5 458.0 L 943.5 472.0 L 936.5 486.0 L 922.0 500.5 L 910.0 506.5 L 898.0 509.5 Z"/>
+                      <path d="M 967.0 783.5 L 828.0 783.5 L 726.5 653.0 L 723.5 649.0 L 723.5 646.0 L 778.0 539.5 L 954.5 765.0 L 967.5 782.0 L 967.0 783.5 Z"/>
+                    </g>
+                  </svg>
+                </div>
+              </button>
+
+              <p className="text-base text-stone-600 mt-8 font-medium">
+                Tap to talk with Kosha
+              </p>
+            </div>
+
+            {/* Text Input */}
+            <div className="w-full px-5 pb-6">
+              {accounts.length > 0 && (
+                <div className="mb-2 flex justify-center">
+                  <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-stone-600 border border-stone-200 bg-white transition-colors hover:text-stone-700 hover:border-stone-300 active:bg-stone-50 shadow-sm">
+                        <span>
+                          {selectedAccount?.name || 'Select account'}
+                        </span>
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[calc(100vw-2.5rem)] p-0 rounded-2xl border-stone-200 shadow-lg"
+                      align="center"
+                      sideOffset={8}
+                    >
+                      <div className="p-3 border-b border-stone-100">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                          <input
+                            type="text"
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-stone-50 rounded-lg border-0 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-800/10"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto py-1">
+                        <button
+                          onClick={() => {
+                            setAccountId('')
+                            setAccountSearch('')
+                            setAccountPopoverOpen(false)
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                            !accountId ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
+                          )}
+                        >
+                          <div className="h-4 w-4 flex items-center justify-center">
+                            {!accountId && <Check className="h-4 w-4 text-teal-600" />}
+                          </div>
+                          <span className="font-medium">Auto-detect from conversation</span>
+                        </button>
+                        {accounts
+                          .filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase()))
+                          .map((account) => (
+                            <button
+                              key={account.id}
+                              onClick={() => {
+                                setAccountId(account.id)
+                                setAccountSearch('')
+                                setAccountPopoverOpen(false)
+                              }}
+                              className={cn(
+                                'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                                accountId === account.id ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
+                              )}
+                            >
+                              <div className="h-4 w-4 flex items-center justify-center">
+                                {accountId === account.id && <Check className="h-4 w-4 text-teal-600" />}
+                              </div>
+                              <span>{account.name}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="or type your thoughts..."
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                  className="w-full pl-4 pr-12 py-3.5 bg-white rounded-full border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm"
+                />
+                <button
+                  onClick={handleTextSend}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ─── Connecting State ────────────────────────────────── */}
+        {state === 'connecting' && (
+          <motion.div
+            key="connecting"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)]"
+          >
+            <div
+              className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40"
+              style={{
+                background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                animation: 'connecting-glow 1.5s ease-in-out infinite',
+              }}
+            />
+            <p className="text-sm text-stone-500 mt-8 animate-pulse">
+              Connecting to Kosha...
+            </p>
+          </motion.div>
+        )}
+
+        {/* ─── Active State ───────────────────────────────────── */}
+        {state === 'active' && (
+          <motion.div
+            key="active"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col min-h-[calc(100vh-5rem)]"
+          >
+            {/* Header with small orb */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-10 w-10 rounded-full"
+                  style={{
+                    background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                    animation: isSpeaking
+                      ? 'orb-speak 1.2s ease-in-out infinite'
+                      : 'orb-pulse-small 2s ease-in-out infinite',
+                  }}
+                />
+                <div>
+                  <p className="text-sm font-semibold text-stone-800">
+                    {selectedAccount?.name || 'Conversation'}
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    {captureMode === 'text'
+                      ? (textSending ? 'Kosha is typing...' : 'Text chat')
+                      : (isMuted ? 'Muted' : isSpeaking ? 'Kosha is speaking...' : 'Listening...')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {captureMode === 'voice' && (
+                  <button
+                    onClick={toggleMute}
+                    className={`h-9 w-9 rounded-full flex items-center justify-center transition-colors ${
+                      isMuted ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-stone-600'
+                    }`}
+                  >
+                    {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live indicator */}
+            <div className="flex items-center gap-2 px-5 pb-3">
+              <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-medium text-red-500 uppercase tracking-wider">Live</span>
+            </div>
+
+            {/* Transcript */}
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-y-auto px-5 pb-24"
+            >
               {transcript.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-12">
-                  Start speaking about your observation.
-                </p>
+                <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                  <div className="h-12 w-12 rounded-full bg-stone-100 flex items-center justify-center mb-3">
+                    {captureMode === 'text' ? <Send className="h-5 w-5 text-stone-400" /> : <Mic className="h-5 w-5 text-stone-400" />}
+                  </div>
+                  <p className="text-sm text-stone-400">
+                    {captureMode === 'text' ? 'Type about your meeting...' : 'Start speaking about your meeting...'}
+                  </p>
+                </div>
               ) : (
-                <div className="space-y-3 px-1">
+                <div className="space-y-3">
                   {transcript.map((entry, i) => (
-                    <div
+                    <motion.div
                       key={i}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
                       className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                           entry.role === 'user'
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-100 text-slate-900'
+                            ? 'bg-stone-800 text-white rounded-br-md'
+                            : 'bg-white text-stone-800 border border-stone-100 rounded-bl-md shadow-sm'
                         }`}
                       >
                         {entry.text}
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  // ─── Extracting State ────────────────────────────────────
-  if (state === 'extracting') {
-    return (
-      <div className="flex flex-col items-center text-center py-16">
-        <div className="relative flex items-center justify-center mb-6">
-          <div className="h-20 w-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
-          </div>
-        </div>
-        <h3 className="text-lg font-semibold text-slate-900 mb-1">Processing Conversation</h3>
-        <p className="text-sm text-muted-foreground">
-          Extracting insights and tasks from your conversation...
-        </p>
-      </div>
-    )
-  }
-
-  // ─── Saving State ─────────────────────────────────────────
-  if (state === 'saving' && extractedCapture) {
-    const updateSummary = (summary: string) => {
-      setExtractedCapture((prev) => prev ? { ...prev, summary } : prev)
-    }
-
-    const updateInsight = (index: number, field: keyof ExtractedInsightItem, value: string) => {
-      setExtractedCapture((prev) => {
-        if (!prev) return prev
-        const insights = [...prev.insights]
-        insights[index] = { ...insights[index], [field]: value }
-        return { ...prev, insights }
-      })
-    }
-
-    const removeInsight = (index: number) => {
-      setExtractedCapture((prev) => {
-        if (!prev) return prev
-        return { ...prev, insights: prev.insights.filter((_, i) => i !== index) }
-      })
-    }
-
-    const updateTask = (index: number, field: keyof ExtractedTaskItem, value: string) => {
-      setExtractedCapture((prev) => {
-        if (!prev) return prev
-        const tasks = [...prev.tasks]
-        tasks[index] = { ...tasks[index], [field]: value }
-        return { ...prev, tasks }
-      })
-    }
-
-    const removeTask = (index: number) => {
-      setExtractedCapture((prev) => {
-        if (!prev) return prev
-        return { ...prev, tasks: prev.tasks.filter((_, i) => i !== index) }
-      })
-    }
-
-    const insightTypes = ['demand', 'competitive', 'friction', 'expansion', 'relationship', 'promotion'] as const
-
-    // Group insights by type for read-only view
-    const insightsByType = extractedCapture.insights.reduce<Record<string, ExtractedInsightItem[]>>(
-      (acc, item) => {
-        const key = item.type
-        if (!acc[key]) acc[key] = []
-        acc[key].push(item)
-        return acc
-      },
-      {}
-    )
-
-    return (
-      <Card className="w-full max-w-lg mx-auto">
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Review Capture</CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => setIsEditing(!isEditing)}
-          >
-            <Pencil className={`h-4 w-4 ${isEditing ? 'text-amber-600' : 'text-muted-foreground'}`} />
-          </Button>
-        </CardHeader>
-        <Separator />
-        <CardContent className="pt-4 space-y-5">
-          {/* Summary */}
-          {isEditing ? (
-            <div>
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Summary</Label>
-              <Textarea
-                value={extractedCapture.summary}
-                onChange={(e) => updateSummary(e.target.value)}
-                className="mt-1.5 text-sm resize-none"
-                rows={3}
-              />
             </div>
-          ) : (
-            extractedCapture.summary && (
-              <p className="text-sm leading-relaxed text-slate-700">
-                {extractedCapture.summary}
-              </p>
-            )
-          )}
 
-          {/* Insights */}
-          {isEditing ? (
-            <div>
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Insights</Label>
-              <div className="mt-2 space-y-3">
-                {extractedCapture.insights.map((item, i) => {
-                  const config = insightTypeConfig[item.type] || insightTypeConfig.demand
-                  return (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <Select value={item.type} onValueChange={(v) => updateInsight(i, 'type', v)}>
-                          <SelectTrigger className="h-7 w-auto">
-                            <Badge className={config.className}>{config.label}</Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {insightTypes.map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {insightTypeConfig[t].label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                          onClick={() => removeInsight(i)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                      <Input
-                        value={item.description}
-                        onChange={(e) => updateInsight(i, 'description', e.target.value)}
-                        placeholder="Description"
-                        className="text-sm h-8"
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : (
-            Object.entries(insightsByType).map(([type, items]) => {
-              const config = insightTypeConfig[type] || insightTypeConfig.demand
-              return (
-                <div key={type}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Badge className={config.className}>{config.label}</Badge>
+            {/* Bottom Bar */}
+            {captureMode === 'text' ? (
+              <div className="fixed bottom-24 left-0 right-0 px-4 z-20">
+                <div className="flex items-center gap-2 max-w-lg mx-auto">
+                  <button
+                    onClick={stopCapture}
+                    className="h-11 w-11 shrink-0 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </button>
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="Type a message..."
+                      value={textInput}
+                      onChange={(e) => setTextInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                      disabled={textSending}
+                      className="w-full pl-4 pr-12 py-3 bg-white rounded-full border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm disabled:opacity-50"
+                    />
+                    <button
+                      onClick={handleTextSend}
+                      disabled={textSending || !textInput.trim()}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      {textSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
-                  <ul className="space-y-1 pl-4">
-                    {items.map((item, i) => (
-                      <li key={i} className="text-sm text-slate-700 list-disc">
-                        {item.description}
-                      </li>
-                    ))}
-                  </ul>
                 </div>
-              )
-            })
-          )}
+              </div>
+            ) : (
+              <div className="fixed bottom-24 left-0 right-0 flex justify-center z-20">
+                <button
+                  onClick={stopCapture}
+                  className="h-14 w-14 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"
+                >
+                  <Square className="h-5 w-5 fill-current" />
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
 
-          {/* Tasks */}
-          {extractedCapture.tasks.length > 0 && (
-            <>
-              <Separator />
+        {/* ─── Extracting State ───────────────────────────────── */}
+        {state === 'extracting' && (
+          <motion.div
+            key="extracting"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)]"
+          >
+            <div className="h-20 w-20 rounded-full bg-gradient-to-br from-violet-400 via-fuchsia-300 to-orange-300 flex items-center justify-center">
+              <Loader2 className="h-8 w-8 text-white animate-spin" />
+            </div>
+            <h3 className="text-lg font-semibold text-stone-800 mt-6 mb-1">Processing</h3>
+            <p className="text-sm text-stone-500">
+              Extracting insights from your conversation...
+            </p>
+          </motion.div>
+        )}
+
+        {/* ─── Saving / Review State ──────────────────────────── */}
+        {state === 'saving' && extractedCapture && (
+          <motion.div
+            key="saving"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="flex flex-col min-h-[calc(100vh-5rem)]"
+          >
+            {/* Review Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <h2 className="text-lg font-bold text-stone-800">Review Capture</h2>
+              <button
+                onClick={() => setIsEditing(!isEditing)}
+                className={`p-2 rounded-lg transition-colors ${
+                  isEditing ? 'bg-violet-100 text-violet-700' : 'bg-stone-100 text-stone-500'
+                }`}
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-5 pb-32 space-y-5">
+              {/* Summary */}
+              {isEditing ? (
+                <div>
+                  <Label className="text-xs text-stone-500 uppercase tracking-wider">Summary</Label>
+                  <Textarea
+                    value={extractedCapture.summary}
+                    onChange={(e) => setExtractedCapture((prev) => prev ? { ...prev, summary: e.target.value } : prev)}
+                    className="mt-1.5 text-sm resize-none rounded-xl"
+                    rows={3}
+                  />
+                </div>
+              ) : (
+                extractedCapture.summary && (
+                  <p className="text-sm leading-relaxed text-stone-700 bg-white rounded-xl p-4 border border-stone-100">
+                    {extractedCapture.summary}
+                  </p>
+                )
+              )}
+
+              {/* Insights */}
               <div>
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Follow-up Tasks
-                </Label>
-                {isEditing ? (
-                  <div className="mt-2 space-y-3">
-                    {extractedCapture.tasks.map((task, i) => {
-                      const pConfig = priorityConfig[task.priority] || priorityConfig.medium
-                      return (
-                        <div key={i} className="border rounded-lg p-3 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <Select value={task.priority} onValueChange={(v) => updateTask(i, 'priority', v)}>
-                              <SelectTrigger className="h-7 w-auto">
-                                <Badge variant="secondary" className={`${pConfig.className}`}>
-                                  {pConfig.label}
-                                </Badge>
+                <h3 className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-3">
+                  Insights ({extractedCapture.insights.length})
+                </h3>
+                <div className="space-y-2">
+                  {extractedCapture.insights.map((item, i) => {
+                    const config = insightTypeConfig[item.type] || insightTypeConfig.demand
+                    return (
+                      <div key={i} className="bg-white rounded-xl p-3.5 border border-stone-100">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          {isEditing ? (
+                            <Select value={item.type} onValueChange={(v: string) => {
+                              setExtractedCapture((prev) => {
+                                if (!prev) return prev
+                                const insights = [...prev.insights]
+                                insights[i] = { ...insights[i], type: v }
+                                return { ...prev, insights }
+                              })
+                            }}>
+                              <SelectTrigger className="h-7 w-auto border-0 p-0">
+                                <Badge className={config.className}>{config.label}</Badge>
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="low">Low</SelectItem>
+                                {Object.entries(insightTypeConfig).map(([key, cfg]) => (
+                                  <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                              onClick={() => removeTask(i)}
+                          ) : (
+                            <Badge className={config.className}>{config.label}</Badge>
+                          )}
+                          {isEditing && (
+                            <button
+                              onClick={() => setExtractedCapture((prev) => {
+                                if (!prev) return prev
+                                return { ...prev, insights: prev.insights.filter((_, idx) => idx !== i) }
+                              })}
+                              className="p-1 text-stone-400 hover:text-red-500 transition-colors"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                          <Input
-                            value={task.task}
-                            onChange={(e) => updateTask(i, 'task', e.target.value)}
-                            placeholder="Task description"
-                            className="text-sm h-8"
-                          />
+                            </button>
+                          )}
                         </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="mt-2 space-y-2">
+                        {isEditing ? (
+                          <Input
+                            value={item.description}
+                            onChange={(e) => {
+                              setExtractedCapture((prev) => {
+                                if (!prev) return prev
+                                const insights = [...prev.insights]
+                                insights[i] = { ...insights[i], description: e.target.value }
+                                return { ...prev, insights }
+                              })
+                            }}
+                            className="text-sm h-8 border-stone-200"
+                          />
+                        ) : (
+                          <p className="text-sm text-stone-700">{item.description}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Tasks */}
+              {extractedCapture.tasks.length > 0 && (
+                <div>
+                  <h3 className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-3">
+                    Follow-ups ({extractedCapture.tasks.length})
+                  </h3>
+                  <div className="space-y-2">
                     {extractedCapture.tasks.map((task, i) => {
                       const pConfig = priorityConfig[task.priority] || priorityConfig.medium
                       return (
-                        <div key={i} className="flex items-start gap-2">
-                          <div className="h-4 w-4 rounded-sm border border-slate-300 mt-0.5 shrink-0" />
+                        <div key={i} className="bg-white rounded-xl p-3.5 border border-stone-100 flex items-start gap-3">
+                          <div className="h-5 w-5 rounded border-2 border-stone-300 mt-0.5 shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm">{task.task}</p>
-                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1 ${pConfig.className}`}>
+                            {isEditing ? (
+                              <Input
+                                value={task.task}
+                                onChange={(e) => {
+                                  setExtractedCapture((prev) => {
+                                    if (!prev) return prev
+                                    const tasks = [...prev.tasks]
+                                    tasks[i] = { ...tasks[i], task: e.target.value }
+                                    return { ...prev, tasks }
+                                  })
+                                }}
+                                className="text-sm h-8 border-stone-200"
+                              />
+                            ) : (
+                              <p className="text-sm text-stone-700">{task.task}</p>
+                            )}
+                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 mt-1.5 ${pConfig.className}`}>
                               {pConfig.label}
                             </Badge>
                           </div>
+                          {isEditing && (
+                            <button
+                              onClick={() => setExtractedCapture((prev) => {
+                                if (!prev) return prev
+                                return { ...prev, tasks: prev.tasks.filter((_, idx) => idx !== i) }
+                              })}
+                              className="p-1 text-stone-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       )
                     })}
                   </div>
-                )}
-              </div>
-            </>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <Button
-              className="flex-1"
-              onClick={saveCapture}
-              disabled={saving || extractedCapture.insights.length === 0}
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Save Capture
-                </>
+                </div>
               )}
-            </Button>
-            <Button variant="outline" onClick={discardCapture} disabled={saving}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+            </div>
 
-  // ─── Done State ───────────────────────────────────────────
-  return (
-    <div className="flex flex-col items-center text-center py-12">
-      <CheckCircle2 className="h-14 w-14 text-emerald-500 mb-4" />
-      <h3 className="text-lg font-semibold text-slate-900 mb-1">Capture Saved</h3>
-      <p className="text-sm text-muted-foreground mb-6">
-        Your field intelligence and follow-up tasks have been saved.
-      </p>
-      <Button onClick={reset}>
-        <RotateCcw className="h-4 w-4 mr-2" />
-        Capture Another
-      </Button>
+            {/* Fixed Bottom Actions */}
+            <div className="fixed bottom-20 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
+              <div className="flex gap-3 max-w-lg mx-auto">
+                <button
+                  onClick={saveCapture}
+                  disabled={saving || extractedCapture.insights.length === 0}
+                  className="flex-1 h-12 bg-[#D97706] hover:bg-[#B45309] text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all"
+                >
+                  {saving ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</>
+                  ) : (
+                    <><CheckCircle2 className="h-4 w-4" /> Save Capture</>
+                  )}
+                </button>
+                <button
+                  onClick={discardCapture}
+                  disabled={saving}
+                  className="h-12 w-12 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-500 hover:text-red-500 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ─── Done State ─────────────────────────────────────── */}
+        {state === 'done' && (
+          <motion.div
+            key="done"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] px-5"
+          >
+            <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-stone-800 mb-1">Capture Saved</h3>
+            <p className="text-sm text-stone-500 mb-8 text-center">
+              Your field intelligence and follow-up tasks have been saved.
+            </p>
+            <button
+              onClick={reset}
+              className="h-12 px-6 bg-stone-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 active:scale-[0.98] transition-all"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Capture Another
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Conversations Sheet */}
+      <Sheet open={conversationsOpen} onOpenChange={setConversationsOpen}>
+        <SheetContent side="left" className="w-[78vw] max-w-sm" hideCloseButton>
+          <SheetHeader>
+            <SheetTitle>Conversations</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">
+            <ConversationList captures={captures} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

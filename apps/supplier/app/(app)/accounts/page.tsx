@@ -5,7 +5,7 @@ export default async function AccountsPage() {
   const { accounts } = await getAccounts()
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="flex flex-col min-h-screen">
       <AccountsList initialAccounts={accounts} />
     </div>
   )

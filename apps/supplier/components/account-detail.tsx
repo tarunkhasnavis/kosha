@@ -20,13 +20,25 @@ import {
   Separator,
   Skeleton,
 } from '@kosha/ui'
-import { Pencil, Building2, MapPin, Calendar } from 'lucide-react'
+import {
+  Pencil,
+  MapPin,
+  Phone,
+  MessageSquare,
+  Navigation,
+  Sparkles,
+  Camera,
+  Users,
+  Handshake,
+  Plus,
+} from 'lucide-react'
 import { AccountForm } from './account-form'
 import { TaskList } from './task-list'
 import { ConversationList } from './conversation-list'
 import { deleteAccount } from '@/lib/accounts/actions'
 import { toast } from '@/hooks/use-toast'
 import type { Account, Visit, Insight, Task, Capture } from '@kosha/types'
+import type { AccountContact, AccountPhoto } from '@kosha/types'
 
 const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
@@ -43,7 +55,36 @@ const premiseConfig: Record<string, { label: string; className: string }> = {
   hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 
-type TabKey = 'summary' | 'conversations'
+type TabKey = 'summary' | 'touches' | 'contacts' | 'photos'
+
+const TAB_CONFIG: { key: TabKey; label: string; icon: typeof Sparkles }[] = [
+  { key: 'summary', label: 'Summary', icon: Sparkles },
+  { key: 'touches', label: 'Touches', icon: Handshake },
+  { key: 'contacts', label: 'Contacts', icon: Users },
+  { key: 'photos', label: 'Photos', icon: Camera },
+]
+
+type Touch =
+  | { kind: 'conversation'; date: string; title: string; capture: Capture }
+  | { kind: 'visit'; date: string; title: string; visit: Visit }
+
+function buildTouches(captures: Capture[], visits: Visit[]): Touch[] {
+  const touches: Touch[] = [
+    ...captures.map((c): Touch => ({
+      kind: 'conversation',
+      date: c.created_at,
+      title: 'Conversation',
+      capture: c,
+    })),
+    ...visits.map((v): Touch => ({
+      kind: 'visit',
+      date: v.visit_date,
+      title: v.notes || 'Visit',
+      visit: v,
+    })),
+  ]
+  return touches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+}
 
 interface AccountDetailProps {
   account: Account
@@ -51,12 +92,25 @@ interface AccountDetailProps {
   insights?: Insight[]
   tasks?: Task[]
   captures?: Capture[]
+  contacts?: AccountContact[]
+  photos?: AccountPhoto[]
   loading?: boolean
   onClose?: () => void
   onDeleted?: () => void
 }
 
-export function AccountDetail({ account, visits, insights, tasks, captures, loading, onClose, onDeleted }: AccountDetailProps) {
+export function AccountDetail({
+  account,
+  visits,
+  insights,
+  tasks,
+  captures,
+  contacts,
+  photos,
+  loading,
+  onClose,
+  onDeleted,
+}: AccountDetailProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
@@ -76,107 +130,104 @@ export function AccountDetail({ account, visits, insights, tasks, captures, load
     onClose?.()
   }
 
-  const tabs: { key: TabKey; label: string }[] = [
-    { key: 'summary', label: 'Summary' },
-    { key: 'conversations', label: `Conversations${captures && captures.length > 0 ? ` (${captures.length})` : ''}` },
-  ]
+
+  const touches = buildTouches(captures || [], visits || [])
 
   return (
     <div className="space-y-4">
-      {/* Centered Header */}
-      <div className="text-center space-y-2">
+      {/* Header */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="w-7" />
-          <h2 className="text-lg font-semibold text-slate-900">{account.name}</h2>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-3.5 w-3.5" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={() => toast({ title: 'Call', description: 'Select a contact to call from the Contacts tab.' })}
+          >
+            <Phone className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4" />
           </Button>
         </div>
-
-        {/* Premise badge */}
-        {account.premise_type && (() => {
-          const pc = premiseConfig[account.premise_type]
-          return (
-            <Badge className={`${pc?.className || 'bg-slate-100 text-slate-600'} text-xs`}>
-              {pc?.label || account.premise_type}
-            </Badge>
-          )
-        })()}
-
-        {/* Compact metadata */}
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+        <div className="flex flex-col items-center text-center -mt-2">
+          <h2 className="text-lg font-bold text-stone-800">{account.name}</h2>
           {account.address && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              <span className="line-clamp-1">{account.address}</span>
-            </span>
+            <p className="text-sm text-stone-500 flex items-center gap-1 mt-0.5">
+              <MapPin className="h-3 w-3 shrink-0" />
+              <span>{account.address}</span>
+            </p>
           )}
-          {account.industry && (
-            <span className="flex items-center gap-1">
-              <Building2 className="h-3.5 w-3.5 shrink-0" />
-              {account.industry}
-            </span>
-          )}
-          {account.last_contact && (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5 shrink-0" />
-              {new Date(account.last_contact).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-              })}
-            </span>
-          )}
+          <div className="flex flex-wrap justify-center gap-1.5 mt-2.5">
+            {account.industry && (
+              <Badge className="bg-stone-200/60 text-stone-700 text-xs">
+                {account.industry}
+              </Badge>
+            )}
+            {account.premise_type && (() => {
+              const pc = premiseConfig[account.premise_type]
+              return (
+                <Badge className={`${pc?.className || 'bg-stone-100 text-stone-600'} text-xs`}>
+                  {pc?.label || account.premise_type}
+                </Badge>
+              )
+            })()}
+          </div>
         </div>
       </div>
 
-      <Separator />
-
-      {/* Tabs — distributor style */}
-      <div className="bg-slate-100/80 rounded-xl p-1.5 flex">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`
-              flex-1 flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg
-              transition-all duration-150
-              ${activeTab === tab.key
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'}
-            `}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Tab Bar — Icon + Label, Horizontal Scroll */}
+      <div className="overflow-x-auto -mx-4 px-4 scrollbar-hide">
+        <div className="flex justify-center gap-1 border-b border-stone-100 pb-px">
+          {TAB_CONFIG.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.key
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`
+                  flex flex-col items-center gap-1 px-4 py-2.5 text-xs font-medium
+                  transition-all duration-150 border-b-2 min-w-[60px]
+                  ${isActive
+                    ? 'border-stone-800 text-stone-800'
+                    : 'border-transparent text-stone-400 hover:text-stone-600'}
+                `}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'summary' && (
-        <div className="space-y-5">
-          {loading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-20 w-full" />
-              <Skeleton className="h-32 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : (
-            <>
-              {/* Insights */}
-              <div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-3">Insights</h3>
-                {!insights || insights.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-2">
-                    No insights captured yet.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {insights.map((insight) => {
-                      const typeInfo = insightTypeConfig[insight.insight_type] || insightTypeConfig.demand
-
-                      return (
-                        <div key={insight.id} className="flex items-start gap-3 border-l-2 border-slate-200 pl-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-0.5">
+      <div className="min-h-[300px]">
+        {/* AI Tab */}
+        {activeTab === 'summary' && (
+          <div className="space-y-5">
+            {loading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-32 w-full" />
+              </div>
+            ) : (
+              <>
+                {/* Insights */}
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">Insights</h3>
+                  {!insights || insights.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">
+                      No insights captured yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {insights.map((insight) => {
+                        const typeInfo = insightTypeConfig[insight.insight_type] || insightTypeConfig.demand
+                        return (
+                          <div key={insight.id} className="bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
+                            <div className="flex items-center gap-2 mb-1.5">
                               <Badge className={typeInfo.className}>{typeInfo.label}</Badge>
                               <span className="text-xs text-muted-foreground ml-auto">
                                 {new Date(insight.created_at).toLocaleDateString('en-US', {
@@ -185,82 +236,163 @@ export function AccountDetail({ account, visits, insights, tasks, captures, load
                                 })}
                               </span>
                             </div>
-                            <p className="text-sm mt-1">{insight.description}</p>
-                            {insight.sub_category && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {insight.sub_category}
-                              </p>
-                            )}
+                            <p className="text-sm">{insight.description}</p>
                             {insight.suggested_action && (
-                              <p className="text-xs text-blue-600 mt-1">
+                              <p className="text-xs text-blue-600 mt-1.5 font-medium">
                                 {insight.suggested_action}
                               </p>
                             )}
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Tasks */}
+                <TaskList tasks={tasks || []} />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Photos Tab */}
+        {activeTab === 'photos' && (
+          <div>
+            {!photos || photos.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mb-4">
+                  <Camera className="h-8 w-8 text-stone-300" />
+                </div>
+                <p className="text-sm font-medium text-stone-800 mb-1">No photos found</p>
+                <p className="text-xs text-stone-500 mb-4">Add your first photo!</p>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => toast({ title: 'Coming soon', description: 'Photo uploads will be available soon.' })}
+                >
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  Add Photo
+                </Button>
               </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {photos.map((photo) => (
+                  <div key={photo.id} className="aspect-square rounded-xl overflow-hidden bg-stone-100 border border-stone-100">
+                    <img src={photo.url} alt={photo.caption || ''} className="w-full h-full object-cover" />
+                    {photo.caption && (
+                      <p className="text-xs text-stone-500 mt-1 px-1 truncate">{photo.caption}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-              <Separator />
-
-              {/* Tasks */}
-              <TaskList tasks={tasks || []} />
-
-              <Separator />
-
-              {/* Visit History */}
-              <div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-3">Visit History</h3>
-                {!visits || visits.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-2">
-                    No visits recorded yet.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {visits.map((visit) => (
-                      <div key={visit.id} className="flex items-start gap-3 border-l-2 border-slate-200 pl-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-900">
-                            {new Date(visit.visit_date).toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </p>
-                          {visit.notes && (
-                            <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
-                              {visit.notes}
-                            </p>
-                          )}
-                        </div>
+        {/* Contacts Tab */}
+        {activeTab === 'contacts' && (
+          <div>
+            {!contacts || contacts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mb-4">
+                  <Users className="h-8 w-8 text-stone-300" />
+                </div>
+                <p className="text-sm font-medium text-stone-800 mb-1">No contacts yet</p>
+                <p className="text-xs text-stone-500">Contacts will appear here once added.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {contacts.map((contact) => (
+                  <div key={contact.id} className="bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-stone-800">{contact.name}</p>
+                        {contact.role && (
+                          <p className="text-xs text-stone-500 mt-0.5">{contact.role}</p>
+                        )}
                       </div>
-                    ))}
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-2">
+                      {contact.phone && (
+                        <a href={`tel:${contact.phone}`} className="text-xs text-blue-600 flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {contact.phone}
+                        </a>
+                      )}
+                      {contact.email && (
+                        <a href={`mailto:${contact.email}`} className="text-xs text-blue-600">
+                          {contact.email}
+                        </a>
+                      )}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
-            </>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      {activeTab === 'conversations' && (
-        <div>
-          {loading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-16 w-full" />
-            </div>
-          ) : (
-            <ConversationList captures={captures || []} />
-          )}
-        </div>
-      )}
+        {/* Touches Tab */}
+        {activeTab === 'touches' && (
+          <div>
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : touches.length === 0 ? (
+              <div className="flex flex-col items-center py-8">
+                <MessageSquare className="h-8 w-8 text-muted-foreground/40 mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No touches recorded yet.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {touches.map((touch) => {
+                  if (touch.kind === 'conversation') {
+                    return (
+                      <ConversationList
+                        key={touch.capture.id}
+                        captures={[touch.capture]}
+                        labelOverride="Conversation"
+                      />
+                    )
+                  }
+                  return (
+                    <div
+                      key={touch.visit.id}
+                      className="flex items-center gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm"
+                    >
+                      <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                        <Navigation className="h-4 w-4 text-blue-500" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-stone-800">
+                          {touch.visit.notes || 'Visit'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(touch.date).toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Edit Dialog — includes delete option */}
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -299,6 +431,7 @@ export function AccountDetail({ account, visits, insights, tasks, captures, load
           </AlertDialog>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
