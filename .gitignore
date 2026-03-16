@@ -32,5 +32,9 @@ coverage/
 # turbo
 .turbo
 
+# certificates
+certificates/
+*.pem
+
 # macOS
 .DS_Store

@@ -313,8 +313,8 @@ export function TerritoryMap({
           const data = await res.json()
           setPlacesResults(data.results || [])
         }
-      } catch {
-        // Silently fail — local results still show
+      } catch (err) {
+        console.error('Google Places search failed:', err)
       } finally {
         setPlacesLoading(false)
       }

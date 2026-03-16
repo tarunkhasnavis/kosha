@@ -259,6 +259,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
         voice: 'marin',
+        language: 'en',
         instructions: systemPrompt,
         tools: [SAVE_CAPTURE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, SCHEDULE_VISIT_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL],
         tool_choice: 'auto',

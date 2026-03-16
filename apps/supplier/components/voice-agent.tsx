@@ -316,8 +316,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             const mode = (args.mode as string) || 'debrief'
 
             if (mode === 'note') {
-              // Save notes directly via the save endpoint
-              cleanup()
+              // Save notes and continue conversation (don't end it)
               const notesList = (args.notes as string[]) || []
               if (notesList.length > 0 && accountId) {
                 fetch('/api/capture/save', {
@@ -330,11 +329,41 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                     notes: notesList,
                     transcript: fullTranscriptRef.current || null,
                   }),
-                }).catch(console.error)
+                })
+                  .then((res) => res.json())
+                  .then((data) => {
+                    const dc = dcRef.current
+                    if (!dc || dc.readyState !== 'open') return
+                    dc.send(JSON.stringify({
+                      type: 'conversation.item.create',
+                      item: {
+                        type: 'function_call_output',
+                        call_id: callId,
+                        output: JSON.stringify({ success: true, noteCount: notesList.length }),
+                      },
+                    }))
+                    dc.send(JSON.stringify({ type: 'response.create' }))
+                    toast({
+                      title: `${notesList.length} note${notesList.length !== 1 ? 's' : ''} saved`,
+                      description: selectedAccount?.name || undefined,
+                    })
+                    router.refresh()
+                  })
+                  .catch(() => {
+                    const dc = dcRef.current
+                    if (!dc || dc.readyState !== 'open') return
+                    dc.send(JSON.stringify({
+                      type: 'conversation.item.create',
+                      item: {
+                        type: 'function_call_output',
+                        call_id: callId,
+                        output: JSON.stringify({ error: 'Failed to save notes' }),
+                      },
+                    }))
+                    dc.send(JSON.stringify({ type: 'response.create' }))
+                  })
               }
-              setState('done')
-              toast({ title: 'Note saved' })
-              router.refresh()
+              functionCallArgsRef.current = ''
               return
             }
 
