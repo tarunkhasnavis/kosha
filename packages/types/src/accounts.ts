@@ -17,6 +17,9 @@ export interface Account {
   phone: string | null
   website: string | null
   hours: string | null
+  score: number
+  score_reasons: string[]
+  scored_at: string | null
   created_at: string
   updated_at: string
 }
@@ -49,6 +52,6 @@ export interface UpdateAccountInput {
 export interface AccountFilters {
   search?: string
   premise_type?: PremiseType
-  sortBy?: 'name' | 'last_contact' | 'created_at'
+  sortBy?: 'name' | 'last_contact' | 'created_at' | 'score'
   sortOrder?: 'asc' | 'desc'
 }

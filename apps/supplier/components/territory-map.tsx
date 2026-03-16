@@ -36,11 +36,13 @@ import {
   Building2,
   Calendar,
   MinusCircle,
+  BarChart3,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { TerritoryAccountPanel } from './territory-account-panel'
+import { DailySummary } from './daily-summary'
 import { createAccount } from '@/lib/accounts/actions'
 import { claimDiscoveredAccount } from '@/lib/discovery/actions'
 import { createVisit, deleteVisit } from '@/lib/visits/actions'
@@ -155,6 +157,7 @@ export function TerritoryMap({
     stops: { visitId: string; name: string; address: string; distance: number; duration: number }[]
   } | null>(null)
   const [planSheetOpen, setPlanSheetOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Add Stop mode
   const [addStopMode, setAddStopMode] = useState(false)
@@ -297,13 +300,16 @@ export function TerritoryMap({
   // Debounced Google Places search
   useEffect(() => {
     const q = searchQuery.trim()
-    if (q.length < 3) {
+    if (q.length < 2) {
       setPlacesResults([])
+      setPlacesLoading(false)
       return
     }
 
+    // Set loading immediately so the empty state doesn't flash
+    setPlacesLoading(true)
+
     const timer = setTimeout(async () => {
-      setPlacesLoading(true)
       try {
         const center = map.current?.getCenter()
         const lat = center?.lat ?? 27.9506
@@ -747,7 +753,7 @@ export function TerritoryMap({
 
       {/* Search Drawer */}
       <Sheet open={searchDrawerOpen} onOpenChange={(open) => { setSearchDrawerOpen(open); if (!open) setAddStopMode(false) }}>
-        <SheetContent side="bottom" className="rounded-t-2xl h-[82dvh] p-0 flex flex-col bg-white">
+        <SheetContent side="bottom" hideCloseButton className="rounded-t-2xl p-0 flex flex-col bg-white" style={{ height: 'calc(100dvh - env(safe-area-inset-top, 0px) - 56px)' }}>
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1">
             <div className="w-10 h-1 rounded-full bg-stone-300" />
@@ -757,7 +763,7 @@ export function TerritoryMap({
             <SheetDescription className="sr-only">{addStopMode ? 'Select an account to add to your route' : 'Search and browse ranked accounts'}</SheetDescription>
           </SheetHeader>
 
-          <div className="px-5 pt-4 space-y-4">
+          <div className="px-5 pt-3 space-y-2">
             {/* Search Input */}
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
@@ -770,11 +776,11 @@ export function TerritoryMap({
               />
             </div>
 
-            {/* Category Filter Pills */}
-            {!addStopMode && <div className="flex flex-wrap gap-2">
+            {/* Category Filter Pills — horizontal scroll */}
+            {!addStopMode && <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
               <button
                 onClick={() => setDrawerCategory('all')}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors shrink-0 ${
                   drawerCategory === 'all'
                     ? 'bg-stone-800 text-white border-stone-800'
                     : 'bg-white text-stone-600 border-stone-200 hover:border-stone-300'
@@ -786,7 +792,7 @@ export function TerritoryMap({
                 <button
                   key={pill.key}
                   onClick={() => setDrawerCategory(pill.key as DiscoveryCategory)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors shrink-0 ${
                     drawerCategory === pill.key
                       ? 'bg-stone-800 text-white border-stone-800'
                       : 'bg-white text-stone-600 border-stone-200 hover:border-stone-300'
@@ -799,7 +805,7 @@ export function TerritoryMap({
           </div>
 
           {/* Results List */}
-          <div className="flex-1 overflow-y-auto px-5 pt-4 pb-8">
+          <div className="flex-1 overflow-y-auto px-5 pt-2 pb-8">
             {/* Discovered Accounts (ranked by AI score) */}
             {drawerResults.discovered.length > 0 && (
               <div>
@@ -894,7 +900,7 @@ export function TerritoryMap({
             )}
 
             {/* Google Places Results */}
-            {searchQuery.trim().length >= 3 && (
+            {searchQuery.trim().length >= 2 && (
               <div className={drawerResults.discovered.length > 0 || drawerResults.managed.length > 0 ? 'mt-6' : ''}>
                 <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
                   <Search className="h-3.5 w-3.5 text-stone-500" />
@@ -1510,6 +1516,24 @@ export function TerritoryMap({
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Daily Summary Button */}
+      <button
+        onClick={() => setSummaryOpen(true)}
+        className="absolute z-10 flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white hover:bg-stone-700 active:scale-95"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)', right: mode === 'browse' ? '4.5rem' : '1.5rem' }}
+        title="Daily Summary"
+      >
+        <BarChart3 className="h-4 w-4" />
+      </button>
+
+      {/* Daily Summary Sheet */}
+      <DailySummary
+        open={summaryOpen}
+        onOpenChange={setSummaryOpen}
+        date={mode === 'plan' ? planDate : todayStr}
+        dateLabel={mode === 'plan' ? formatPlanDateLabel(planDate) : 'Today'}
+      />
 
       {/* Empty state */}
       {accounts.length === 0 && mode === 'browse' && activeCategory === 'my_accounts' && (

@@ -9,6 +9,23 @@ const premiseConfig: Record<string, { label: string; className: string }> = {
   hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 
+function ScoreBadge({ score }: { score: number }) {
+  if (score === 0) return null
+
+  const config =
+    score >= 60
+      ? { bg: 'bg-red-50', text: 'text-red-700' }
+      : score >= 30
+        ? { bg: 'bg-amber-50', text: 'text-amber-700' }
+        : { bg: 'bg-emerald-50', text: 'text-emerald-700' }
+
+  return (
+    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full ${config.bg} ${config.text} tabular-nums`}>
+      {score}
+    </span>
+  )
+}
+
 export function AccountCard({
   account,
   onClick,
@@ -22,7 +39,10 @@ export function AccountCard({
       onClick={onClick}
     >
       <CardContent className="px-4 py-3">
-        <h3 className="text-sm font-semibold text-stone-800 truncate">{account.name}</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-stone-800 truncate">{account.name}</h3>
+          <ScoreBadge score={account.score} />
+        </div>
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           {account.industry && (
             <Badge className="bg-stone-200/60 text-stone-700">{account.industry}</Badge>
@@ -35,12 +55,12 @@ export function AccountCard({
               </Badge>
             )
           })()}
-          {account.last_contact && (
-            <span className="text-xs text-muted-foreground ml-auto">
-              {new Date(account.last_contact).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
-          )}
         </div>
+        {account.score > 0 && account.score_reasons.length > 0 && (
+          <p className="text-xs text-stone-500 mt-1.5 truncate">
+            {account.score_reasons[0]}
+          </p>
+        )}
       </CardContent>
     </Card>
   )

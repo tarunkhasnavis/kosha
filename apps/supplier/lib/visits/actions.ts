@@ -10,6 +10,7 @@ import { createClient } from '@kosha/supabase/server'
 import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { scoreAccount } from '@/lib/scoring/actions'
 import type { Visit, CreateVisitInput } from '@kosha/types'
 
 /**
@@ -54,6 +55,11 @@ export async function createVisit(
       .update({ last_contact: input.visit_date })
       .eq('id', input.account_id)
   }
+
+  // Recompute account score after new visit
+  scoreAccount(input.account_id).catch((err) =>
+    console.error('Background score computation failed:', err)
+  )
 
   revalidatePath('/visits')
   revalidatePath('/accounts')

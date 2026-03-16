@@ -111,19 +111,81 @@ export default async function SettingsPage() {
             <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
           </div>
 
-          {/* Google Maps */}
+          {/* VIP (iDig) — Distributor Depletion Data */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-[#34A853]/10 flex items-center justify-center">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#EA4335" />
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 2.61 1.43 4.88 3.54 6.15L12 11.5V2z" fill="#4285F4" />
-                  <path d="M8.54 15.15C9.56 16.52 10.82 18.14 12 22c1.18-3.86 2.44-5.48 3.46-6.85L12 11.5 8.54 15.15z" fill="#34A853" />
-                  <path d="M15.46 15.15C16.57 13.78 19 10.61 19 9c0-3.87-3.13-7-7-7v9.5l3.46 3.65z" fill="#FBBC04" />
-                  <circle cx="12" cy="9" r="2.5" fill="white" />
+              <div className="h-8 w-8 rounded-lg bg-[#1B365D]/10 flex items-center justify-center">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#1B365D">
+                  <path d="M3 3h18v4H3V3zm0 6h8v12H3V9zm10 0h8v5h-8V9zm0 7h8v5h-8v-5z" />
                 </svg>
               </div>
-              <p className="text-sm font-medium text-stone-800">Google Maps</p>
+              <div>
+                <p className="text-sm font-medium text-stone-800">VIP</p>
+                <p className="text-xs text-stone-400">Distributor Depletion Data</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
+              <span className="text-[10px] text-stone-400">Last sync: 6:00 AM</span>
+            </div>
+          </div>
+
+          {/* Snowflake — Data Warehouse */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#29B5E8]/10 flex items-center justify-center">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#29B5E8">
+                  <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07" stroke="#29B5E8" strokeWidth="2" strokeLinecap="round" fill="none" />
+                  <circle cx="12" cy="2" r="1.5" fill="#29B5E8" />
+                  <circle cx="12" cy="22" r="1.5" fill="#29B5E8" />
+                  <circle cx="2" cy="12" r="1.5" fill="#29B5E8" />
+                  <circle cx="22" cy="12" r="1.5" fill="#29B5E8" />
+                  <circle cx="4.93" cy="4.93" r="1.5" fill="#29B5E8" />
+                  <circle cx="19.07" cy="19.07" r="1.5" fill="#29B5E8" />
+                  <circle cx="19.07" cy="4.93" r="1.5" fill="#29B5E8" />
+                  <circle cx="4.93" cy="19.07" r="1.5" fill="#29B5E8" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-stone-800">Snowflake</p>
+                <p className="text-xs text-stone-400">Data Warehouse</p>
+              </div>
+            </div>
+            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
+          </div>
+
+          {/* Tracks — Image Recognition */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#FF6B35]/10 flex items-center justify-center">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#FF6B35">
+                  <rect x="2" y="3" width="20" height="18" rx="2" fill="none" stroke="#FF6B35" strokeWidth="2" />
+                  <circle cx="8.5" cy="10" r="2.5" fill="#FF6B35" />
+                  <path d="M21 18l-5-5-3 3-3-3-6 6" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-stone-800">Tracks</p>
+                <p className="text-xs text-stone-400">Image Recognition</p>
+              </div>
+            </div>
+            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
+          </div>
+
+          {/* PowerBI — Analytics & Reporting */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#F2C811]/10 flex items-center justify-center">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#F2C811">
+                  <rect x="14" y="4" width="4" height="16" rx="1" fill="#F2C811" />
+                  <rect x="8" y="8" width="4" height="12" rx="1" fill="#F2C811" opacity="0.7" />
+                  <rect x="2" y="12" width="4" height="8" rx="1" fill="#F2C811" opacity="0.4" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-stone-800">PowerBI</p>
+                <p className="text-xs text-stone-400">Analytics & Reporting</p>
+              </div>
             </div>
             <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
           </div>

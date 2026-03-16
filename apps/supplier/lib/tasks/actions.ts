@@ -10,6 +10,7 @@ import { createClient } from '@kosha/supabase/server'
 import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { scoreAccount } from '@/lib/scoring/actions'
 
 /**
  * Toggle a task's completed status.
@@ -23,14 +24,23 @@ export async function toggleTaskCompleted(
 
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data: task, error } = await supabase
     .from('tasks')
     .update({ completed })
     .eq('id', taskId)
+    .select('account_id')
+    .single()
 
   if (error) {
     console.error('Failed to update task:', error)
     return { success: false, error: 'Failed to update task' }
+  }
+
+  // Recompute account score after task status change
+  if (task?.account_id) {
+    scoreAccount(task.account_id).catch((err) =>
+      console.error('Background score computation failed:', err)
+    )
   }
 
   revalidatePath('/accounts')

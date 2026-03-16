@@ -146,6 +146,12 @@ function generateTasks(accountIds: Record<string, string>) {
     { account_key: "Epicurean Hotel", task: "Set up meeting with new beverage director", due_date: taskDate(5), priority: "medium" },
     { account_key: "Mango Jo's Bar and Liquors", task: "Check on premium shelf display compliance", due_date: taskDate(6), priority: "low" },
 
+    // Wholesaler action items
+    { account_key: "ABC Fine Wine & Spirits", task: "Restock White Claw Mango 12pk — out of stock 4+ days", due_date: taskDate(1), priority: "high" },
+    { account_key: "Salty Shamrock Irish Pub", task: "Restock Mango facing on end cap display", due_date: taskDate(1), priority: "medium" },
+    { account_key: "Hattricks Tavern", task: "Expedite Mike's Harder Strawberry delivery — missed last shipment", due_date: taskDate(1), priority: "high" },
+    { account_key: "Columbia Restaurant", task: "Send updated shelf reset planogram to reclaim lost facing", due_date: taskDate(2), priority: "medium" },
+
     // Later
     { account_key: "The Bricks of Ybor", task: "Prepare Ybor district multi-venue proposal for Q3", due_date: taskDate(10), priority: "low" },
     { account_key: "Wawa - Riverview", task: "Annual account review meeting", due_date: taskDate(14), priority: "medium" },
@@ -235,6 +241,18 @@ function generateInsights(accountIds: Record<string, string>) {
     { account_key: "Mango Jo's Bar and Liquors", type: "friction", description: "Premium shelf display not maintained per planogram — products moved to lower shelf", sub_category: "compliance", suggested_action: "Visit to reset display and discuss compliance with staff" },
     { account_key: "The Bricks of Ybor", type: "expansion", description: "Ybor district revival driving increased foot traffic — multi-venue opportunity", sub_category: "market_trend", suggested_action: "Develop district-wide proposal covering multiple Ybor venues" },
     { account_key: "ABC Fine Wine & Spirits", type: "promotion", description: "End-cap bourbon display showing 40% lift vs. regular shelf position", sub_category: "display_performance", suggested_action: "Propose expansion to additional store locations" },
+
+    // CPG-specific insights (simulating VIP depletion + Tracks shelf data)
+    { account_key: "Total Wine & More", type: "demand", description: "White Claw Mango 12pk: 52 cases/30 days, up 8% vs prior period", sub_category: "depletion_trend", suggested_action: "Maintain current inventory levels — strong velocity" },
+    { account_key: "Total Wine & More", type: "competitive", description: "Mark Anthony shelf share: 34% (up from 31%). Gained 2 facings from Truly", sub_category: "shelf_share", suggested_action: "Lock in shelf space with updated planogram" },
+    { account_key: "ABC Fine Wine & Spirits", type: "friction", description: "White Claw Mango 12pk out of stock for 4+ days", sub_category: "oos", suggested_action: "Contact wholesaler to expedite restock" },
+    { account_key: "ABC Fine Wine & Spirits", type: "competitive", description: "Truly 12pk priced at $14.99 vs our $15.99 — $1 undercut on shelf", sub_category: "pricing_observation", suggested_action: "Review pricing strategy for competitive parity" },
+    { account_key: "Salty Shamrock Irish Pub", type: "demand", description: "Mike's Harder Lemonade: top SKU, 18 cases/week at this location", sub_category: "velocity", suggested_action: "Ensure consistent supply and visibility" },
+    { account_key: "Salty Shamrock Irish Pub", type: "competitive", description: "End cap display maintained — 5 of 6 SKUs faced correctly, missing Mango flavor", sub_category: "display_compliance", suggested_action: "Restock Mango facing on next delivery" },
+    { account_key: "Circles Waterfront Restaurant", type: "demand", description: "White Claw Variety 24pk: 8 cases/week, strongest performer in on-premise", sub_category: "depletion_trend", suggested_action: "Propose featured placement on summer cocktail menu" },
+    { account_key: "Hattricks Tavern", type: "friction", description: "Mike's Harder Strawberry out of stock — wholesaler delivery missed last week", sub_category: "oos", suggested_action: "Escalate to wholesaler rep for immediate restock" },
+    { account_key: "Columbia Restaurant", type: "competitive", description: "Mark Anthony shelf share: 22% (down from 26%). Lost 1 facing to High Noon", sub_category: "shelf_share", suggested_action: "Schedule reset visit to reclaim shelf position" },
+    { account_key: "Coppertail Brewing Co", type: "demand", description: "White Claw Surge 16oz: new addition, 12 cases/week after first month", sub_category: "sell_in", suggested_action: "Follow up on reorder and consider additional flavors" },
   ]
 }
 

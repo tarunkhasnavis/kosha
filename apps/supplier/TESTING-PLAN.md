@@ -809,8 +809,177 @@ Tests are grouped by skill, then edge cases. Run them in order within each secti
 
 ---
 
-**Total: 62 test scenarios**
-- 23 HIGH priority (test these first)
-- 27 MEDIUM priority
-- 7 LOW priority
-- 5 categories not yet implemented (route planning, deal math, synced+executed, find answers, would need separate features)
+## SECTION 13: CPG-SPECIFIC DEBRIEF
+
+### 13.1 — Out-of-stock extraction
+- **Setup:** Select "ABC Fine Wine & Spirits"
+- **You say:** "Just came from ABC Fine Wine"
+- **Then say:** "White Claw Mango was out of stock again, been empty for almost a week"
+- **Agent should:** Extract FRICTION insight with sub_category "oos", mention the specific SKU (White Claw Mango 12pk), create HIGH priority task to contact wholesaler for restock
+- **Pass:** OOS captured with SKU detail and wholesaler restock task
+- **Fail:** Generic "stock issue" without SKU specificity
+
+### 13.2 — Display compliance extraction
+- **Setup:** Select "Salty Shamrock Irish Pub"
+- **You say:** "Just left Salty Shamrock"
+- **Then say:** "Display looked messy, only 3 of our 6 SKUs were faced right. Mango was missing completely."
+- **Agent should:** Extract insight with sub_category "display_compliance", note 3/6 compliance rate and missing Mango
+- **Pass:** Specific display compliance data captured
+- **Fail:** Vague "display issue" without specifics
+
+### 13.3 — Pricing observation extraction
+- **Setup:** Select "Total Wine & More"
+- **You say:** "Just visited Total Wine"
+- **Then say:** "We're at 15.99 for the 12-pack but Truly is at 14.99. A dollar undercut."
+- **Agent should:** Extract COMPETITIVE insight with sub_category "pricing_observation", include both price points
+- **Pass:** Both prices captured, competitor identified
+- **Fail:** Missing price details or competitor name
+
+### 13.4 — Sell-in extraction
+- **Setup:** Select "Coppertail Brewing Co"
+- **You say:** "Just came from Coppertail"
+- **Then say:** "Sold in 3 cases of the new White Claw Surge 16oz cans. They're going to put it on the cold shelf."
+- **Agent should:** Extract DEMAND insight with sub_category "sell_in", include product name and quantity
+- **Pass:** Product, quantity, and placement captured
+- **Fail:** Missing quantity or product detail
+
+### 13.5 — Shelf share observation
+- **Setup:** Select "Columbia Restaurant"
+- **You say:** "Just left Columbia"
+- **Then say:** "We lost a shelf facing to High Noon. They're now at 3 facings and we're down to 4."
+- **Agent should:** Extract COMPETITIVE insight with sub_category "shelf_share", mention specific facing counts
+- **Pass:** Facing numbers and competitor captured
+- **Fail:** Generic "lost shelf space" without specifics
+
+### 13.6 — Multi-CPG observation in one debrief
+- **Setup:** Select "Hattricks Tavern"
+- **You say:** "Just came from Hattricks"
+- **Then say:** "Mike's Harder Strawberry was out of stock, the display was only half set up, and I noticed Truly is 2 bucks cheaper than us. But on the bright side, I sold in 2 cases of the new sampler pack."
+- **Agent should:** Extract 4 distinct insights: OOS (friction), display compliance (friction), pricing (competitive), sell-in (demand). Create wholesaler tasks for restock and display fix.
+- **Pass:** At least 3 of 4 insights captured with CPG-specific sub-categories
+- **Fail:** Fewer than 3 insights or missing sub-category detail
+
+---
+
+## SECTION 14: DAILY TERRITORY SUMMARY
+
+### 14.1 — Summary button visible on territory map
+- **Setup:** Open territory page
+- **Agent should:** See a BarChart3 icon button near top-right of the map
+- **Pass:** Button visible and tappable
+- **Fail:** Button missing
+
+### 14.2 — Summary shows today's data
+- **Setup:** Open territory page in Browse mode, tap summary button
+- **Agent should:** Bottom sheet opens showing today's date, visits completed, insights grouped into "Watch Outs" and "Opportunities", and action items
+- **Pass:** Sheet opens with today's data
+- **Fail:** Sheet empty when data exists, or wrong date
+
+### 14.3 — Summary respects Plan mode date
+- **Setup:** Switch to Plan mode, pick a past date that had visits
+- **Then:** Tap the summary button
+- **Agent should:** Show summary for the selected date, not today
+- **Pass:** Data matches the selected date
+- **Fail:** Shows today's data regardless of date picker
+
+### 14.4 — Empty state
+- **Setup:** Pick a date with no activity in Plan mode, tap summary button
+- **Agent should:** Show clean empty state: "No activity recorded"
+- **Pass:** Empty state displayed
+- **Fail:** Error or blank sheet
+
+### 14.5 — Watch outs vs opportunities grouping
+- **Setup:** Have seeded data with both friction/competitive AND demand/expansion insights for today
+- **Tap summary button**
+- **Agent should:** Friction and competitive insights appear under "Watch Outs", demand/expansion/promotion under "Opportunities"
+- **Pass:** Correctly grouped
+- **Fail:** Mixed grouping
+
+### 14.6 — Copy recap
+- **Setup:** Open summary with data, tap "Copy Recap"
+- **Agent should:** Copies formatted text to clipboard with toast confirmation. Paste into text editor to verify format: account names, insights, action items with priorities.
+- **Pass:** Clean formatted text in clipboard
+- **Fail:** Empty clipboard or malformed text
+
+---
+
+## SECTION 15: WHOLESALER SHARE
+
+### 15.1 — Share button opens email form
+- **Setup:** Open daily summary with data, tap "Share to Wholesaler"
+- **Agent should:** Inline form appears with: email input, recent emails (if any), editable message body, "Open Email Client" button
+- **Pass:** Form appears with pre-filled recap text
+- **Fail:** Form doesn't appear or body is empty
+
+### 15.2 — Recent emails saved
+- **Setup:** Enter "mike@wholesaler.com" and tap "Open Email Client"
+- **Close, reopen summary, tap "Share to Wholesaler" again**
+- **Agent should:** "mike@wholesaler.com" appears as a recent email chip below the input
+- **Pass:** Recent email persisted (localStorage)
+- **Fail:** No recent emails shown
+
+### 15.3 — Editable recap body
+- **Setup:** Open share form, edit the recap text (change a line)
+- **Tap "Open Email Client"**
+- **Agent should:** mailto: link opens with the edited text, not the original
+- **Pass:** Edited content preserved in email
+- **Fail:** Original text sent instead of edited
+
+### 15.4 — mailto: opens email client
+- **Setup:** Enter email, tap "Open Email Client"
+- **Agent should:** Default email app opens with To, Subject ("Territory Recap — [date]"), and Body pre-filled
+- **Pass:** Email client opens with correct fields
+- **Fail:** Nothing happens or fields are empty
+
+---
+
+## SECTION 16: MOCK INTEGRATIONS
+
+### 16.1 — Settings shows all integrations
+- **Setup:** Go to Settings page
+- **Agent should:** See integration cards for: Salesforce, Outlook, Google Maps, VIP, Snowflake, Tracks, PowerBI — all with green "Connected" badges
+- **Pass:** All 7 integrations visible with "Connected" status
+- **Fail:** Missing integrations or wrong status
+
+### 16.2 — VIP shows last sync time
+- **Setup:** Check VIP integration card in settings
+- **Agent should:** Shows "Last sync: 6:00 AM" below the Connected badge
+- **Pass:** Timestamp visible
+- **Fail:** No timestamp
+
+---
+
+## Updated Testing Checklist
+
+| # | Scenario | Category | Priority | Pass? |
+|---|----------|----------|----------|-------|
+| **CPG DEBRIEF** | | | | |
+| 13.1 | OOS extraction | CPG | HIGH | |
+| 13.2 | Display compliance | CPG | HIGH | |
+| 13.3 | Pricing observation | CPG | HIGH | |
+| 13.4 | Sell-in extraction | CPG | MEDIUM | |
+| 13.5 | Shelf share | CPG | MEDIUM | |
+| 13.6 | Multi-CPG observation | CPG | HIGH | |
+| **DAILY SUMMARY** | | | | |
+| 14.1 | Summary button visible | Summary | HIGH | |
+| 14.2 | Shows today's data | Summary | HIGH | |
+| 14.3 | Respects Plan mode date | Summary | HIGH | |
+| 14.4 | Empty state | Summary | MEDIUM | |
+| 14.5 | Watch outs vs opportunities | Summary | MEDIUM | |
+| 14.6 | Copy recap | Summary | HIGH | |
+| **WHOLESALER SHARE** | | | | |
+| 15.1 | Share opens email form | Share | HIGH | |
+| 15.2 | Recent emails saved | Share | MEDIUM | |
+| 15.3 | Editable recap body | Share | MEDIUM | |
+| 15.4 | mailto: opens email client | Share | HIGH | |
+| **MOCK INTEGRATIONS** | | | | |
+| 16.1 | All integrations visible | Settings | HIGH | |
+| 16.2 | VIP shows sync time | Settings | LOW | |
+
+---
+
+**Total: 80 test scenarios**
+- 31 HIGH priority
+- 33 MEDIUM priority
+- 9 LOW priority
+- Remaining gaps: route planning, deal math, find answers (not yet implemented)

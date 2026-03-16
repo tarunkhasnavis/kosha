@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.get('q')
-  if (!query || query.trim().length < 2) {
+  if (!query || query.trim().length < 1) {
     return NextResponse.json({ results: [] })
   }
 

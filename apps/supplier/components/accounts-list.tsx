@@ -185,11 +185,21 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
                 <TableHead>Name</TableHead>
                 <TableHead>Industry</TableHead>
                 <TableHead>Premise</TableHead>
+                <TableHead className="text-center">Priority</TableHead>
                 <TableHead>Last Contact</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((account) => {
+                const scoreColor =
+                  account.score >= 60
+                    ? 'text-red-700 bg-red-50'
+                    : account.score >= 30
+                      ? 'text-amber-700 bg-amber-50'
+                      : account.score > 0
+                        ? 'text-emerald-700 bg-emerald-50'
+                        : 'text-stone-400'
+
                 return (
                   <TableRow
                     key={account.id}
@@ -202,6 +212,15 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
                       {account.premise_type
                         ? premiseConfig[account.premise_type]?.label || account.premise_type
                         : '—'}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {account.score > 0 ? (
+                        <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full ${scoreColor}`}>
+                          {account.score}
+                        </span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {account.last_contact

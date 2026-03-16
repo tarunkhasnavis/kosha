@@ -3,6 +3,7 @@ import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
+import { scoreAccount } from '@/lib/scoring/actions'
 
 /**
  * POST /api/capture/save
@@ -43,6 +44,11 @@ export async function POST(request: Request) {
       console.error('Failed to save notes:', noteError)
       return NextResponse.json({ error: 'Failed to save notes' }, { status: 500 })
     }
+    // Recompute account score after new notes
+    scoreAccount(account_id).catch((err) =>
+      console.error('Background score computation failed:', err)
+    )
+
     revalidatePath('/capture')
     revalidatePath('/accounts')
     revalidatePath(`/accounts/${account_id}`)
@@ -138,6 +144,11 @@ export async function POST(request: Request) {
       savedTasks = taskData || []
     }
   }
+
+  // Recompute account score after new insights/tasks
+  scoreAccount(account_id).catch((err) =>
+    console.error('Background score computation failed:', err)
+  )
 
   revalidatePath('/capture')
   revalidatePath('/accounts')

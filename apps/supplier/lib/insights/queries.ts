@@ -58,6 +58,34 @@ export async function getInsightsForAccount(
 }
 
 /**
+ * Get insights created within a date range (for daily summaries).
+ */
+export async function getInsightsForDate(
+  date: string
+): Promise<{ insights: Insight[]; error?: string }> {
+  const orgId = await getOrganizationId()
+  if (!orgId) return { insights: [], error: 'No organization found' }
+
+  const startOfDay = `${date}T00:00:00.000Z`
+  const endOfDay = `${date}T23:59:59.999Z`
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('insights')
+    .select('*')
+    .gte('created_at', startOfDay)
+    .lte('created_at', endOfDay)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Failed to fetch insights for date:', error)
+    return { insights: [], error: 'Failed to fetch insights' }
+  }
+
+  return { insights: (data as Insight[]) || [] }
+}
+
+/**
  * Get total insight count (for dashboard).
  */
 export async function getInsightCount(): Promise<number> {

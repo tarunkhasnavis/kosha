@@ -60,6 +60,34 @@ export async function getAllTasks(): Promise<{ tasks: Task[]; error?: string }> 
 }
 
 /**
+ * Get tasks created on a specific date (for daily summaries).
+ */
+export async function getTasksForDate(
+  date: string
+): Promise<{ tasks: Task[]; error?: string }> {
+  const orgId = await getOrganizationId()
+  if (!orgId) return { tasks: [], error: 'No organization found' }
+
+  const startOfDay = `${date}T00:00:00.000Z`
+  const endOfDay = `${date}T23:59:59.999Z`
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .gte('created_at', startOfDay)
+    .lte('created_at', endOfDay)
+    .order('priority', { ascending: true })
+
+  if (error) {
+    console.error('Failed to fetch tasks for date:', error)
+    return { tasks: [], error: 'Failed to fetch tasks' }
+  }
+
+  return { tasks: (data as Task[]) || [] }
+}
+
+/**
  * Get count of incomplete tasks (for dashboard).
  */
 export async function getPendingTaskCount(): Promise<number> {
