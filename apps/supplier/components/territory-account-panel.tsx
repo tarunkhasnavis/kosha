@@ -110,15 +110,19 @@ export function TerritoryAccountPanel({
   return (
     <>
     <Sheet open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <SheetContent side="bottom" className="p-0 bg-white h-[72vh] flex flex-col">
+      <SheetContent side="bottom" hideCloseButton className="p-0 bg-white h-[82dvh] flex flex-col">
         {account && (
           <>
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 shrink-0 relative">
-              {account.phone && (
+              {account.phone ? (
                 <a href={`tel:${account.phone}`} className="absolute left-5 top-2 p-1.5 rounded-lg hover:bg-stone-100 transition-colors">
-                  <Phone className="h-4 w-4 text-stone-400" />
+                  <Phone className="h-4 w-4 text-teal-600" />
                 </a>
+              ) : (
+                <div className="absolute left-5 top-2 p-1.5">
+                  <Phone className="h-4 w-4 text-stone-200" />
+                </div>
               )}
               <div className="w-10 h-1 rounded-full bg-stone-300" />
               <Link href={`/accounts/${account.id}`} className="absolute right-5 top-2">

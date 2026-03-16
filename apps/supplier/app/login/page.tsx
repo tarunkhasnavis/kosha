@@ -11,22 +11,21 @@ export default async function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden">
+    <div className="relative min-h-screen flex flex-col items-center justify-center px-6 text-center overflow-hidden">
       <LoginBackground />
 
-      <div className="absolute top-8 left-8 md:top-12 md:left-16 z-10">
-        <span className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-900/80">
-          kosha
-        </span>
+      <div className="relative z-10 mb-10">
+        <img src="/icons/kosha-k.svg" alt="Kosha" className="h-24 w-24 mx-auto drop-shadow-sm" style={{ filter: 'brightness(0) opacity(0.85)' }} />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center px-4">
-        <h1 className="mb-8 text-3xl md:text-4xl font-medium tracking-tight text-slate-900 text-center">
-          Welcome to Kosha
-        </h1>
-
+      <div className="relative z-10 w-full max-w-xs space-y-4">
         <GoogleSignIn />
+        <p className="text-stone-400 text-sm">Sign in to continue</p>
       </div>
+
+      <p className="absolute bottom-6 z-10 text-[10px] text-stone-400">
+        &copy; {new Date().getFullYear()} Kosha
+      </p>
     </div>
   )
 }

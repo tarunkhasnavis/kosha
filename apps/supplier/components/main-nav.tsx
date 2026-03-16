@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import {
@@ -20,6 +21,36 @@ const navigation = [
 
 export function MainNav() {
   const pathname = usePathname()
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
+
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+
+    let initialHeight = viewport.height
+
+    function onResize() {
+      if (!viewport) return
+      // Keyboard is open if viewport shrinks significantly
+      setKeyboardVisible(initialHeight - viewport.height > 100)
+    }
+
+    // Re-capture initial height on orientation change
+    function onOrientationChange() {
+      setTimeout(() => {
+        if (viewport) initialHeight = viewport.height
+      }, 300)
+    }
+
+    viewport.addEventListener('resize', onResize)
+    window.addEventListener('orientationchange', onOrientationChange)
+    return () => {
+      viewport.removeEventListener('resize', onResize)
+      window.removeEventListener('orientationchange', onOrientationChange)
+    }
+  }, [])
+
+  if (keyboardVisible) return null
 
   return (
     <motion.nav

@@ -248,7 +248,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
           className={
             isDesktop
               ? 'w-full sm:max-w-4xl overflow-y-auto p-8 bg-white'
-              : 'flex flex-col p-0 bg-white h-[72vh]'
+              : 'flex flex-col p-0 bg-white h-[82dvh]'
           }
         >
           {isDesktop ? (

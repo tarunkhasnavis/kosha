@@ -137,7 +137,7 @@ export default async function SettingsPage() {
   // Reps see no tabs — just the general settings
   if (!isAdmin) {
     return (
-      <div className="p-4 md:p-6 lg:p-8 max-w-2xl">
+      <div className="p-4 md:p-6 lg:p-8 max-w-2xl pb-24">
         <h1 className="text-2xl font-semibold text-stone-800 mb-6">Settings</h1>
         {generalContent}
       </div>
@@ -146,7 +146,7 @@ export default async function SettingsPage() {
 
   // Admins see tabs: General + Team
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-2xl">
+    <div className="p-4 md:p-6 lg:p-8 max-w-2xl pb-24">
       <h1 className="text-2xl font-semibold text-stone-800 mb-6">Settings</h1>
 
       <Tabs defaultValue="general">

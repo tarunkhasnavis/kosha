@@ -61,31 +61,33 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="name">Name *</Label>
+        <Label htmlFor="name" className="text-sm font-medium text-stone-700">Name *</Label>
         <Input
           id="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Account name"
           required
+          className="focus-visible:ring-amber-600/30 focus-visible:border-amber-600"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="industry">Industry</Label>
+        <Label htmlFor="industry" className="text-sm font-medium text-stone-700">Industry</Label>
         <Input
           id="industry"
           value={industry}
           onChange={(e) => setIndustry(e.target.value)}
           placeholder="e.g., Restaurant, Retail, Hospitality"
+          className="focus-visible:ring-amber-600/30 focus-visible:border-amber-600"
         />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Premise Type</Label>
+          <Label className="text-sm font-medium text-stone-700">Premise Type</Label>
           <Select value={premiseType} onValueChange={(v) => setPremiseType(v as PremiseType)}>
-            <SelectTrigger>
+            <SelectTrigger className="focus:ring-amber-600/30 focus:border-amber-600">
               <SelectValue placeholder="Select..." />
             </SelectTrigger>
             <SelectContent>
@@ -98,12 +100,13 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="address">Address</Label>
+        <Label htmlFor="address" className="text-sm font-medium text-stone-700">Address</Label>
         <Input
           id="address"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           placeholder="Street address"
+          className="focus-visible:ring-amber-600/30 focus-visible:border-amber-600"
         />
       </div>
 
@@ -113,7 +116,11 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
             Cancel
           </Button>
         )}
-        <Button type="submit" disabled={loading || !name.trim()}>
+        <Button
+          type="submit"
+          disabled={loading || !name.trim()}
+          className="bg-[#D97706] hover:bg-[#B45309] text-white disabled:opacity-40"
+        >
           {loading ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Changes' : 'Create Account')}
         </Button>
       </div>

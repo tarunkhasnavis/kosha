@@ -26,15 +26,15 @@ export function GoogleSignIn() {
   }
 
   return (
-    <Button
+    <button
       onClick={handleGoogleSignIn}
       disabled={isLoading}
-      className="h-12 px-8 text-base font-medium bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-600 hover:border-emerald-500 shadow-sm hover:shadow-lg hover:scale-[1.02] transition-all duration-150 rounded-xl"
+      className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 active:scale-[0.98] transition-all disabled:opacity-50"
     >
       {isLoading ? (
-        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+        <Loader2 className="h-4 w-4 animate-spin" />
       ) : (
-        <svg className="mr-3 h-5 w-5" viewBox="0 0 24 24">
+        <svg className="h-4 w-4" viewBox="0 0 24 24">
           <path
             fill="currentColor"
             d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -54,6 +54,6 @@ export function GoogleSignIn() {
         </svg>
       )}
       {isLoading ? 'Signing in...' : 'Continue with Google'}
-    </Button>
+    </button>
   )
 }

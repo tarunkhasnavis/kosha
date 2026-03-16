@@ -110,6 +110,31 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [textInput, setTextInput] = useState('')
+  const [textFocused, setTextFocused] = useState(false)
+  const idleInputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // iOS PWA keyboard-aware layout:
+  // Track visualViewport height AND offsetTop to position the container
+  // exactly over the visible area, even when iOS scrolls behind the keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+
+    function update() {
+      if (!vv || !containerRef.current) return
+      containerRef.current.style.height = `${vv.height}px`
+      containerRef.current.style.top = `${vv.offsetTop}px`
+    }
+
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+    }
+  }, [])
   const [conversationsOpen, setConversationsOpen] = useState(false)
   const [captureMode, setCaptureMode] = useState<CaptureMode>('voice')
   const [textSending, setTextSending] = useState(false)
@@ -342,6 +367,9 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
       pc.ontrack = (event) => { audio.srcObject = event.streams[0] }
 
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone access requires HTTPS. Please use text chat instead, or open via localhost.')
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       })
@@ -542,18 +570,27 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     const message = textInput.trim()
     setTextInput('')
 
-    if (state === 'idle') {
+    if (state === 'active' && captureMode === 'text') {
+      // If no messages yet (just transitioned from idle), use startTextChat for first message
+      if (chatHistoryRef.current.length === 0) {
+        startTextChat(message)
+      } else {
+        sendTextMessage(message)
+      }
+    } else if (state === 'idle') {
       startTextChat(message)
-    } else if (state === 'active' && captureMode === 'text') {
-      sendTextMessage(message)
     }
   }, [textInput, state, captureMode, startTextChat, sendTextMessage])
 
   // ─── Render ───────────────────────────────────────────────
 
   return (
-    <div className="relative h-[calc(100dvh-3.5rem)] overflow-hidden">
-      <AnimatePresence mode="wait">
+    <div
+      ref={containerRef}
+      className="fixed top-0 left-0 right-0 overflow-hidden bg-stone-50 z-30"
+      style={{ height: '100dvh' }}
+    >
+      <AnimatePresence mode="popLayout">
         {/* ─── Idle State ─────────────────────────────────────── */}
         {state === 'idle' && (
           <motion.div
@@ -561,134 +598,166 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center h-full overflow-hidden"
+            transition={{ duration: 0.05 }}
+            className={`flex flex-col items-center h-full overflow-hidden ${textFocused ? 'pb-1' : 'pb-24'}`}
           >
             {/* Top Bar */}
-            <div className="flex items-center justify-between w-full px-5 pt-3 shrink-0">
-              <button
-                className="p-2 -ml-2 rounded-xl hover:bg-stone-100 transition-colors"
-                onClick={() => setConversationsOpen(true)}
-              >
-                <Menu className="h-6 w-6 text-stone-700" />
-              </button>
-
-              <Link
-                href="/settings"
-                className="p-2 -mr-2 rounded-xl hover:bg-stone-100 transition-colors ml-auto"
-              >
-                <User className="h-6 w-6 text-stone-700" />
-              </Link>
-            </div>
-
-            {/* Gradient Orb + Subtitle — centered */}
-            <div className="flex-1 flex flex-col items-center justify-center min-h-0">
-              <button
-                onClick={startCapture}
-                className="relative group focus:outline-none"
-                aria-label="Tap to talk with Kosha"
-              >
-                <div
-                  className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40 transition-transform duration-200 group-active:scale-95 flex items-center justify-center"
-                  style={{
-                    background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
-                    animation: 'orb-breathe 4s ease-in-out infinite',
-                  }}
-                />
-                <div
-                  className="absolute inset-0 h-48 w-48 rounded-full flex items-center justify-center"
-                >
-                  <img src="/icons/kosha-k.svg" alt="Kosha" className="h-14 w-14 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
+            <div className="flex items-center justify-between w-full px-5 shrink-0 pt-14">
+              {textFocused ? (
+                <div className="flex items-center gap-3">
+                  <div
+                    className="h-10 w-10 rounded-full shrink-0"
+                    style={{
+                      background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                    }}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-stone-800">
+                      {selectedAccount?.name || 'Conversation'}
+                    </p>
+                    <p className="text-xs text-stone-500">Text chat</p>
+                  </div>
                 </div>
-              </button>
+              ) : (
+                <>
+                  <button
+                    className="p-2 -ml-2 rounded-xl hover:bg-stone-100 transition-colors"
+                    onClick={() => setConversationsOpen(true)}
+                  >
+                    <Menu className="h-6 w-6 text-stone-700" />
+                  </button>
 
-              <p className="text-sm text-stone-600 mt-3 font-medium">
-                Tap to talk with Kosha
-              </p>
+                  <Link
+                    href="/settings"
+                    className="p-2 -mr-2 rounded-xl hover:bg-stone-100 transition-colors ml-auto"
+                  >
+                    <User className="h-6 w-6 text-stone-700" />
+                  </Link>
+                </>
+              )}
             </div>
 
-            {/* Account selector + text input — pinned to bottom */}
-            <div className="shrink-0 w-full px-4 pb-3">
-              {accounts.length > 0 && (
-                <div className="mb-2 flex justify-center">
-                  <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-stone-600 border border-stone-200 bg-white transition-colors hover:text-stone-700 hover:border-stone-300 active:bg-stone-50 shadow-sm">
-                        <span>
-                          {selectedAccount?.name || 'Select account'}
-                        </span>
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-[calc(100vw-2.5rem)] p-0 rounded-2xl border-stone-200 shadow-lg"
-                      align="center"
-                      sideOffset={8}
+            {/* Gradient Orb + Subtitle — hidden when text focused */}
+            {!textFocused && (
+              <>
+                <div className="flex-1 flex flex-col items-center justify-center min-h-0">
+                  <button
+                    onClick={startCapture}
+                    className="relative group focus:outline-none"
+                    aria-label="Tap to talk with Kosha"
+                  >
+                    <div
+                      className="h-40 w-40 rounded-full shadow-lg shadow-orange-200/40 transition-transform duration-200 group-active:scale-95 flex items-center justify-center"
+                      style={{
+                        background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                        animation: 'orb-breathe 4s ease-in-out infinite',
+                      }}
+                    />
+                    <div
+                      className="absolute inset-0 h-40 w-40 rounded-full flex items-center justify-center"
                     >
-                      <div className="p-3 border-b border-stone-100">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
-                          <input
-                            type="text"
-                            placeholder="Search accounts..."
-                            value={accountSearch}
-                            onChange={(e) => setAccountSearch(e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 text-sm bg-stone-50 rounded-lg border-0 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-800/10"
-                            autoFocus
-                          />
-                        </div>
-                      </div>
-                      <div className="max-h-60 overflow-y-auto py-1">
-                        <button
-                          onClick={() => {
-                            setAccountId('')
-                            setAccountSearch('')
-                            setAccountPopoverOpen(false)
-                          }}
-                          className={cn(
-                            'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
-                            !accountId ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
-                          )}
+                      <img src="/icons/kosha-k.svg" alt="Kosha" className="h-16 w-16 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
+                    </div>
+                  </button>
+
+                  <p className="text-sm text-stone-600 mt-6 font-medium">
+                    Tap to talk with Kosha
+                  </p>
+                </div>
+
+                {/* Account selector — only when not focused */}
+                <div className="shrink-0 w-full px-4 pb-1">
+                  {accounts.length > 0 && (
+                    <div className="mb-2 flex justify-center">
+                      <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-stone-600 border border-stone-200 bg-white transition-colors hover:text-stone-700 hover:border-stone-300 active:bg-stone-50 shadow-sm">
+                            <span>
+                              {selectedAccount?.name || 'Select account'}
+                            </span>
+                            <ChevronDown className="h-3 w-3" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="w-[calc(100vw-2.5rem)] p-0 rounded-2xl border-stone-200 shadow-lg"
+                          align="center"
+                          sideOffset={8}
                         >
-                          <div className="h-4 w-4 flex items-center justify-center">
-                            {!accountId && <Check className="h-4 w-4 text-teal-600" />}
+                          <div className="p-3 border-b border-stone-100">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                              <input
+                                type="text"
+                                placeholder="Search accounts..."
+                                value={accountSearch}
+                                onChange={(e) => setAccountSearch(e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 text-sm bg-stone-50 rounded-lg border-0 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-800/10"
+                                autoFocus
+                              />
+                            </div>
                           </div>
-                          <span className="font-medium">Auto-detect from conversation</span>
-                        </button>
-                        {accounts
-                          .filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase()))
-                          .map((account) => (
+                          <div className="max-h-60 overflow-y-auto py-1">
                             <button
-                              key={account.id}
                               onClick={() => {
-                                setAccountId(account.id)
+                                setAccountId('')
                                 setAccountSearch('')
                                 setAccountPopoverOpen(false)
                               }}
                               className={cn(
                                 'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
-                                accountId === account.id ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
+                                !accountId ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
                               )}
                             >
                               <div className="h-4 w-4 flex items-center justify-center">
-                                {accountId === account.id && <Check className="h-4 w-4 text-teal-600" />}
+                                {!accountId && <Check className="h-4 w-4 text-teal-600" />}
                               </div>
-                              <span>{account.name}</span>
+                              <span className="font-medium">Auto-detect from conversation</span>
                             </button>
-                          ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                            {accounts
+                              .filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase()))
+                              .map((account) => (
+                                <button
+                                  key={account.id}
+                                  onClick={() => {
+                                    setAccountId(account.id)
+                                    setAccountSearch('')
+                                    setAccountPopoverOpen(false)
+                                  }}
+                                  className={cn(
+                                    'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                                    accountId === account.id ? 'bg-teal-50 text-teal-800' : 'text-stone-600 active:bg-stone-50'
+                                  )}
+                                >
+                                  <div className="h-4 w-4 flex items-center justify-center">
+                                    {accountId === account.id && <Check className="h-4 w-4 text-teal-600" />}
+                                  </div>
+                                  <span>{account.name}</span>
+                                </button>
+                              ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  )}
                 </div>
-              )}
+              </>
+            )}
 
+            {/* Empty chat area when focused */}
+            {textFocused && <div className="flex-1" />}
+
+            {/* Text input — always visible */}
+            <div className="shrink-0 w-full px-4 pb-3">
               <div className="relative">
                 <input
+                  ref={idleInputRef}
                   type="text"
-                  placeholder="or type your thoughts..."
+                  placeholder={textFocused ? 'Type a message...' : 'or type your thoughts...'}
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                  onFocus={() => setTextFocused(true)}
+                  onBlur={() => { if (!textInput.trim()) setTextFocused(false) }}
                   className="w-full pl-4 pr-12 py-3 bg-white rounded-2xl border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm"
                 />
                 <button
@@ -731,10 +800,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col min-h-[calc(100dvh-4rem)]"
+            className="flex flex-col h-full"
           >
             {/* Header with small orb */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <div className="flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
               <div className="flex items-center gap-3">
                 <div
                   className="h-10 w-10 rounded-full"
@@ -770,10 +839,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               </div>
             </div>
 
-            {/* Live indicator */}
+            {/* Mode indicator */}
             <div className="flex items-center gap-2 px-5 pb-3">
-              <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-xs font-medium text-red-500 uppercase tracking-wider">Live</span>
+              {captureMode === 'voice' ? (
+                <>
+                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-xs font-medium text-red-500 uppercase tracking-wider">Live</span>
+                </>
+              ) : (
+                <>
+                  <div className="h-2 w-2 rounded-full bg-teal-500" />
+                  <span className="text-xs font-medium text-teal-600 uppercase tracking-wider">Chat</span>
+                </>
+              )}
             </div>
 
             {/* Transcript */}
@@ -783,11 +861,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             >
               {transcript.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                  <div className="h-12 w-12 rounded-full bg-stone-100 flex items-center justify-center mb-3">
-                    {captureMode === 'text' ? <Send className="h-5 w-5 text-stone-400" /> : <Mic className="h-5 w-5 text-stone-400" />}
+                  <div
+                    className="h-16 w-16 rounded-full mb-4 flex items-center justify-center"
+                    style={{
+                      background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                    }}
+                  >
+                    <img src="/icons/kosha-k.svg" alt="Kosha" className="h-7 w-7 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
                   </div>
-                  <p className="text-sm text-stone-400">
-                    {captureMode === 'text' ? 'Type about your meeting...' : 'Start speaking about your meeting...'}
+                  <p className="text-sm font-medium text-stone-600">
+                    {captureMode === 'text' ? 'What\'s on your mind?' : 'Start speaking about your meeting...'}
+                  </p>
+                  <p className="text-xs text-stone-400 mt-1">
+                    {captureMode === 'text' ? 'Debrief, prep, or jot a quick note' : 'Kosha is listening'}
                   </p>
                 </div>
               ) : (
@@ -817,13 +903,13 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
             {/* Bottom Bar */}
             {captureMode === 'text' ? (
-              <div className="fixed bottom-20 left-0 right-0 px-4 z-20">
+              <div className="shrink-0 px-4 py-3 border-t border-stone-100 bg-stone-50">
                 <div className="flex items-center gap-2 max-w-lg mx-auto">
                   <button
                     onClick={stopCapture}
-                    className="h-11 w-11 shrink-0 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"
+                    className="h-10 w-10 shrink-0 bg-stone-200 hover:bg-stone-300 text-stone-600 rounded-full flex items-center justify-center active:scale-95 transition-all"
                   >
-                    <Square className="h-4 w-4 fill-current" />
+                    <X className="h-4 w-4" />
                   </button>
                   <div className="relative flex-1">
                     <input
@@ -846,7 +932,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 </div>
               </div>
             ) : (
-              <div className="fixed bottom-20 left-0 right-0 flex justify-center z-20">
+              <div className="fixed left-0 right-0 flex justify-center z-20" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
                 <button
                   onClick={stopCapture}
                   className="h-14 w-14 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"

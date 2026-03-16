@@ -1,5 +1,6 @@
 import { getUser } from '@kosha/supabase'
 import { redirect } from 'next/navigation'
+import { WelcomeScreen } from './welcome/WelcomeScreen'
 
 export default async function Home() {
   const user = await getUser()
@@ -8,5 +9,5 @@ export default async function Home() {
     redirect('/capture')
   }
 
-  redirect('/welcome')
+  return <WelcomeScreen />
 }

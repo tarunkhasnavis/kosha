@@ -2,12 +2,12 @@
   "name": "Kosha",
   "short_name": "Kosha",
   "description": "AI workflow app for field sales reps",
-  "start_url": "/capture",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0B0F1A",
-  "theme_color": "#0B0F1A",
+  "background_color": "#FAFAF9",
+  "theme_color": "#FAFAF9",
   "icons": [
     {
       "src": "/icons/icon.png",

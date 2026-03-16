@@ -19,6 +19,13 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
 
+  // Use the forwarded host/origin to build redirect URLs so they work
+  // correctly when accessed via IP (e.g., from a phone on the same network)
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const host = forwardedHost || request.headers.get('host') || requestUrl.host
+  const protocol = request.headers.get('x-forwarded-proto') || 'http'
+  const origin = `${protocol}://${host}`
+
   if (code) {
     const supabase = await createClient()
     const serviceClient = createServiceClient()
@@ -64,7 +71,7 @@ export async function GET(request: Request) {
               }
 
               // Clear the invite token cookie
-              const response = NextResponse.redirect(new URL('/capture', request.url))
+              const response = NextResponse.redirect(new URL('/capture', origin))
               response.cookies.delete('invite_token')
               return response
             }
@@ -88,7 +95,7 @@ export async function GET(request: Request) {
 
           if (orgError || !newOrg) {
             console.error('Failed to create organization:', orgError)
-            return NextResponse.redirect(new URL('/login?error=org_creation_failed', request.url))
+            return NextResponse.redirect(new URL('/login?error=org_creation_failed', origin))
           }
 
           const { error: profileError } = await serviceClient
@@ -106,16 +113,16 @@ export async function GET(request: Request) {
           }
 
           // New admin user — send to onboarding to set org name
-          const response = NextResponse.redirect(new URL('/onboarding', request.url))
+          const response = NextResponse.redirect(new URL('/onboarding', origin))
           response.cookies.delete('invite_token')
           return response
         } catch (error) {
           console.error('Error during new supplier user setup:', error)
-          return NextResponse.redirect(new URL('/login?error=setup_failed', request.url))
+          return NextResponse.redirect(new URL('/login?error=setup_failed', origin))
         }
       }
     }
   }
 
-  return NextResponse.redirect(new URL('/capture', request.url))
+  return NextResponse.redirect(new URL('/capture', origin))
 }

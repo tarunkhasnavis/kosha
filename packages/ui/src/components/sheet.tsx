@@ -152,6 +152,7 @@ const SheetContent = React.forwardRef<
         ref={ref}
         forceMount
         asChild
+        onOpenAutoFocus={(e) => e.preventDefault()}
         {...props}
       >
         <motion.div

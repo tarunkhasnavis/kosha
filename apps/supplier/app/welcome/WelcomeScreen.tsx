@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Download, Share, Plus, ArrowRight } from 'lucide-react'
+import { Download, Share, Plus, ArrowRight, ChevronDown, SquarePlus, Ellipsis } from 'lucide-react'
 
 type InstallState = 'checking' | 'installed' | 'installable' | 'ios' | 'unsupported'
 
@@ -20,6 +20,16 @@ function useIsIOS() {
   return isIOS
 }
 
+function useIsSafari() {
+  const [isSafari, setIsSafari] = useState(false)
+  useEffect(() => {
+    const ua = navigator.userAgent
+    // Safari but not Chrome/CriOS/Firefox/Edge
+    setIsSafari(/Safari/.test(ua) && !/CriOS|Chrome|FxiOS|EdgiOS/.test(ua))
+  }, [])
+  return isSafari
+}
+
 function useIsStandalone() {
   const [isStandalone, setIsStandalone] = useState(false)
   useEffect(() => {
@@ -34,6 +44,7 @@ function useIsStandalone() {
 export function WelcomeScreen() {
   const router = useRouter()
   const isIOS = useIsIOS()
+  const isSafari = useIsSafari()
   const isStandalone = useIsStandalone()
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installState, setInstallState] = useState<InstallState>('checking')
@@ -95,13 +106,7 @@ export function WelcomeScreen() {
     >
       {/* Logo */}
       <div className="mb-10">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="530 267 457 536" fill="none" className="h-16 w-16 mx-auto mb-6 drop-shadow-sm">
-          <g fill="rgba(28,25,23,0.85)">
-            <path d="M 695.0 783.5 L 573.5 783.0 L 573.5 404.0 L 549.5 374.0 L 695.0 286.5 L 695.0 783.5 Z"/>
-            <path d="M 898.0 509.5 L 886.0 509.5 L 877.0 507.5 L 854.0 497.5 L 840.0 493.5 L 818.0 494.5 L 806.0 499.5 L 794.5 508.0 L 819.5 457.0 L 836.5 430.0 L 855.0 410.5 L 869.0 402.5 L 882.0 398.5 L 905.0 399.5 L 912.0 401.5 L 926.0 409.5 L 939.5 425.0 L 944.5 437.0 L 946.5 447.0 L 946.5 458.0 L 943.5 472.0 L 936.5 486.0 L 922.0 500.5 L 910.0 506.5 L 898.0 509.5 Z"/>
-            <path d="M 967.0 783.5 L 828.0 783.5 L 726.5 653.0 L 723.5 649.0 L 723.5 646.0 L 778.0 539.5 L 954.5 765.0 L 967.5 782.0 L 967.0 783.5 Z"/>
-          </g>
-        </svg>
+        <img src="/icons/kosha-k.svg" alt="Kosha" className="h-16 w-16 mx-auto mb-6 drop-shadow-sm" style={{ filter: 'brightness(0) opacity(0.85)' }} />
         <h1 className="text-3xl font-bold text-stone-800 tracking-tight">kosha</h1>
         <p className="text-stone-400 text-sm mt-2">AI-powered field sales</p>
       </div>
@@ -138,20 +143,55 @@ export function WelcomeScreen() {
         {installState === 'ios' && !isStandalone && (
           <div className="rounded-xl border border-stone-200 bg-white p-4 text-left space-y-3">
             <p className="text-xs font-medium text-stone-600">Install for the best experience</p>
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-3">
-                <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
-                  <Share className="h-3.5 w-3.5 text-stone-500" />
+            {isSafari ? (
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <Ellipsis className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">•••</span> (bottom right)</p>
                 </div>
-                <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">Share</span> in Safari</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
-                  <Plus className="h-3.5 w-3.5 text-stone-500" />
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <Share className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">Share</span></p>
                 </div>
-                <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">Add to Home Screen</span></p>
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <ChevronDown className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">View more</span></p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <SquarePlus className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">Add to Home Screen</span></p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <Share className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap the <span className="text-stone-800 font-medium">Share</span> icon (top right)</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <ChevronDown className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">View more</span></p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-7 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+                    <SquarePlus className="h-3.5 w-3.5 text-stone-500" />
+                  </div>
+                  <p className="text-xs text-stone-400">Tap <span className="text-stone-800 font-medium">Add to Home Screen</span></p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -174,7 +214,7 @@ export function WelcomeScreen() {
       </div>
 
       {/* Footer */}
-      <p className="text-[10px] text-stone-400 mt-10">
+      <p className="absolute bottom-6 text-[10px] text-stone-400">
         &copy; {new Date().getFullYear()} Kosha
       </p>
     </div>

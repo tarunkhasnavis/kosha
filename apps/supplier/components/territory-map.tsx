@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import {
   Button,
   Calendar as CalendarWidget,
@@ -165,7 +166,7 @@ export function TerritoryMap({
   const [newAccountCoords, setNewAccountCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [creating, setCreating] = useState(false)
 
-  const mappableAccounts = accounts.filter((a) => a.latitude != null && a.longitude != null)
+  const mappableAccounts = useMemo(() => accounts.filter((a) => a.latitude != null && a.longitude != null), [accounts])
 
   // Dynamic visit loading for any plan date
   const [dateVisits, setDateVisits] = useState<VisitWithAccount[]>([])
@@ -192,9 +193,9 @@ export function TerritoryMap({
     (v) => v.account?.latitude != null && v.account?.longitude != null
   )
 
-  const filteredDiscovered = activeCategory === 'my_accounts'
+  const filteredDiscovered = useMemo(() => activeCategory === 'my_accounts'
     ? []
-    : discoveredAccounts.filter((d) => d.category === activeCategory)
+    : discoveredAccounts.filter((d) => d.category === activeCategory), [activeCategory, discoveredAccounts])
 
   // Filtered + ranked list for the search drawer
   const drawerResults = useMemo(() => {
@@ -471,19 +472,16 @@ export function TerritoryMap({
       // Plan mode
       clearRoute()
 
-      visitsWithCoords.forEach((visit, index) => {
-        const marker = createStopMarker(
-          visit.account.name,
-          index + 1,
-          [visit.account.longitude!, visit.account.latitude!],
-          map.current!
-        )
-        markersRef.current.push(marker)
-      })
-
       if (visitsWithCoords.length >= 2) {
         buildRoute(visitsWithCoords)
       } else if (visitsWithCoords.length === 1) {
+        const marker = createStopMarker(
+          visitsWithCoords[0].account.name,
+          1,
+          [visitsWithCoords[0].account.longitude!, visitsWithCoords[0].account.latitude!],
+          map.current!
+        )
+        markersRef.current.push(marker)
         map.current.flyTo({
           center: [visitsWithCoords[0].account.longitude!, visitsWithCoords[0].account.latitude!],
           zoom: 14,
@@ -493,7 +491,7 @@ export function TerritoryMap({
         setRouteInfo(null)
       }
     }
-  }, [mode, activeCategory, accounts, discoveredAccounts, planDate, todayVisits, tomorrowVisits, dateVisits]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, activeCategory, mappableAccounts, filteredDiscovered, planDate, todayVisits, tomorrowVisits, dateVisits]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function clearRoute() {
     if (!map.current) return
@@ -510,42 +508,23 @@ export function TerritoryMap({
   async function buildRoute(visits: VisitWithAccount[]) {
     if (!map.current || visits.length < 2) return
 
-    const coordinates = visits
-      .map((v) => `${v.account.longitude},${v.account.latitude}`)
-      .join(';')
-
     try {
-      // Try Optimization API first
-      const optimizeUrl = `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coordinates}?access_token=${MAPBOX_TOKEN}&geometries=geojson&overview=full`
-      let response = await fetch(optimizeUrl)
-      let data = await response.json()
+      // Optimize stop order using nearest-neighbor on haversine distance
+      const orderedVisits = optimizeStopOrder(visits)
 
-      let geometry: GeoJSON.LineString | null = null
-      let legs: { distance: number; duration: number }[] = []
-      let orderedVisits = visits
+      const coordinates = orderedVisits
+        .map((v) => `${v.account.longitude},${v.account.latitude}`)
+        .join(';')
 
-      if (data.code === 'Ok' && data.trips?.[0]) {
-        const trip = data.trips[0]
-        geometry = trip.geometry
-        legs = trip.legs || []
+      // Use Directions API for the actual driving route
+      const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}?access_token=${MAPBOX_TOKEN}&geometries=geojson&overview=full`
+      const response = await fetch(directionsUrl)
+      const data = await response.json()
 
-        const waypointOrder = data.waypoints?.map((w: { waypoint_index: number }) => w.waypoint_index) || []
-        if (waypointOrder.length === visits.length) {
-          orderedVisits = waypointOrder.map((i: number) => visits[i])
-        }
-      } else {
-        // Fallback to Directions API
-        const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}?access_token=${MAPBOX_TOKEN}&geometries=geojson&overview=full`
-        response = await fetch(directionsUrl)
-        data = await response.json()
+      if (data.code === 'Ok' && data.routes?.[0] && map.current) {
+        const geometry = data.routes[0].geometry
+        const legs: { distance: number; duration: number }[] = data.routes[0].legs || []
 
-        if (data.code === 'Ok' && data.routes?.[0]) {
-          geometry = data.routes[0].geometry
-          legs = data.routes[0].legs || []
-        }
-      }
-
-      if (geometry && map.current) {
         if (routeSourceAdded.current) {
           const source = map.current.getSource('route') as mapboxgl.GeoJSONSource
           source?.setData({ type: 'Feature', properties: {}, geometry })
@@ -563,6 +542,19 @@ export function TerritoryMap({
           })
           routeSourceAdded.current = true
         }
+
+        // Place numbered markers in optimized order
+        markersRef.current.forEach((m) => m.remove())
+        markersRef.current = []
+        orderedVisits.forEach((visit, index) => {
+          const marker = createStopMarker(
+            visit.account.name,
+            index + 1,
+            [visit.account.longitude!, visit.account.latitude!],
+            map.current!
+          )
+          markersRef.current.push(marker)
+        })
 
         const totalDistance = legs.reduce((sum, leg) => sum + (leg.distance || 0), 0)
         const totalDuration = legs.reduce((sum, leg) => sum + (leg.duration || 0), 0)
@@ -585,6 +577,96 @@ export function TerritoryMap({
     } catch (err) {
       console.error('Route optimization failed:', err)
     }
+  }
+
+  /**
+   * Nearest-neighbor route optimization using haversine distance.
+   * Tries every starting point and picks the shortest total route.
+   */
+  function optimizeStopOrder(visits: VisitWithAccount[]): VisitWithAccount[] {
+    if (visits.length <= 2) return visits
+
+    function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+      const R = 3959 // miles
+      const dLat = (lat2 - lat1) * Math.PI / 180
+      const dLon = (lon2 - lon1) * Math.PI / 180
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) ** 2
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    }
+
+    function totalDistance(order: VisitWithAccount[]): number {
+      let dist = 0
+      for (let i = 0; i < order.length - 1; i++) {
+        dist += haversine(
+          order[i].account.latitude!, order[i].account.longitude!,
+          order[i + 1].account.latitude!, order[i + 1].account.longitude!
+        )
+      }
+      return dist
+    }
+
+    // For small sets (≤ 8), try all permutations for the true optimum
+    if (visits.length <= 8) {
+      let bestOrder = visits
+      let bestDist = Infinity
+
+      function permute(arr: VisitWithAccount[], l: number) {
+        if (l === arr.length - 1) {
+          const d = totalDistance(arr)
+          if (d < bestDist) {
+            bestDist = d
+            bestOrder = [...arr]
+          }
+          return
+        }
+        for (let i = l; i < arr.length; i++) {
+          [arr[l], arr[i]] = [arr[i], arr[l]]
+          permute(arr, l + 1)
+          ;[arr[l], arr[i]] = [arr[i], arr[l]]
+        }
+      }
+
+      permute([...visits], 0)
+      return bestOrder
+    }
+
+    // For larger sets, use nearest-neighbor from each start
+    let bestOrder = visits
+    let bestDist = Infinity
+
+    for (let start = 0; start < visits.length; start++) {
+      const remaining = [...visits]
+      const order: VisitWithAccount[] = [remaining.splice(start, 1)[0]]
+
+      while (remaining.length > 0) {
+        const last = order[order.length - 1]
+        let nearestIdx = 0
+        let nearestDist = Infinity
+
+        for (let i = 0; i < remaining.length; i++) {
+          const d = haversine(
+            last.account.latitude!, last.account.longitude!,
+            remaining[i].account.latitude!, remaining[i].account.longitude!
+          )
+          if (d < nearestDist) {
+            nearestDist = d
+            nearestIdx = i
+          }
+        }
+
+        order.push(remaining.splice(nearestIdx, 1)[0])
+      }
+
+      const d = totalDistance(order)
+      if (d < bestDist) {
+        bestDist = d
+        bestOrder = order
+      }
+    }
+
+    return bestOrder
   }
 
   async function handleRemoveStop(visitId: string) {
@@ -872,24 +954,42 @@ export function TerritoryMap({
       </Sheet>
 
       {/* Mode Toggle */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-white/95 backdrop-blur-sm rounded-full shadow-lg border border-stone-200 p-1 flex">
+      <div className="absolute left-1/2 -translate-x-1/2 z-10 bg-white/95 backdrop-blur-sm rounded-full shadow-lg border border-stone-200 p-2 flex" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) - 0.75rem)' }}>
         <button
           onClick={() => setMode('browse')}
-          className={`px-5 py-2 text-sm font-medium rounded-full transition-all ${
-            mode === 'browse' ? 'bg-teal-600 text-white shadow-sm' : 'text-stone-600 hover:text-stone-800'
+          className={`relative px-7 py-3.5 text-sm font-semibold rounded-full transition-colors duration-150 ${
+            mode === 'browse' ? 'text-white' : 'text-stone-600 hover:text-stone-800'
           }`}
         >
-          <Search className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />
-          Browse
+          {mode === 'browse' && (
+            <motion.div
+              layoutId="modeToggleBg"
+              className="absolute inset-0 bg-teal-600 rounded-full shadow-sm"
+              transition={{ type: 'spring', stiffness: 400, damping: 40, mass: 0.6 }}
+            />
+          )}
+          <span className="relative z-10 flex items-center">
+            <Search className="h-3.5 w-3.5 mr-1.5 -mt-0.5" />
+            Browse
+          </span>
         </button>
         <button
           onClick={() => setMode('plan')}
-          className={`px-5 py-2 text-sm font-medium rounded-full transition-all ${
-            mode === 'plan' ? 'bg-teal-600 text-white shadow-sm' : 'text-stone-600 hover:text-stone-800'
+          className={`relative px-7 py-3.5 text-sm font-semibold rounded-full transition-colors duration-150 ${
+            mode === 'plan' ? 'text-white' : 'text-stone-600 hover:text-stone-800'
           }`}
         >
-          <Navigation2 className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />
-          Plan
+          {mode === 'plan' && (
+            <motion.div
+              layoutId="modeToggleBg"
+              className="absolute inset-0 bg-teal-600 rounded-full shadow-sm"
+              transition={{ type: 'spring', stiffness: 400, damping: 40, mass: 0.6 }}
+            />
+          )}
+          <span className="relative z-10 flex items-center">
+            <Navigation2 className="h-3.5 w-3.5 mr-1.5 -mt-0.5" />
+            Plan
+          </span>
         </button>
       </div>
 
@@ -991,6 +1091,32 @@ export function TerritoryMap({
       {/* Plan: Date Selector Pill with Chevrons */}
       {mode === 'plan' && (
         <>
+          {/* Navigate button — top right */}
+          {routeInfo && routeInfo.stops.length >= 2 && (
+            <button
+              onClick={() => {
+                const stops = routeInfo.stops
+                const dest = stops[stops.length - 1]
+                const waypoints = stops.slice(0, -1)
+                const waypointParam = waypoints
+                  .map((s) => encodeURIComponent(s.address || s.name))
+                  .join('/')
+                const destParam = encodeURIComponent(dest.address || dest.name)
+                const url = `https://www.google.com/maps/dir/${waypointParam}/${destParam}`
+                window.open(url, '_blank')
+              }}
+              className="absolute top-[calc(env(safe-area-inset-top,0px)+76px)] right-6 z-10 flex items-center justify-center w-14 h-14 rounded-full bg-stone-800 shadow-[0_2px_12px_rgba(0,0,0,0.2)] hover:bg-stone-700 active:scale-95 transition-all"
+            >
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#EA4335" />
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 2.61 1.43 4.88 3.54 6.15L12 11.5V2z" fill="#4285F4" />
+                <path d="M8.54 15.15C9.56 16.52 10.82 18.14 12 22c1.18-3.86 2.44-5.48 3.46-6.85L12 11.5 8.54 15.15z" fill="#34A853" />
+                <path d="M15.46 15.15C16.57 13.78 19 10.61 19 9c0-3.87-3.13-7-7-7v9.5l3.46 3.65z" fill="#FBBC04" />
+                <circle cx="12" cy="9" r="2.5" fill="white" />
+              </svg>
+            </button>
+          )}
+
           <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
             <button
               onClick={() => {
@@ -1039,7 +1165,7 @@ export function TerritoryMap({
 
           {/* Route Summary + Floating Card */}
           {visitsWithCoords.length > 0 && (
-            <div className="absolute bottom-[88px] left-3 right-3 z-10 space-y-2">
+            <div className="absolute left-3 right-3 z-10 space-y-2" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 4.5rem)' }}>
               {routeInfo && (
                 <div className="flex items-center gap-2">
                   <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-stone-200 px-4 py-2.5 inline-flex items-center">
@@ -1080,7 +1206,7 @@ export function TerritoryMap({
           )}
 
           {visitsWithCoords.length === 0 && (
-            <div className="absolute bottom-[88px] left-3 right-3 z-10">
+            <div className="absolute left-3 right-3 z-10" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 3.5rem)' }}>
               <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-stone-200 p-4 text-center">
                 <Navigation2 className="h-6 w-6 text-stone-300 mx-auto mb-2" />
                 <p className="text-sm text-stone-500">
@@ -1145,22 +1271,41 @@ export function TerritoryMap({
             </div>
           </div>
 
-          {/* Add Stop Button */}
-          <div className="shrink-0 px-6 py-4 border-t border-stone-100">
+          {/* Bottom Buttons */}
+          <div className="shrink-0 px-6 py-4 border-t border-stone-100 flex gap-3">
             <button
               onClick={() => { setPlanSheetOpen(false); setAddStopMode(true); setSearchDrawerOpen(true) }}
-              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 transition-colors"
             >
               <Plus className="h-4 w-4" />
               Add Stop
             </button>
+            {routeInfo && routeInfo.stops.length >= 2 && (
+              <button
+                onClick={() => {
+                  const stops = routeInfo.stops
+                  const dest = stops[stops.length - 1]
+                  const waypoints = stops.slice(0, -1)
+                  const waypointParam = waypoints
+                    .map((s) => encodeURIComponent(s.address || s.name))
+                    .join('/')
+                  const destParam = encodeURIComponent(dest.address || dest.name)
+                  const url = `https://www.google.com/maps/dir/${waypointParam}/${destParam}`
+                  window.open(url, '_blank')
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-[#D97706] text-white text-sm font-semibold hover:bg-[#B45309] transition-colors"
+              >
+                <Navigation2 className="h-4 w-4" />
+                Navigate
+              </button>
+            )}
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Discovery Preview Card */}
       {selectedDiscovered && (
-        <div className="absolute bottom-4 left-3 right-3 z-20">
+        <div className="absolute left-3 right-3 z-20" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 4.5rem)' }}>
           <div className="bg-white rounded-2xl shadow-xl border border-stone-200 p-4 space-y-3">
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
@@ -1250,7 +1395,7 @@ export function TerritoryMap({
 
       {/* Google Places Preview Card */}
       {selectedPlace && (
-        <div className="absolute bottom-4 left-3 right-3 z-20">
+        <div className="absolute left-3 right-3 z-20" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 4.5rem)' }}>
           <div className="bg-white rounded-2xl shadow-xl border border-stone-200 p-4 space-y-3">
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
