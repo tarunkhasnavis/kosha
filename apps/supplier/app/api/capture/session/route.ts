@@ -1,11 +1,94 @@
 import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { NextResponse } from 'next/server'
-import { composePrompt, formatAccountContext } from '@/lib/ai/compose-prompt'
-import { getAccount, getAccountContacts, getAccountNotes } from '@/lib/accounts/queries'
+import { composePrompt, formatAccountContext, formatOrgContext } from '@/lib/ai/compose-prompt'
+import { getAccounts, getAccountContacts, getAccountNotes, getAccount } from '@/lib/accounts/queries'
 import { getTasksForAccount } from '@/lib/tasks/queries'
+import { getAllTasks } from '@/lib/tasks/queries'
 import { getVisitsForAccount } from '@/lib/visits/queries'
+import { getUpcomingVisits } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
+
+const SET_ACTIVE_ACCOUNT_TOOL = {
+  type: 'function' as const,
+  name: 'set_active_account',
+  description:
+    'Set the active account for this conversation. Call this IMMEDIATELY when the rep mentions an account by name and no account was pre-selected. This links the conversation data (insights, tasks, notes) to the correct account.',
+  parameters: {
+    type: 'object',
+    properties: {
+      account_name: {
+        type: 'string',
+        description: 'The account name the rep mentioned. Must match a known account.',
+      },
+    },
+    required: ['account_name'],
+  },
+}
+
+const SEARCH_DISCOVERY_TOOL = {
+  type: 'function' as const,
+  name: 'search_discovery_accounts',
+  description:
+    'Search for prospective (discovered) accounts not yet in the rep\'s book. Use when the rep asks about new leads, prospects, accounts to go after, or territory expansion opportunities.',
+  parameters: {
+    type: 'object',
+    properties: {
+      category: {
+        type: 'string',
+        enum: ['bar', 'restaurant', 'liquor_store', 'brewery', 'hotel', 'convenience_store'],
+        description: 'Filter by venue category.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max results to return. Default 10.',
+      },
+    },
+    required: [],
+  },
+}
+
+const GET_ACCOUNT_DETAILS_TOOL = {
+  type: 'function' as const,
+  name: 'get_account_details',
+  description:
+    'Fetch full details for a managed account by name — contacts, recent insights, open tasks, notes, last visit. Use when the rep asks about a specific existing account mid-conversation.',
+  parameters: {
+    type: 'object',
+    properties: {
+      account_name: {
+        type: 'string',
+        description: 'The account name to look up. Must match a known account.',
+      },
+    },
+    required: ['account_name'],
+  },
+}
+
+const SCHEDULE_VISIT_TOOL = {
+  type: 'function' as const,
+  name: 'schedule_visit',
+  description:
+    'Schedule a follow-up visit to an account. Call this when the rep says they need to go back, schedule a visit, or follow up in person. Clarify the date before calling.',
+  parameters: {
+    type: 'object',
+    properties: {
+      account_name: {
+        type: 'string',
+        description: 'The name of the account to visit.',
+      },
+      visit_date: {
+        type: 'string',
+        description: 'ISO 8601 date string for the visit (e.g., "2026-03-20T10:00:00"). Ask the rep for the date if not mentioned.',
+      },
+      notes: {
+        type: 'string',
+        description: 'Optional agenda or purpose for the visit.',
+      },
+    },
+    required: ['account_name', 'visit_date'],
+  },
+}
 
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
@@ -133,12 +216,38 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const { accountId } = body as { accountId?: string }
 
+  // Build org-wide context (accounts list, upcoming visits, pending tasks)
+  const [accountsResult, visitsResult, tasksResult] = await Promise.all([
+    getAccounts(),
+    getUpcomingVisits(),
+    getAllTasks(),
+  ])
+
+  const orgContext = formatOrgContext({
+    accounts: accountsResult.accounts.map((a) => ({ name: a.name, address: a.address })),
+    upcomingVisits: visitsResult.visits.slice(0, 20).map((v) => ({
+      account_name: v.account_name,
+      visit_date: v.visit_date,
+      notes: v.notes,
+    })),
+    pendingTasks: tasksResult.tasks
+      .filter((t) => !t.completed)
+      .slice(0, 20)
+      .map((t) => ({
+        account_name: t.account_name,
+        task: t.task,
+        priority: t.priority,
+        due_date: t.due_date,
+      })),
+  })
+
+  // Build account-specific context if an account is selected
   let accountContext: string | undefined
   if (accountId) {
     accountContext = await buildAccountContext(accountId)
   }
 
-  const systemPrompt = composePrompt({ accountContext })
+  const systemPrompt = composePrompt({ accountContext, orgContext })
 
   try {
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
@@ -151,19 +260,19 @@ export async function POST(request: Request) {
         model: 'gpt-4o-realtime-preview',
         voice: 'marin',
         instructions: systemPrompt,
-        tools: [SAVE_CAPTURE_TOOL],
+        tools: [SAVE_CAPTURE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, SCHEDULE_VISIT_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL],
         tool_choice: 'auto',
         input_audio_transcription: {
           model: 'whisper-1',
           language: 'en',
         },
         temperature: 0.6,
-        max_response_output_tokens: 400,
+        max_response_output_tokens: 1200,
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'medium',
+          eagerness: 'low',
           create_response: true,
-          interrupt_response: false,
+          interrupt_response: true,
         },
       }),
     })

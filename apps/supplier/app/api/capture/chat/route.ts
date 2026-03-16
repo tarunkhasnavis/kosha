@@ -2,11 +2,12 @@ import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { getOpenAI } from '@/lib/openai'
 import { NextResponse } from 'next/server'
-import { composePrompt, formatAccountContext } from '@/lib/ai/compose-prompt'
-import { getAccount, getAccountContacts, getAccountNotes } from '@/lib/accounts/queries'
-import { getTasksForAccount } from '@/lib/tasks/queries'
-import { getVisitsForAccount } from '@/lib/visits/queries'
+import { composePrompt, formatAccountContext, formatOrgContext } from '@/lib/ai/compose-prompt'
+import { getAccounts, getAccount, getAccountContacts, getAccountNotes } from '@/lib/accounts/queries'
+import { getTasksForAccount, getAllTasks } from '@/lib/tasks/queries'
+import { getVisitsForAccount, getUpcomingVisits } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
+import { createClient } from '@kosha/supabase/server'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -65,26 +66,141 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Messages array is required' }, { status: 400 })
   }
 
+  // Build org-wide context
+  const [accountsResult, visitsResult, tasksResult] = await Promise.all([
+    getAccounts(),
+    getUpcomingVisits(),
+    getAllTasks(),
+  ])
+
+  const orgContext = formatOrgContext({
+    accounts: accountsResult.accounts.map((a) => ({ name: a.name, address: a.address })),
+    upcomingVisits: visitsResult.visits.slice(0, 20).map((v) => ({
+      account_name: v.account_name,
+      visit_date: v.visit_date,
+      notes: v.notes,
+    })),
+    pendingTasks: tasksResult.tasks
+      .filter((t) => !t.completed)
+      .slice(0, 20)
+      .map((t) => ({
+        account_name: t.account_name,
+        task: t.task,
+        priority: t.priority,
+        due_date: t.due_date,
+      })),
+  })
+
   let accountContext: string | undefined
   if (accountId) {
     accountContext = await buildAccountContext(accountId)
   }
 
-  const systemPrompt = composePrompt({ accountContext })
+  const systemPrompt = composePrompt({ accountContext, orgContext })
+
+  const chatTools = [
+    {
+      type: 'function' as const,
+      function: {
+        name: 'schedule_visit',
+        description: 'Schedule a follow-up visit to an account.',
+        parameters: {
+          type: 'object',
+          properties: {
+            account_name: { type: 'string', description: 'The name of the account to visit.' },
+            visit_date: { type: 'string', description: 'ISO 8601 date string for the visit.' },
+            notes: { type: 'string', description: 'Optional agenda or purpose for the visit.' },
+          },
+          required: ['account_name', 'visit_date'],
+        },
+      },
+    },
+  ]
 
   try {
     const openai = getOpenAI()
-    const response = await openai.chat.completions.create({
+    const allMessages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ]
+
+    let response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
+      messages: allMessages,
+      tools: chatTools,
+      tool_choice: 'auto',
       temperature: 0.6,
       max_tokens: 400,
     })
 
-    const content = response.choices[0]?.message?.content
+    let choice = response.choices[0]
+    let scheduledVisit: { account_name: string; visit_date: string } | null = null
+
+    // Handle tool calls (schedule_visit)
+    if (choice?.finish_reason === 'tool_calls' && choice.message?.tool_calls) {
+      for (const toolCall of choice.message.tool_calls) {
+        if (toolCall.function.name === 'schedule_visit') {
+          const args = JSON.parse(toolCall.function.arguments)
+          const supabase = await createClient()
+
+          // Find account
+          const { data: accounts } = await supabase
+            .from('accounts')
+            .select('id, name')
+            .eq('organization_id', orgId)
+            .ilike('name', `%${args.account_name}%`)
+            .limit(1)
+
+          let toolResult: string
+          if (accounts && accounts.length > 0) {
+            const account = accounts[0]
+            const { error: insertError } = await supabase
+              .from('visits')
+              .insert({
+                user_id: user.id,
+                organization_id: orgId,
+                account_id: account.id,
+                account_name: account.name,
+                visit_date: args.visit_date,
+                notes: args.notes?.trim() || null,
+              })
+
+            if (insertError) {
+              toolResult = JSON.stringify({ error: 'Failed to schedule visit' })
+            } else {
+              scheduledVisit = { account_name: account.name, visit_date: args.visit_date }
+              toolResult = JSON.stringify({
+                success: true,
+                account_name: account.name,
+                visit_date: args.visit_date,
+                message: `Visit scheduled for ${account.name} on ${new Date(args.visit_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.`,
+              })
+            }
+          } else {
+            toolResult = JSON.stringify({ error: `No account found matching "${args.account_name}"` })
+          }
+
+          // Send tool result back and get final response
+          allMessages.push(choice.message as { role: 'assistant'; content: string })
+          allMessages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: toolResult,
+          })
+        }
+      }
+
+      // Get the follow-up response after tool execution
+      response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: allMessages,
+        temperature: 0.6,
+        max_tokens: 400,
+      })
+      choice = response.choices[0]
+    }
+
+    const content = choice?.message?.content
     if (!content) {
       return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
     }
@@ -98,6 +214,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: cleanContent,
       isComplete,
+      ...(scheduledVisit && { scheduledVisit }),
     })
   } catch (error) {
     console.error('Chat API error:', error)

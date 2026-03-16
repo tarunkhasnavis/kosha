@@ -10,10 +10,11 @@ const TONE_RULES = `
 - IMPORTANT: ZERO acknowledgment or commentary. Never say "Great, that sounds like...", "Good to know...", "Got it, so it sounds like..." or ANY form of parroting, summarizing, or commenting on what was said. Just ask your next question immediately. No filler, no transitions, no validation. The ONLY exception is genuine ambiguity that needs clarification.
 `
 
-const SKILL_FILES = ['debrief.md', 'prep.md', 'note.md']
+const SKILL_FILES = ['debrief.md', 'prep.md', 'note.md', 'discovery.md']
 
 export function composePrompt(options?: {
   accountContext?: string
+  orgContext?: string
 }): string {
   const router = readFileSync(join(AI_DIR, 'router.md'), 'utf-8')
 
@@ -23,11 +24,53 @@ export function composePrompt(options?: {
 
   let prompt = `${router}\n\n${skills}\n\n${TONE_RULES}`
 
+  if (options?.orgContext) {
+    prompt += `\n\n## ORGANIZATION CONTEXT\n${options.orgContext}`
+  }
+
   if (options?.accountContext) {
-    prompt += `\n\n## ACCOUNT CONTEXT\n${options.accountContext}`
+    prompt += `\n\n## SELECTED ACCOUNT CONTEXT\n${options.accountContext}`
   }
 
   return prompt
+}
+
+export function formatOrgContext(data: {
+  accounts: { name: string; address?: string | null }[]
+  upcomingVisits: { account_name: string; visit_date: string; notes?: string | null }[]
+  pendingTasks: { account_name: string; task: string; priority?: string | null; due_date: string }[]
+}): string {
+  const lines: string[] = []
+
+  if (data.accounts.length > 0) {
+    lines.push('Known Accounts:')
+    data.accounts.forEach((a) => {
+      lines.push(`- ${a.name}${a.address ? ` (${a.address})` : ''}`)
+    })
+  }
+
+  if (data.upcomingVisits.length > 0) {
+    lines.push('\nUpcoming Visits:')
+    data.upcomingVisits.forEach((v) => {
+      const date = new Date(v.visit_date).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      })
+      lines.push(`- ${v.account_name} on ${date}${v.notes ? ` — ${v.notes}` : ''}`)
+    })
+  }
+
+  if (data.pendingTasks.length > 0) {
+    lines.push('\nPending Tasks:')
+    data.pendingTasks.forEach((t) => {
+      const due = new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      const priority = t.priority ? ` [${t.priority}]` : ''
+      lines.push(`- ${t.account_name}: ${t.task}${priority} (due ${due})`)
+    })
+  }
+
+  return lines.join('\n')
 }
 
 export function formatAccountContext(data: {

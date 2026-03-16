@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Badge,
@@ -98,6 +98,7 @@ const priorityConfig: Record<string, { label: string; className: string }> = {
 // ─── Component ──────────────────────────────────────────────
 
 export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [state, setState] = useState<AgentState>('idle')
   const [accountId, setAccountId] = useState('')
@@ -186,7 +187,23 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const fallbackExtract = useCallback(async () => {
     cleanup()
     const transcriptText = fullTranscriptRef.current.trim()
-    if (!transcriptText) { setState('idle'); return }
+
+    // Skip extraction if transcript is too short or no account is selected
+    // A meaningful debrief needs at least ~50 words and an associated account
+    const wordCount = transcriptText.split(/\s+/).length
+    if (!transcriptText || wordCount < 15) {
+      setState('idle')
+      if (transcriptText) {
+        toast({ title: 'Conversation ended', description: 'Too short to extract insights.' })
+      }
+      return
+    }
+
+    if (!accountId) {
+      setState('idle')
+      toast({ title: 'Conversation ended', description: 'No account selected — nothing was saved.' })
+      return
+    }
 
     setState('extracting')
     try {
@@ -280,6 +297,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       }
       case 'response.function_call_arguments.done': {
         const name = event.name as string
+        const callId = event.call_id as string
         if (name === 'save_capture') {
           const argsString = (event.arguments as string) || functionCallArgsRef.current
           functionCallArgsRef.current = ''
@@ -306,6 +324,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               }
               setState('done')
               toast({ title: 'Note saved' })
+              router.refresh()
               return
             }
 
@@ -313,6 +332,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               cleanup()
               setState('done')
               toast({ title: 'Good luck!' })
+              router.refresh()
               return
             }
 
@@ -326,6 +346,146 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             setState('saving')
           } catch {
             fallbackExtract()
+          }
+        } else if (name === 'set_active_account') {
+          // Resolve account name to ID and update client state
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/set-active-account', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                if (data.success) {
+                  setAccountId(data.account_id)
+                  // Update selectedAccount reference for display
+                  const matched = accounts.find((a) => a.id === data.account_id)
+                  if (matched) {
+                    setAccountId(data.account_id)
+                  }
+                }
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify(data),
+                  },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify({ error: 'Failed to resolve account' }),
+                  },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'schedule_visit') {
+          // Schedule a visit — call API and send result back to the model
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/schedule-visit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify(data),
+                  },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+                if (data.success) {
+                  toast({ title: 'Visit scheduled', description: data.message })
+                  router.refresh()
+                }
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify({ error: 'Failed to schedule visit' }),
+                  },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'search_discovery_accounts' || name === 'get_account_details') {
+          // Lookup tools — fetch data from server and send result back to the model
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          const endpoint = name === 'search_discovery_accounts'
+            ? '/api/capture/tools/discovery'
+            : '/api/capture/tools/account-details'
+          try {
+            const args = JSON.parse(argsString)
+            fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                // Send function call output back to the model
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify(data),
+                  },
+                }))
+                // Trigger the model to respond with the data
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify({ error: 'Failed to fetch data' }),
+                  },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
           }
         } else {
           functionCallArgsRef.current = ''
@@ -455,6 +615,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       cleanup()
       setState('done')
       toast({ title: 'Capture saved' })
+      router.refresh() // Refresh to update recent conversations list
     } catch (error) {
       toast({
         title: 'Save failed',
@@ -464,7 +625,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     } finally {
       setSaving(false)
     }
-  }, [extractedCapture, selectedAccount, accountId, cleanup])
+  }, [extractedCapture, selectedAccount, accountId, cleanup, router])
 
   const discardCapture = useCallback(() => {
     cleanup()
@@ -507,11 +668,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         body: JSON.stringify({ messages: chatHistoryRef.current, accountId: accountId || undefined }),
       })
       if (!res.ok) throw new Error('Failed to get AI response')
-      const data = await res.json() as { message: string; isComplete: boolean }
+      const data = await res.json() as { message: string; isComplete: boolean; scheduledVisit?: { account_name: string; visit_date: string } }
 
       chatHistoryRef.current.push({ role: 'assistant', content: data.message })
       fullTranscriptRef.current += `Assistant: ${data.message}\n`
       setTranscript((prev) => [...prev, { role: 'assistant', text: data.message }])
+
+      if (data.scheduledVisit) {
+        toast({
+          title: 'Visit scheduled',
+          description: `${data.scheduledVisit.account_name} on ${new Date(data.scheduledVisit.visit_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`,
+        })
+        router.refresh()
+      }
 
       if (data.isComplete) {
         await fallbackExtract()
@@ -526,7 +695,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     } finally {
       setTextSending(false)
     }
-  }, [fallbackExtract])
+  }, [fallbackExtract, accountId, router])
 
   const sendTextMessage = useCallback(async (message: string) => {
     if (!message.trim() || textSending) return
@@ -544,11 +713,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         body: JSON.stringify({ messages: chatHistoryRef.current, accountId: accountId || undefined }),
       })
       if (!res.ok) throw new Error('Failed to get AI response')
-      const data = await res.json() as { message: string; isComplete: boolean }
+      const data = await res.json() as { message: string; isComplete: boolean; scheduledVisit?: { account_name: string; visit_date: string } }
 
       chatHistoryRef.current.push({ role: 'assistant', content: data.message })
       fullTranscriptRef.current += `Assistant: ${data.message}\n`
       setTranscript((prev) => [...prev, { role: 'assistant', text: data.message }])
+
+      if (data.scheduledVisit) {
+        toast({
+          title: 'Visit scheduled',
+          description: `${data.scheduledVisit.account_name} on ${new Date(data.scheduledVisit.visit_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`,
+        })
+        router.refresh()
+      }
 
       if (data.isComplete) {
         await fallbackExtract()
@@ -563,7 +740,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     } finally {
       setTextSending(false)
     }
-  }, [textSending, fallbackExtract])
+  }, [textSending, fallbackExtract, accountId, router])
 
   const handleTextSend = useCallback(() => {
     if (!textInput.trim()) return
@@ -778,7 +955,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)]"
+            className="flex flex-col items-center justify-center h-full pt-14"
           >
             <div
               className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40"
@@ -951,7 +1128,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)]"
+            className="flex flex-col items-center justify-center h-full pt-14"
           >
             <div className="h-20 w-20 rounded-full bg-gradient-to-br from-violet-400 via-fuchsia-300 to-orange-300 flex items-center justify-center">
               <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -971,10 +1148,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 40 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="flex flex-col min-h-[calc(100dvh-4rem)]"
+            className="flex flex-col h-full"
           >
             {/* Review Header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <div className="flex items-center justify-between px-5 pb-3 pt-14">
               <h2 className="text-lg font-bold text-stone-800">Review Capture</h2>
               <button
                 onClick={() => setIsEditing(!isEditing)}
@@ -1158,22 +1335,55 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)] px-5"
+            className="flex flex-col items-center justify-center h-full pt-14 px-5"
           >
             <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
               <CheckCircle2 className="h-8 w-8 text-emerald-600" />
             </div>
             <h3 className="text-lg font-semibold text-stone-800 mb-1">Capture Saved</h3>
-            <p className="text-sm text-stone-500 mb-8 text-center">
-              Your field intelligence and follow-up tasks have been saved.
-            </p>
-            <button
-              onClick={reset}
-              className="h-12 px-6 bg-stone-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 active:scale-[0.98] transition-all"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Capture Another
-            </button>
+            {selectedAccount ? (
+              <p className="text-sm text-stone-500 mb-2 text-center">
+                Saved to <span className="font-semibold text-stone-700">{selectedAccount.name}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-stone-500 mb-2 text-center">
+                Saved to your organization.
+              </p>
+            )}
+            {extractedCapture && (
+              <div className="flex items-center gap-3 mb-6">
+                {extractedCapture.insights && extractedCapture.insights.length > 0 && (
+                  <span className="text-xs text-stone-400">
+                    {extractedCapture.insights.length} insight{extractedCapture.insights.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {extractedCapture.tasks && extractedCapture.tasks.length > 0 && (
+                  <>
+                    <span className="text-xs text-stone-300">&middot;</span>
+                    <span className="text-xs text-stone-400">
+                      {extractedCapture.tasks.length} task{extractedCapture.tasks.length !== 1 ? 's' : ''}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+            <div className="flex flex-col gap-3 items-center">
+              <button
+                onClick={reset}
+                className="h-12 px-6 bg-stone-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 active:scale-[0.98] transition-all"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Capture Another
+              </button>
+              {selectedAccount && (
+                <Link
+                  href={`/accounts/${selectedAccount.id}`}
+                  className="text-xs text-amber-700 font-medium hover:underline"
+                >
+                  View {selectedAccount.name} →
+                </Link>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1182,10 +1392,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       <Sheet open={conversationsOpen} onOpenChange={setConversationsOpen}>
         <SheetContent side="left" hideCloseButton className="w-[78vw] max-w-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <SheetHeader>
-            <SheetTitle>Conversations</SheetTitle>
+            <SheetTitle>Recent Conversations</SheetTitle>
           </SheetHeader>
           <div className="mt-4">
-            <ConversationList captures={captures} />
+            <ConversationList captures={captures.slice(0, 12)} />
           </div>
         </SheetContent>
       </Sheet>
