@@ -234,7 +234,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
       {/* FAB - Add Account */}
       <button
         onClick={() => setCreateOpen(true)}
-        className="fixed bottom-24 right-4 z-30 w-14 h-14 bg-teal-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-teal-600/25 active:scale-95 transition-transform"
+        className="fixed bottom-20 right-4 z-30 w-14 h-14 bg-teal-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-teal-600/25 active:scale-95 transition-transform"
       >
         <Plus className="h-6 w-6" />
       </button>
@@ -247,7 +247,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
           className={
             isDesktop
               ? 'w-full sm:max-w-4xl overflow-y-auto p-8 bg-white'
-              : 'flex flex-col p-0 bg-white h-[88vh]'
+              : 'flex flex-col p-0 bg-white h-[72vh]'
           }
         >
           {isDesktop ? (

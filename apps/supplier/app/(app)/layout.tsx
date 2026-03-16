@@ -41,7 +41,7 @@ export default async function AuthenticatedLayout({
   return (
     <AppLayoutWrapper>
       <MainNav />
-      <main className="pb-20 min-h-screen" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      <main className="pb-16 min-h-screen" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {children}
       </main>
     </AppLayoutWrapper>

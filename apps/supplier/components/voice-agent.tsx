@@ -138,7 +138,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
   // Auto-scroll transcript
   useEffect(() => {
-    requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTo({
           top: scrollRef.current.scrollHeight,
@@ -146,7 +146,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         })
       }
     })
-  }, [transcript, isSpeaking])
+    return () => cancelAnimationFrame(raf)
+  }, [transcript, isSpeaking, textSending])
 
   // ─── Core Logic (unchanged) ───────────────────────────────
 
@@ -551,7 +552,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   // ─── Render ───────────────────────────────────────────────
 
   return (
-    <div className="relative min-h-[calc(100vh-5rem)]">
+    <div className="relative h-[calc(100dvh-4rem)] overflow-hidden">
       <AnimatePresence mode="wait">
         {/* ─── Idle State ─────────────────────────────────────── */}
         {state === 'idle' && (
@@ -561,7 +562,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="flex flex-col items-center h-[calc(100vh-5rem)] overflow-hidden"
+            className="flex flex-col items-center h-full overflow-hidden"
           >
             {/* Top Bar */}
             <div className="flex items-center justify-between w-full px-5 pt-5">
@@ -581,7 +582,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             </div>
 
             {/* Gradient Orb */}
-            <div className="flex-1 flex flex-col items-center justify-center -mt-8">
+            <div className="flex-1 flex flex-col items-center justify-center -mt-4 min-h-0">
               <button
                 onClick={startCapture}
                 className="relative group focus:outline-none"
@@ -601,13 +602,13 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 </div>
               </button>
 
-              <p className="text-base text-stone-600 mt-8 font-medium">
+              <p className="text-base text-stone-600 mt-6 font-medium">
                 Tap to talk with Kosha
               </p>
             </div>
 
             {/* Text Input */}
-            <div className="w-full px-5 pb-6">
+            <div className="w-full px-5 pb-4 shrink-0">
               {accounts.length > 0 && (
                 <div className="mb-2 flex justify-center">
                   <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
@@ -708,7 +709,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)]"
+            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)]"
           >
             <div
               className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40"
@@ -730,7 +731,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col min-h-[calc(100vh-5rem)]"
+            className="flex flex-col min-h-[calc(100dvh-4rem)]"
           >
             {/* Header with small orb */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -816,7 +817,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
             {/* Bottom Bar */}
             {captureMode === 'text' ? (
-              <div className="fixed bottom-24 left-0 right-0 px-4 z-20">
+              <div className="fixed bottom-20 left-0 right-0 px-4 z-20">
                 <div className="flex items-center gap-2 max-w-lg mx-auto">
                   <button
                     onClick={stopCapture}
@@ -845,7 +846,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 </div>
               </div>
             ) : (
-              <div className="fixed bottom-24 left-0 right-0 flex justify-center z-20">
+              <div className="fixed bottom-20 left-0 right-0 flex justify-center z-20">
                 <button
                   onClick={stopCapture}
                   className="h-14 w-14 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"
@@ -864,7 +865,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)]"
+            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)]"
           >
             <div className="h-20 w-20 rounded-full bg-gradient-to-br from-violet-400 via-fuchsia-300 to-orange-300 flex items-center justify-center">
               <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -884,7 +885,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 40 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="flex flex-col min-h-[calc(100vh-5rem)]"
+            className="flex flex-col min-h-[calc(100dvh-4rem)]"
           >
             {/* Review Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -1039,7 +1040,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             </div>
 
             {/* Fixed Bottom Actions */}
-            <div className="fixed bottom-20 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
+            <div className="fixed bottom-16 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
               <div className="flex gap-3 max-w-lg mx-auto">
                 <button
                   onClick={saveCapture}
@@ -1071,7 +1072,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] px-5"
+            className="flex flex-col items-center justify-center min-h-[calc(100dvh-4rem)] px-5"
           >
             <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
               <CheckCircle2 className="h-8 w-8 text-emerald-600" />
@@ -1093,7 +1094,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
       {/* Conversations Sheet */}
       <Sheet open={conversationsOpen} onOpenChange={setConversationsOpen}>
-        <SheetContent side="left" className="w-[78vw] max-w-sm" hideCloseButton>
+        <SheetContent side="left" className="w-[78vw] max-w-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <SheetHeader>
             <SheetTitle>Conversations</SheetTitle>
           </SheetHeader>

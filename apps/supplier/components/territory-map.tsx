@@ -493,7 +493,7 @@ export function TerritoryMap({
         setRouteInfo(null)
       }
     }
-  }, [mode, activeCategory, accounts, discoveredAccounts, planDate, todayVisits, tomorrowVisits]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, activeCategory, accounts, discoveredAccounts, planDate, todayVisits, tomorrowVisits, dateVisits]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function clearRoute() {
     if (!map.current) return
@@ -648,7 +648,7 @@ export function TerritoryMap({
   }
 
   return (
-    <div className="fixed inset-x-0 top-0 bottom-16 z-30">
+    <div className="fixed inset-x-0 top-0 bottom-12 z-30" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       {/* Map */}
       <div ref={mapContainer} className="w-full h-full" />
 
@@ -656,7 +656,7 @@ export function TerritoryMap({
       {mode === 'browse' && (
         <button
           onClick={() => { setAddStopMode(false); setSearchDrawerOpen(true); setFilterOpen(false); setStyleMenuOpen(false) }}
-          className="absolute top-[56px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all hover:bg-stone-700 min-w-[200px] justify-center"
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all hover:bg-stone-700 min-w-[200px] justify-center"
         >
           <Search className="h-4 w-4" />
           <span className="text-sm font-medium">Search</span>
@@ -665,7 +665,7 @@ export function TerritoryMap({
 
       {/* Search Drawer */}
       <Sheet open={searchDrawerOpen} onOpenChange={(open) => { setSearchDrawerOpen(open); if (!open) setAddStopMode(false) }}>
-        <SheetContent side="bottom" hideCloseButton className="rounded-t-2xl h-[82vh] p-0 flex flex-col bg-white">
+        <SheetContent side="bottom" className="rounded-t-2xl h-[82dvh] p-0 flex flex-col bg-white">
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1">
             <div className="w-10 h-1 rounded-full bg-stone-300" />
@@ -685,7 +685,6 @@ export function TerritoryMap({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search accounts..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-100 bg-stone-50 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 focus:border-stone-300 transition-all"
-                autoFocus
               />
             </div>
 
@@ -896,7 +895,7 @@ export function TerritoryMap({
 
       {/* Browse: Theme Button (left) */}
       {mode === 'browse' && (
-        <div className="absolute top-[56px] left-6 z-10 flex flex-col items-start">
+        <div className="absolute top-3 left-6 z-10 flex flex-col items-start">
           <button
             onClick={() => { setStyleMenuOpen(!styleMenuOpen); setFilterOpen(false) }}
             className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
@@ -943,7 +942,7 @@ export function TerritoryMap({
 
       {/* Browse: Filter Button + Animated Pills */}
       {mode === 'browse' && (
-        <div className="absolute top-[56px] right-6 z-10 flex flex-col items-end">
+        <div className="absolute top-3 right-6 z-10 flex flex-col items-end">
           <button
             onClick={() => { setFilterOpen(!filterOpen); setStyleMenuOpen(false) }}
             className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
@@ -992,7 +991,7 @@ export function TerritoryMap({
       {/* Plan: Date Selector Pill with Chevrons */}
       {mode === 'plan' && (
         <>
-          <div className="absolute top-[56px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
             <button
               onClick={() => {
                 const d = new Date(planDate + 'T12:00:00')
@@ -1040,7 +1039,7 @@ export function TerritoryMap({
 
           {/* Route Summary + Floating Card */}
           {visitsWithCoords.length > 0 && (
-            <div className="absolute bottom-[108px] left-3 right-3 z-10 space-y-2">
+            <div className="absolute bottom-[88px] left-3 right-3 z-10 space-y-2">
               {routeInfo && (
                 <div className="flex items-center gap-2">
                   <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-stone-200 px-4 py-2.5 inline-flex items-center">
@@ -1081,7 +1080,7 @@ export function TerritoryMap({
           )}
 
           {visitsWithCoords.length === 0 && (
-            <div className="absolute bottom-[108px] left-3 right-3 z-10">
+            <div className="absolute bottom-[88px] left-3 right-3 z-10">
               <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-stone-200 p-4 text-center">
                 <Navigation2 className="h-6 w-6 text-stone-300 mx-auto mb-2" />
                 <p className="text-sm text-stone-500">
@@ -1095,7 +1094,7 @@ export function TerritoryMap({
 
       {/* Plan Route Sheet */}
       <Sheet open={planSheetOpen} onOpenChange={setPlanSheetOpen}>
-        <SheetContent side="bottom" hideCloseButton className="rounded-t-2xl h-[82vh] p-0 flex flex-col bg-white">
+        <SheetContent side="bottom" className="rounded-t-2xl h-[82dvh] p-0 flex flex-col bg-white">
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-10 h-1 rounded-full bg-stone-300" />

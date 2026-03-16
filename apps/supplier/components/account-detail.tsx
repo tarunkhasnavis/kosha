@@ -145,14 +145,22 @@ export function AccountDetail({
       {/* Header */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => toast({ title: 'Call', description: 'Select a contact to call from the Contacts tab.' })}
-          >
-            <Phone className="h-4 w-4" />
-          </Button>
+          {account.phone ? (
+            <a href={`tel:${account.phone}`}>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                <Phone className="h-4 w-4" />
+              </Button>
+            </a>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-stone-300"
+              disabled
+            >
+              <Phone className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4" />
           </Button>
