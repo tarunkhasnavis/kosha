@@ -41,8 +41,9 @@ import {
 import Link from 'next/link'
 import { toast } from '@/hooks/use-toast'
 import { ConversationList } from '@/components/conversation-list'
-import type { Account } from '@kosha/types'
-import type { Capture } from '@kosha/types'
+import { AccountDetail } from '@/components/account-detail'
+import { fetchAccountDetails } from '@/lib/territory/actions'
+import type { Account, AccountContact, Insight, Task, Visit, Capture } from '@kosha/types'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -137,6 +138,15 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     }
   }, [])
   const [conversationsOpen, setConversationsOpen] = useState(false)
+  const [doneAccountSheetOpen, setDoneAccountSheetOpen] = useState(false)
+  const [doneAccountDetails, setDoneAccountDetails] = useState<{
+    insights: Insight[]
+    tasks: Task[]
+    visits: Visit[]
+    captures: Capture[]
+    contacts: AccountContact[]
+  } | null>(null)
+  const [doneAccountLoading, setDoneAccountLoading] = useState(false)
   const [captureMode, setCaptureMode] = useState<CaptureMode>('voice')
   const [textSending, setTextSending] = useState(false)
   const chatHistoryRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
@@ -1368,6 +1378,23 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               </div>
             )}
             <div className="flex flex-col gap-3 items-center">
+              {selectedAccount && (
+                <button
+                  onClick={async () => {
+                    setDoneAccountSheetOpen(true)
+                    setDoneAccountLoading(true)
+                    try {
+                      const details = await fetchAccountDetails(selectedAccount.id)
+                      setDoneAccountDetails(details)
+                    } finally {
+                      setDoneAccountLoading(false)
+                    }
+                  }}
+                  className="h-12 px-6 bg-[#D97706] hover:bg-[#B45309] text-white rounded-xl font-medium text-sm flex items-center gap-2 active:scale-[0.98] transition-all"
+                >
+                  View {selectedAccount.name}
+                </button>
+              )}
               <button
                 onClick={reset}
                 className="h-12 px-6 bg-stone-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 active:scale-[0.98] transition-all"
@@ -1375,14 +1402,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 <RotateCcw className="h-4 w-4" />
                 Capture Another
               </button>
-              {selectedAccount && (
-                <Link
-                  href={`/accounts/${selectedAccount.id}`}
-                  className="text-xs text-amber-700 font-medium hover:underline"
-                >
-                  View {selectedAccount.name} →
-                </Link>
-              )}
             </div>
           </motion.div>
         )}
@@ -1396,6 +1415,31 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           </SheetHeader>
           <div className="mt-4">
             <ConversationList captures={captures.slice(0, 12)} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Account Detail Sheet (after capture save) */}
+      <Sheet open={doneAccountSheetOpen} onOpenChange={(open) => {
+        setDoneAccountSheetOpen(open)
+        if (!open) setDoneAccountDetails(null)
+      }}>
+        <SheetContent side="bottom" hideCloseButton className="flex flex-col p-0 bg-white h-[85vh]">
+          <div className="flex justify-center pt-3 pb-1 shrink-0">
+            <div className="w-10 h-1 rounded-full bg-stone-300" />
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 pt-2 pb-5">
+            {selectedAccount && (
+              <AccountDetail
+                account={selectedAccount}
+                visits={doneAccountDetails?.visits}
+                insights={doneAccountDetails?.insights}
+                tasks={doneAccountDetails?.tasks}
+                captures={doneAccountDetails?.captures}
+                contacts={doneAccountDetails?.contacts}
+                loading={doneAccountLoading}
+              />
+            )}
           </div>
         </SheetContent>
       </Sheet>
