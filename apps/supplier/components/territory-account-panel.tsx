@@ -28,16 +28,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   Calendar,
-  Navigation,
   Phone,
-  MessageSquare,
+  Mail,
   CalendarPlus,
   Pencil,
+  User,
 } from 'lucide-react'
 import { fetchAccountDetails } from '@/lib/territory/actions'
 import { createVisit } from '@/lib/visits/actions'
 import { toast } from '@/hooks/use-toast'
-import type { Account, Insight, Task, Visit } from '@kosha/types'
+import type { Account, AccountContact, Insight, Task, Visit } from '@kosha/types'
 
 const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
@@ -46,12 +46,6 @@ const insightTypeConfig: Record<string, { label: string; className: string }> = 
   expansion: { label: 'Expansion', className: 'bg-emerald-100 text-emerald-700' },
   relationship: { label: 'Relationship', className: 'bg-blue-100 text-blue-700' },
   promotion: { label: 'Promotion', className: 'bg-pink-100 text-pink-700' },
-}
-
-const premiseConfig: Record<string, { label: string; className: string }> = {
-  on_premise: { label: 'On Premise', className: 'bg-emerald-50 text-emerald-700' },
-  off_premise: { label: 'Off Premise', className: 'bg-sky-50 text-sky-700' },
-  hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 
 interface TerritoryAccountPanelProps {
@@ -70,6 +64,7 @@ export function TerritoryAccountPanel({
   const [insights, setInsights] = useState<Insight[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [visits, setVisits] = useState<Visit[]>([])
+  const [contacts, setContacts] = useState<AccountContact[]>([])
   const [visitDialogOpen, setVisitDialogOpen] = useState(false)
   const [visitDate, setVisitDate] = useState<Date | undefined>(undefined)
   const [visitNotes, setVisitNotes] = useState('')
@@ -84,6 +79,7 @@ export function TerritoryAccountPanel({
         setInsights(details.insights)
         setTasks(details.tasks)
         setVisits(details.visits)
+        setContacts(details.contacts)
       })
       .finally(() => setLoading(false))
   }, [account?.id, open])
@@ -118,8 +114,13 @@ export function TerritoryAccountPanel({
         {account && (
           <>
             {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 shrink-0">
+            <div className="flex justify-center pt-3 pb-1 shrink-0 relative">
               <div className="w-10 h-1 rounded-full bg-stone-300" />
+              <Link href={`/accounts/${account.id}`} className="absolute right-5 top-2">
+                <button className="p-1.5 rounded-lg hover:bg-stone-100 transition-colors">
+                  <ExternalLink className="h-4 w-4 text-stone-400" />
+                </button>
+              </Link>
             </div>
 
             <SheetHeader className="px-5 pt-2 pb-4 shrink-0 text-center">
@@ -133,42 +134,53 @@ export function TerritoryAccountPanel({
                   <span>{account.address}</span>
                 </p>
               )}
-              <div className="flex flex-wrap justify-center gap-1.5 mt-2">
-                {account.industry && (
-                  <Badge className="bg-stone-200/60 text-stone-700 text-xs">
-                    {account.industry}
-                  </Badge>
-                )}
-                {account.premise_type && (() => {
-                  const pc = premiseConfig[account.premise_type]
-                  return (
-                    <Badge className={`${pc?.className || 'bg-stone-100 text-stone-600'} text-xs`}>
-                      {pc?.label || account.premise_type}
-                    </Badge>
-                  )
-                })()}
-              </div>
 
-              {/* Last Contact */}
-              <div className="mt-10 w-full text-left">
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-0.5">
-                  <Calendar className="h-3 w-3 shrink-0" />
-                  Last Contact
-                </p>
-                <p className="text-sm font-semibold text-stone-800">
-                  {(() => {
-                    const lastDate = account.last_contact
-                      || (visits.length > 0 ? visits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())[0].visit_date : null)
-                    return lastDate
-                      ? new Date(lastDate).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })
-                      : 'No contact yet'
-                  })()}
-                </p>
-              </div>
+              {/* Last Visit & Next Visit */}
+              {(() => {
+                const now = new Date()
+                const pastVisits = visits
+                  .filter((v) => new Date(v.visit_date) < now)
+                  .sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
+                const futureVisits = visits
+                  .filter((v) => new Date(v.visit_date) >= now)
+                  .sort((a, b) => new Date(a.visit_date).getTime() - new Date(b.visit_date).getTime())
+                const lastVisit = pastVisits[0]
+                const nextVisit = futureVisits[0]
+                return (
+                  <div className="mt-10 w-full flex justify-center gap-6">
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-0.5">
+                        <Calendar className="h-3 w-3 shrink-0" />
+                        Last Visit
+                      </p>
+                      <p className="text-sm font-semibold text-stone-800">
+                        {lastVisit
+                          ? new Date(lastVisit.visit_date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          : 'No visits yet'}
+                      </p>
+                    </div>
+                    {nextVisit && (
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-0.5">
+                          <CalendarPlus className="h-3 w-3 shrink-0" />
+                          Next Visit
+                        </p>
+                        <p className="text-sm font-semibold text-amber-700">
+                          {new Date(nextVisit.visit_date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </SheetHeader>
 
             <div className="flex-1 overflow-y-auto">
@@ -290,10 +302,10 @@ export function TerritoryAccountPanel({
 
                 <Separator />
 
-                {/* Visits */}
+                {/* Contacts */}
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground mb-3">
-                    Recent Visits
+                    Contacts
                   </h3>
                   {loading ? (
                     <div className="space-y-2">
@@ -301,38 +313,37 @@ export function TerritoryAccountPanel({
                         <Skeleton key={i} className="h-14 w-full rounded-xl" />
                       ))}
                     </div>
-                  ) : visits.length === 0 ? (
-                    <div className="flex flex-col items-center py-4">
-                      <MessageSquare className="h-6 w-6 text-muted-foreground/40 mb-1.5" />
-                      <p className="text-sm text-muted-foreground">
-                        No visits yet.
-                      </p>
-                    </div>
+                  ) : contacts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">
+                      No contacts yet.
+                    </p>
                   ) : (
                     <div className="space-y-2">
-                      {visits.slice(0, 5).map((visit) => (
+                      {contacts.map((contact) => (
                         <div
-                          key={visit.id}
+                          key={contact.id}
                           className="flex items-center gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm"
                         >
-                          <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
-                            <Navigation className="h-4 w-4 text-blue-500" />
+                          <div className="h-8 w-8 rounded-full bg-stone-100 flex items-center justify-center shrink-0">
+                            <User className="h-4 w-4 text-stone-500" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-stone-800">
-                              {visit.notes || 'Visit'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(visit.visit_date).toLocaleDateString(
-                                'en-US',
-                                {
-                                  weekday: 'short',
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                }
-                              )}
-                            </p>
+                            <p className="text-sm font-medium text-stone-800">{contact.name}</p>
+                            {contact.role && (
+                              <p className="text-xs text-muted-foreground">{contact.role}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {contact.phone && (
+                              <a href={`tel:${contact.phone}`} className="p-1.5 rounded-lg hover:bg-stone-100 transition-colors">
+                                <Phone className="h-3.5 w-3.5 text-stone-500" />
+                              </a>
+                            )}
+                            {contact.email && (
+                              <a href={`mailto:${contact.email}`} className="p-1.5 rounded-lg hover:bg-stone-100 transition-colors">
+                                <Mail className="h-3.5 w-3.5 text-stone-500" />
+                              </a>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -340,15 +351,6 @@ export function TerritoryAccountPanel({
                   )}
                 </div>
 
-                <Separator />
-
-                {/* Link to full account */}
-                <Link href={`/accounts/${account.id}`} className="block pt-1">
-                  <Button variant="outline" size="sm" className="w-full bg-white">
-                    View Full Account
-                    <ExternalLink className="h-3.5 w-3.5 ml-2" />
-                  </Button>
-                </Link>
               </div>
             </div>
 

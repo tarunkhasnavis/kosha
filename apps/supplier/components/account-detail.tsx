@@ -26,11 +26,13 @@ import {
   Phone,
   MessageSquare,
   Navigation,
+  CalendarCheck,
   Sparkles,
   Camera,
   Users,
   Handshake,
   Plus,
+  StickyNote,
 } from 'lucide-react'
 import { AccountForm } from './account-form'
 import { TaskList } from './task-list'
@@ -38,7 +40,7 @@ import { ConversationList } from './conversation-list'
 import { deleteAccount } from '@/lib/accounts/actions'
 import { toast } from '@/hooks/use-toast'
 import type { Account, Visit, Insight, Task, Capture } from '@kosha/types'
-import type { AccountContact, AccountPhoto } from '@kosha/types'
+import type { AccountContact, AccountNote, AccountPhoto } from '@kosha/types'
 
 const insightTypeConfig: Record<string, { label: string; className: string }> = {
   demand: { label: 'Demand', className: 'bg-purple-100 text-purple-700' },
@@ -55,12 +57,13 @@ const premiseConfig: Record<string, { label: string; className: string }> = {
   hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 
-type TabKey = 'summary' | 'touches' | 'contacts' | 'photos'
+type TabKey = 'summary' | 'touches' | 'notes' | 'contacts' | 'photos'
 
 const TAB_CONFIG: { key: TabKey; label: string; icon: typeof Sparkles }[] = [
   { key: 'summary', label: 'Summary', icon: Sparkles },
   { key: 'touches', label: 'Touches', icon: Handshake },
   { key: 'contacts', label: 'Contacts', icon: Users },
+  { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'photos', label: 'Photos', icon: Camera },
 ]
 
@@ -69,6 +72,8 @@ type Touch =
   | { kind: 'visit'; date: string; title: string; visit: Visit }
 
 function buildTouches(captures: Capture[], visits: Visit[]): Touch[] {
+  const now = new Date()
+  const pastVisits = visits.filter((v) => new Date(v.visit_date) < now)
   const touches: Touch[] = [
     ...captures.map((c): Touch => ({
       kind: 'conversation',
@@ -76,7 +81,7 @@ function buildTouches(captures: Capture[], visits: Visit[]): Touch[] {
       title: 'Conversation',
       capture: c,
     })),
-    ...visits.map((v): Touch => ({
+    ...pastVisits.map((v): Touch => ({
       kind: 'visit',
       date: v.visit_date,
       title: v.notes || 'Visit',
@@ -93,6 +98,7 @@ interface AccountDetailProps {
   tasks?: Task[]
   captures?: Capture[]
   contacts?: AccountContact[]
+  notes?: AccountNote[]
   photos?: AccountPhoto[]
   loading?: boolean
   onClose?: () => void
@@ -106,6 +112,7 @@ export function AccountDetail({
   tasks,
   captures,
   contacts,
+  notes,
   photos,
   loading,
   onClose,
@@ -335,61 +342,137 @@ export function AccountDetail({
           </div>
         )}
 
-        {/* Touches Tab */}
-        {activeTab === 'touches' && (
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
           <div>
-            {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ) : touches.length === 0 ? (
-              <div className="flex flex-col items-center py-8">
-                <MessageSquare className="h-8 w-8 text-muted-foreground/40 mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  No touches recorded yet.
-                </p>
+            {!notes || notes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-full bg-stone-100 flex items-center justify-center mb-4">
+                  <StickyNote className="h-8 w-8 text-stone-300" />
+                </div>
+                <p className="text-sm font-medium text-stone-800 mb-1">No notes yet</p>
+                <p className="text-xs text-stone-500">Notes added via Kosha will appear here.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {touches.map((touch) => {
-                  if (touch.kind === 'conversation') {
-                    return (
-                      <ConversationList
-                        key={touch.capture.id}
-                        captures={[touch.capture]}
-                        labelOverride="Conversation"
-                      />
-                    )
-                  }
-                  return (
-                    <div
-                      key={touch.visit.id}
-                      className="flex items-center gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm"
-                    >
-                      <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
-                        <Navigation className="h-4 w-4 text-blue-500" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-stone-800">
-                          {touch.visit.notes || 'Visit'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(touch.date).toLocaleDateString('en-US', {
-                            weekday: 'short',
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
+                {notes.map((note) => (
+                  <div key={note.id} className="bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
+                    <p className="text-sm text-stone-700">{note.content}</p>
+                    <p className="text-xs text-stone-400 mt-1.5">
+                      {new Date(note.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
+
+        {/* Touches Tab */}
+        {activeTab === 'touches' && (() => {
+          const now = new Date()
+          const upcomingVisits = (visits || [])
+            .filter((v) => new Date(v.visit_date) >= now)
+            .sort((a, b) => new Date(a.visit_date).getTime() - new Date(b.visit_date).getTime())
+
+          return (
+            <div className="space-y-5">
+              {loading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : (
+                <>
+                  {/* Upcoming Visits */}
+                  {upcomingVisits.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-muted-foreground mb-3">Upcoming Visits</h3>
+                      <div className="space-y-2">
+                        {upcomingVisits.map((visit) => (
+                          <div
+                            key={visit.id}
+                            className="flex items-center gap-3 bg-amber-50 rounded-xl p-3.5 border border-amber-100 shadow-sm"
+                          >
+                            <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                              <CalendarCheck className="h-4 w-4 text-amber-600" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-stone-800">
+                                {visit.notes || 'Scheduled Visit'}
+                              </p>
+                              <p className="text-xs text-amber-700 font-medium">
+                                {new Date(visit.visit_date).toLocaleDateString('en-US', {
+                                  weekday: 'short',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Past Touches */}
+                  {touches.length === 0 && upcomingVisits.length === 0 ? (
+                    <div className="flex flex-col items-center py-8">
+                      <MessageSquare className="h-8 w-8 text-muted-foreground/40 mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        No touches recorded yet.
+                      </p>
+                    </div>
+                  ) : touches.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-muted-foreground mb-3">Past Touches</h3>
+                      <div className="space-y-2">
+                        {touches.map((touch) => {
+                          if (touch.kind === 'conversation') {
+                            return (
+                              <ConversationList
+                                key={touch.capture.id}
+                                captures={[touch.capture]}
+                                labelOverride="Conversation"
+                              />
+                            )
+                          }
+                          return (
+                            <div
+                              key={touch.visit.id}
+                              className="flex items-center gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm"
+                            >
+                              <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                                <Navigation className="h-4 w-4 text-blue-500" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-stone-800">
+                                  {touch.visit.notes || 'Visit'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(touch.date).toLocaleDateString('en-US', {
+                                    weekday: 'short',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Edit Dialog */}

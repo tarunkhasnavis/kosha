@@ -2,35 +2,43 @@ import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { getOpenAI } from '@/lib/openai'
 import { NextResponse } from 'next/server'
-
-const SYSTEM_PROMPT = `You are a field intelligence assistant for a CPG/beverage sales rep. Your job is to have a natural, free-form conversation to capture everything the rep observed during a customer visit or field activity.
-
-Your approach:
-- Start with ONE short open-ended question: "What happened during the visit?" Then STOP and WAIT.
-- LISTEN. Let the rep talk for as long as they want. Do NOT interrupt or respond until they are clearly done speaking.
-- After they finish, ask ONE short follow-up question at a time. Never ask multiple questions in a row.
-- Keep your responses to 1-2 sentences MAX. You are a listener, not a talker.
-- You are probing for these insight types:
-  * DEMAND — purchase intent, category interest, new product requests, reorder signals
-  * COMPETITIVE — competitor mentions, pricing comparisons, lost shelf space, competitive wins
-  * FRICTION — objections, price sensitivity, delivery issues, service complaints, stockouts
-  * EXPANSION — new locations, shelf resets, new distribution points, growth opportunities
-  * RELATIONSHIP — tone shifts, engagement changes, buyer mood, enthusiasm, churn risk
-  * PROMOTION — promotional items discussed, upcoming promotions, special offers, sampling opportunities, display programs
-- Do NOT follow a rigid script. Let the rep talk naturally. Probe deeper on interesting threads.
-- Keep it conversational and efficient — reps are busy. Usually 2-5 minutes is enough.
-
-When the conversation feels complete — either because the rep has covered everything, or they verbally signal they're done (e.g. "that's it", "let's wrap up", "I'm good", "that's all I got") — briefly confirm what you captured and respond with EXACTLY this marker on its own line at the end of your message:
-
-[CAPTURE_COMPLETE]
-
-This signals the system to extract insights. Do NOT use this marker until the rep clearly signals they are done.
-
-IMPORTANT: ZERO acknowledgment or commentary. Never say things like "Great, that sounds like...", "Good to know...", "Got it, so it sounds like..." or ANY form of parroting. Just ask your next question immediately. No filler, no transitions, no validation. The ONLY exception is if there is genuine ambiguity that needs clarification.`
+import { composePrompt, formatAccountContext } from '@/lib/ai/compose-prompt'
+import { getAccount, getAccountContacts, getAccountNotes } from '@/lib/accounts/queries'
+import { getTasksForAccount } from '@/lib/tasks/queries'
+import { getVisitsForAccount } from '@/lib/visits/queries'
+import { getInsightsForAccount } from '@/lib/insights/queries'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+}
+
+async function buildAccountContext(accountId: string): Promise<string | undefined> {
+  try {
+    const [account, contacts, notes, tasks, visits, insights] = await Promise.all([
+      getAccount(accountId),
+      getAccountContacts(accountId),
+      getAccountNotes(accountId),
+      getTasksForAccount(accountId),
+      getVisitsForAccount(accountId),
+      getInsightsForAccount(accountId),
+    ])
+
+    if (!account) return undefined
+
+    return formatAccountContext({
+      name: account.name,
+      address: account.address,
+      contacts: contacts?.slice(0, 5) || [],
+      recentInsights: insights?.slice(0, 5) || [],
+      openTasks: tasks?.filter((t) => !t.completed).slice(0, 5) || [],
+      recentNotes: notes?.slice(0, 5) || [],
+      lastVisit: visits?.[0] || null,
+    })
+  } catch (err) {
+    console.error('Failed to build account context:', err)
+    return undefined
+  }
 }
 
 /**
@@ -51,18 +59,25 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { messages } = body as { messages: ChatMessage[] }
+  const { messages, accountId } = body as { messages: ChatMessage[]; accountId?: string }
 
   if (!messages || !Array.isArray(messages)) {
     return NextResponse.json({ error: 'Messages array is required' }, { status: 400 })
   }
+
+  let accountContext: string | undefined
+  if (accountId) {
+    accountContext = await buildAccountContext(accountId)
+  }
+
+  const systemPrompt = composePrompt({ accountContext })
 
   try {
     const openai = getOpenAI()
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         ...messages,
       ],
       temperature: 0.6,
@@ -74,8 +89,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
     }
 
-    const isComplete = content.includes('[CAPTURE_COMPLETE]')
-    const cleanContent = content.replace('[CAPTURE_COMPLETE]', '').trim()
+    const isComplete = content.includes('[CAPTURE_COMPLETE]') || content.includes('[NOTE_SAVED]')
+    const cleanContent = content
+      .replace('[CAPTURE_COMPLETE]', '')
+      .replace('[NOTE_SAVED]', '')
+      .trim()
 
     return NextResponse.json({
       message: cleanContent,

@@ -1,53 +1,27 @@
 import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { NextResponse } from 'next/server'
-
-const SYSTEM_PROMPT = `You are a field intelligence assistant for a CPG/beverage sales rep. Your job is to have a natural, free-form conversation to capture everything the rep observed during a customer visit or field activity.
-
-Your approach:
-- Start with ONE short open-ended question: "What happened during the visit?" Then STOP and WAIT.
-- LISTEN. Let the rep talk for as long as they want. Do NOT interrupt or respond until they are clearly done speaking.
-- After they finish, ask ONE short follow-up question at a time. Never ask multiple questions in a row.
-- Keep your responses to 1-2 sentences MAX. You are a listener, not a talker.
-- You are probing for these insight types:
-  * DEMAND — purchase intent, category interest, new product requests, reorder signals
-  * COMPETITIVE — competitor mentions, pricing comparisons, lost shelf space, competitive wins
-  * FRICTION — objections, price sensitivity, delivery issues, service complaints, stockouts
-  * EXPANSION — new locations, shelf resets, new distribution points, growth opportunities
-  * RELATIONSHIP — tone shifts, engagement changes, buyer mood, enthusiasm, churn risk
-  * PROMOTION — promotional items discussed, upcoming promotions, special offers, sampling opportunities, display programs
-- Do NOT follow a rigid script. Let the rep talk naturally. Probe deeper on interesting threads.
-- Keep it conversational and efficient — reps are busy. Usually 2-5 minutes is enough.
-
-Extraction rules:
-- ALWAYS extract at least one insight. If the rep talked about anything, there is intelligence to capture.
-- You may extract MULTIPLE insights from one conversation — capture everything meaningful.
-- Keep insight descriptions super concise — short phrases, not full sentences.
-- Assign a sub-category label (e.g. "reorder intent", "competitor pricing", "delivery complaint").
-- Suggest one concrete next step per insight.
-- Also extract follow-up TASKS — concrete actions the rep committed to or should take.
-- Assign task priority: high (do within 2 days), medium (within a week), low (within 2 weeks).
-- Write a 2-4 sentence summary of the entire conversation covering the key takeaways.
-
-When the conversation feels complete — either because the rep has covered everything, or they verbally signal they're done (e.g. "that's it", "let's wrap up", "I'm good", "that's all I got", "wrap up the meeting") — briefly confirm: "Here is what I captured — [brief summary]. Sound right?"
-Then call the save_capture function ONCE with ALL extracted insights and tasks. Do NOT keep asking more questions after the rep signals they want to end.
-
-IMPORTANT: Always speak in English. Never switch to Spanish or any other language, even if the user speaks in another language. Respond in English only.
-
-IMPORTANT: Speak at a brisk, efficient pace. Keep responses concise and avoid unnecessary pauses or filler words. Reps are busy — be snappy.
-
-IMPORTANT: ZERO acknowledgment or commentary. Never say things like "Great, that sounds like...", "Good to know...", "Got it, so it sounds like...", "That's a good insight", "Perfect, that's a clear action item", or ANY form of parroting, summarizing, or commenting on what was said. Just ask your next question immediately. No filler, no transitions, no validation. Go straight to the next question. The ONLY exception is if there is genuine ambiguity that needs clarification.`
+import { composePrompt, formatAccountContext } from '@/lib/ai/compose-prompt'
+import { getAccount, getAccountContacts, getAccountNotes } from '@/lib/accounts/queries'
+import { getTasksForAccount } from '@/lib/tasks/queries'
+import { getVisitsForAccount } from '@/lib/visits/queries'
+import { getInsightsForAccount } from '@/lib/insights/queries'
 
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
   name: 'save_capture',
-  description: 'Save all extracted insights, tasks, and a conversation summary. Call once at the end with everything.',
+  description: 'Save the conversation outputs. Call once at the end after the rep confirms.',
   parameters: {
     type: 'object',
     properties: {
+      mode: {
+        type: 'string',
+        enum: ['debrief', 'note', 'prep'],
+        description: 'The conversation mode: debrief (post-visit with insights/tasks), note (quick account notes), or prep (pre-visit briefing).',
+      },
       summary: {
         type: 'string',
-        description: 'A 2-4 sentence summary of the entire conversation covering key takeaways.',
+        description: 'A 2-4 sentence summary of the conversation. Required for debrief mode.',
       },
       insights: {
         type: 'array',
@@ -74,7 +48,7 @@ const SAVE_CAPTURE_TOOL = {
           },
           required: ['type', 'description', 'category', 'suggestedAction'],
         },
-        description: 'Array of insights extracted from the conversation.',
+        description: 'Array of insights extracted from the conversation. Used in debrief mode.',
       },
       tasks: {
         type: 'array',
@@ -93,11 +67,46 @@ const SAVE_CAPTURE_TOOL = {
           },
           required: ['task', 'priority'],
         },
-        description: 'Array of follow-up tasks extracted from the conversation.',
+        description: 'Array of follow-up tasks. Used in debrief mode.',
+      },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'string',
+        },
+        description: 'Array of note strings to save. Used in note mode.',
       },
     },
-    required: ['summary', 'insights', 'tasks'],
+    required: ['mode'],
   },
+}
+
+async function buildAccountContext(accountId: string): Promise<string | undefined> {
+  try {
+    const [account, contacts, notes, tasks, visits, insights] = await Promise.all([
+      getAccount(accountId),
+      getAccountContacts(accountId),
+      getAccountNotes(accountId),
+      getTasksForAccount(accountId),
+      getVisitsForAccount(accountId),
+      getInsightsForAccount(accountId),
+    ])
+
+    if (!account) return undefined
+
+    return formatAccountContext({
+      name: account.name,
+      address: account.address,
+      contacts: contacts?.slice(0, 5) || [],
+      recentInsights: insights?.slice(0, 5) || [],
+      openTasks: tasks?.filter((t) => !t.completed).slice(0, 5) || [],
+      recentNotes: notes?.slice(0, 5) || [],
+      lastVisit: visits?.[0] || null,
+    })
+  } catch (err) {
+    console.error('Failed to build account context:', err)
+    return undefined
+  }
 }
 
 /**
@@ -106,7 +115,7 @@ const SAVE_CAPTURE_TOOL = {
  * Creates an ephemeral token for the OpenAI Realtime API.
  * The client uses this token to establish a direct WebRTC connection to OpenAI.
  */
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getUser()
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -121,6 +130,16 @@ export async function POST() {
     return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 })
   }
 
+  const body = await request.json().catch(() => ({}))
+  const { accountId } = body as { accountId?: string }
+
+  let accountContext: string | undefined
+  if (accountId) {
+    accountContext = await buildAccountContext(accountId)
+  }
+
+  const systemPrompt = composePrompt({ accountContext })
+
   try {
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
@@ -131,7 +150,7 @@ export async function POST() {
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
         voice: 'marin',
-        instructions: SYSTEM_PROMPT,
+        instructions: systemPrompt,
         tools: [SAVE_CAPTURE_TOOL],
         tool_choice: 'auto',
         input_audio_transcription: {

@@ -258,12 +258,45 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           const argsString = (event.arguments as string) || functionCallArgsRef.current
           functionCallArgsRef.current = ''
           try {
-            const args = JSON.parse(argsString) as ExtractedCapture
-            if (!args.insights || args.insights.length === 0) {
+            const args = JSON.parse(argsString) as Record<string, unknown>
+            const mode = (args.mode as string) || 'debrief'
+
+            if (mode === 'note') {
+              // Save notes directly via the save endpoint
+              cleanup()
+              const notesList = (args.notes as string[]) || []
+              if (notesList.length > 0 && accountId) {
+                fetch('/api/capture/save', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    account_id: accountId,
+                    account_name: selectedAccount?.name || 'Unknown Account',
+                    mode: 'note',
+                    notes: notesList,
+                    transcript: fullTranscriptRef.current || null,
+                  }),
+                }).catch(console.error)
+              }
+              setState('done')
+              toast({ title: 'Note saved' })
+              return
+            }
+
+            if (mode === 'prep') {
+              cleanup()
+              setState('done')
+              toast({ title: 'Good luck!' })
+              return
+            }
+
+            // Default: debrief mode
+            const capture = args as unknown as ExtractedCapture
+            if (!capture.insights || capture.insights.length === 0) {
               fallbackExtract()
               return
             }
-            setExtractedCapture(args)
+            setExtractedCapture(capture)
             setState('saving')
           } catch {
             fallbackExtract()
@@ -287,7 +320,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     itemOrderRef.current = []
 
     try {
-      const sessionRes = await fetch('/api/capture/session', { method: 'POST' })
+      const sessionRes = await fetch('/api/capture/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: accountId || undefined }),
+      })
       if (!sessionRes.ok) {
         const err = await sessionRes.json()
         throw new Error(err.error || 'Failed to create session')
@@ -438,7 +475,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       const res = await fetch('/api/capture/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chatHistoryRef.current }),
+        body: JSON.stringify({ messages: chatHistoryRef.current, accountId: accountId || undefined }),
       })
       if (!res.ok) throw new Error('Failed to get AI response')
       const data = await res.json() as { message: string; isComplete: boolean }
@@ -475,7 +512,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       const res = await fetch('/api/capture/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chatHistoryRef.current }),
+        body: JSON.stringify({ messages: chatHistoryRef.current, accountId: accountId || undefined }),
       })
       if (!res.ok) throw new Error('Failed to get AI response')
       const data = await res.json() as { message: string; isComplete: boolean }
@@ -560,13 +597,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 <div
                   className="absolute inset-0 h-48 w-48 rounded-full flex items-center justify-center"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="530 267 457 536" fill="none" className="h-14 w-14 drop-shadow-sm">
-                    <g fill="rgba(255,255,255,0.9)">
-                      <path d="M 695.0 783.5 L 573.5 783.0 L 573.5 404.0 L 549.5 374.0 L 695.0 286.5 L 695.0 783.5 Z"/>
-                      <path d="M 898.0 509.5 L 886.0 509.5 L 877.0 507.5 L 854.0 497.5 L 840.0 493.5 L 818.0 494.5 L 806.0 499.5 L 794.5 508.0 L 819.5 457.0 L 836.5 430.0 L 855.0 410.5 L 869.0 402.5 L 882.0 398.5 L 905.0 399.5 L 912.0 401.5 L 926.0 409.5 L 939.5 425.0 L 944.5 437.0 L 946.5 447.0 L 946.5 458.0 L 943.5 472.0 L 936.5 486.0 L 922.0 500.5 L 910.0 506.5 L 898.0 509.5 Z"/>
-                      <path d="M 967.0 783.5 L 828.0 783.5 L 726.5 653.0 L 723.5 649.0 L 723.5 646.0 L 778.0 539.5 L 954.5 765.0 L 967.5 782.0 L 967.0 783.5 Z"/>
-                    </g>
-                  </svg>
+                  <img src="/icons/kosha-k.svg" alt="Kosha" className="h-14 w-14 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
                 </div>
               </button>
 

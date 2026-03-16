@@ -17,6 +17,7 @@ import { ProfileSettings } from './components/profile-settings'
 import { SettingsCard } from './components/settings-card'
 import { TeamMembers } from './components/team-members'
 import { SignOutButton } from './components/sign-out-button'
+import { SalesforceSync } from './components/salesforce-sync'
 
 async function getOrganizationData(orgId: string) {
   const supabase = await createClient()
@@ -91,17 +92,7 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {/* Salesforce */}
-          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-[#00A1E0]/10 flex items-center justify-center">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#00A1E0">
-                  <path d="M10.05 4.15a4.63 4.63 0 0 1 3.37-1.45c1.78 0 3.33 1.01 4.12 2.49a5.09 5.09 0 0 1 1.96-.39c2.83 0 5.12 2.31 5.12 5.15 0 2.85-2.29 5.16-5.12 5.16-.37 0-.73-.04-1.07-.12a3.79 3.79 0 0 1-3.35 2.01c-.62 0-1.21-.15-1.73-.42a4.46 4.46 0 0 1-3.86 2.27 4.5 4.5 0 0 1-4.07-2.57 3.75 3.75 0 0 1-.65.06c-2.16 0-3.91-1.76-3.91-3.94 0-1.31.64-2.47 1.63-3.18A4.3 4.3 0 0 1 2.1 7.65c0-2.39 1.93-4.33 4.31-4.33 1.12 0 2.14.43 2.91 1.13l.73-.3z" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-stone-800">Salesforce</p>
-            </div>
-            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
-          </div>
+          <SalesforceSync />
 
           {/* Outlook */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">

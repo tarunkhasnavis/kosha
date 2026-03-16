@@ -22,7 +22,32 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { account_id, account_name, insights, tasks, transcript, summary } = body
+  const { account_id, account_name, insights, tasks, transcript, summary, mode, notes } = body
+
+  // Handle note mode — save notes to account_notes table
+  if (mode === 'note') {
+    if (!account_id || !notes?.length) {
+      return NextResponse.json({ error: 'Missing account_id or notes' }, { status: 400 })
+    }
+    const supabase = await createClient()
+    const noteRows = (notes as string[]).map((content: string) => ({
+      organization_id: orgId,
+      account_id,
+      user_id: user.id,
+      content,
+    }))
+    const { error: noteError } = await supabase
+      .from('account_notes')
+      .insert(noteRows)
+    if (noteError) {
+      console.error('Failed to save notes:', noteError)
+      return NextResponse.json({ error: 'Failed to save notes' }, { status: 500 })
+    }
+    revalidatePath('/capture')
+    revalidatePath('/accounts')
+    revalidatePath(`/accounts/${account_id}`)
+    return NextResponse.json({ saved: true })
+  }
 
   if (!account_id || !account_name || !insights?.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

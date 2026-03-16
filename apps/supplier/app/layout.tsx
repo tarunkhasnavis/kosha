@@ -7,14 +7,25 @@ import { Toaster } from '@kosha/ui'
 const bitter = Bitter({ subsets: ['latin'], weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
-  title: 'Kosha Supplier',
-  description: 'Sales voice agent for suppliers',
+  title: 'Kosha',
+  description: 'AI workflow app for field sales reps',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Kosha',
+  },
+  icons: {
+    apple: '/icons/icon.png',
+    icon: '/icons/icon.png',
+  },
 }
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  themeColor: '#0B0F1A',
 }
 
 export default function RootLayout({

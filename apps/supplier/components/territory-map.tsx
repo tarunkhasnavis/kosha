@@ -34,13 +34,15 @@ import {
   Sparkles,
   Building2,
   Calendar,
+  MinusCircle,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { TerritoryAccountPanel } from './territory-account-panel'
 import { createAccount } from '@/lib/accounts/actions'
 import { claimDiscoveredAccount } from '@/lib/discovery/actions'
-import { createVisit } from '@/lib/visits/actions'
+import { createVisit, deleteVisit } from '@/lib/visits/actions'
 import { toast } from '@/hooks/use-toast'
 import type { Account, DiscoveredAccount, DiscoveryCategory } from '@kosha/types'
 import type { VisitWithAccount } from '@/lib/visits/queries'
@@ -113,6 +115,7 @@ export function TerritoryMap({
   todayVisits,
   tomorrowVisits,
 }: TerritoryMapProps) {
+  const router = useRouter()
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<mapboxgl.Marker[]>([])
@@ -148,7 +151,7 @@ export function TerritoryMap({
   const [routeInfo, setRouteInfo] = useState<{
     totalDistance: number
     totalDuration: number
-    stops: { name: string; address: string; distance: number; duration: number }[]
+    stops: { visitId: string; name: string; address: string; distance: number; duration: number }[]
   } | null>(null)
   const [planSheetOpen, setPlanSheetOpen] = useState(false)
 
@@ -163,7 +166,28 @@ export function TerritoryMap({
   const [creating, setCreating] = useState(false)
 
   const mappableAccounts = accounts.filter((a) => a.latitude != null && a.longitude != null)
-  const activeVisits = planDate === todayStr ? todayVisits : planDate === tomorrowStr ? tomorrowVisits : []
+
+  // Dynamic visit loading for any plan date
+  const [dateVisits, setDateVisits] = useState<VisitWithAccount[]>([])
+  const [loadingVisits, setLoadingVisits] = useState(false)
+
+  useEffect(() => {
+    if (planDate === todayStr) {
+      setDateVisits(todayVisits)
+    } else if (planDate === tomorrowStr) {
+      setDateVisits(tomorrowVisits)
+    } else {
+      // Fetch visits for the selected date
+      setLoadingVisits(true)
+      fetch(`/api/visits?date=${planDate}`)
+        .then((res) => res.json())
+        .then((data) => setDateVisits(data.visits || []))
+        .catch(() => setDateVisits([]))
+        .finally(() => setLoadingVisits(false))
+    }
+  }, [planDate, todayStr, tomorrowStr, todayVisits, tomorrowVisits])
+
+  const activeVisits = dateVisits
   const visitsWithCoords = activeVisits.filter(
     (v) => v.account?.latitude != null && v.account?.longitude != null
   )
@@ -256,6 +280,7 @@ export function TerritoryMap({
         toast({ title: 'Error', description: result.error, variant: 'destructive' })
       } else {
         toast({ title: 'Stop added', description: `${account.name} added to ${formatPlanDateLabel(planDate)}'s route.` })
+        router.refresh()
       }
       return
     }
@@ -468,7 +493,7 @@ export function TerritoryMap({
         setRouteInfo(null)
       }
     }
-  }, [mode, activeCategory, accounts, discoveredAccounts, planDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, activeCategory, accounts, discoveredAccounts, planDate, todayVisits, tomorrowVisits]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function clearRoute() {
     if (!map.current) return
@@ -543,6 +568,7 @@ export function TerritoryMap({
         const totalDuration = legs.reduce((sum, leg) => sum + (leg.duration || 0), 0)
 
         const stops = orderedVisits.map((v, i) => ({
+          visitId: v.id,
           name: v.account.name,
           address: v.account.address || '',
           distance: legs[i]?.distance || 0,
@@ -558,6 +584,16 @@ export function TerritoryMap({
       }
     } catch (err) {
       console.error('Route optimization failed:', err)
+    }
+  }
+
+  async function handleRemoveStop(visitId: string) {
+    const result = await deleteVisit(visitId)
+    if (result.error) {
+      toast({ title: 'Error', description: result.error, variant: 'destructive' })
+    } else {
+      toast({ title: 'Stop removed', description: 'Route will update.' })
+      router.refresh()
     }
   }
 
@@ -1080,12 +1116,13 @@ export function TerritoryMap({
           <div className="flex-1 overflow-y-auto px-6">
             <div className="space-y-1">
               {(routeInfo?.stops || visitsWithCoords.map((v) => ({
+                visitId: v.id,
                 name: v.account.name,
                 address: v.account.address || '',
                 distance: 0,
                 duration: 0,
               }))).map((stop, index, arr) => (
-                <div key={index} className="flex items-start gap-4 py-4 border-b border-stone-100 last:border-b-0">
+                <div key={stop.visitId} className="flex items-start gap-4 py-4 border-b border-stone-100 last:border-b-0">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-600 text-white text-sm font-bold flex items-center justify-center">
                     {index + 1}
                   </div>
@@ -1098,6 +1135,12 @@ export function TerritoryMap({
                       </p>
                     )}
                   </div>
+                  <button
+                    onClick={() => handleRemoveStop(stop.visitId)}
+                    className="flex-shrink-0 mt-1 p-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <MinusCircle className="h-4 w-4" />
+                  </button>
                 </div>
               ))}
             </div>

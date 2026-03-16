@@ -32,7 +32,7 @@ import { toast } from '@/hooks/use-toast'
 import { AccountCard } from './account-card'
 import { AccountDetail } from './account-detail'
 import { AccountForm } from './account-form'
-import type { Account, Capture, Insight, Task, Visit } from '@kosha/types'
+import type { Account, AccountContact, Capture, Insight, Task, Visit } from '@kosha/types'
 
 const premiseConfig: Record<string, { label: string; className: string }> = {
   on_premise: { label: 'On Premise', className: 'bg-emerald-50 text-emerald-700' },
@@ -59,6 +59,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [visits, setVisits] = useState<Visit[]>([])
   const [captures, setCaptures] = useState<Capture[]>([])
+  const [contacts, setContacts] = useState<AccountContact[]>([])
   const [visitDialogOpen, setVisitDialogOpen] = useState(false)
   const [visitDate, setVisitDate] = useState<Date | undefined>(undefined)
   const [visitNotes, setVisitNotes] = useState('')
@@ -111,6 +112,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
         setTasks(details.tasks)
         setVisits(details.visits)
         setCaptures(details.captures)
+        setContacts(details.contacts)
       })
       .finally(() => setDetailLoading(false))
   }, [selectedAccount?.id, sheetOpen])
@@ -132,6 +134,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
     setTasks([])
     setVisits([])
     setCaptures([])
+    setContacts([])
     router.refresh()
   }
 
@@ -263,6 +266,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
                     insights={insights}
                     tasks={tasks}
                     captures={captures}
+                    contacts={contacts}
                     loading={detailLoading}
                     onClose={handleDetailClose}
                     onDeleted={handleDetailClose}
@@ -290,6 +294,7 @@ export function AccountsList({ initialAccounts }: AccountsListProps) {
                       insights={insights}
                       tasks={tasks}
                       captures={captures}
+                      contacts={contacts}
                       loading={detailLoading}
                       onClose={handleDetailClose}
                       onDeleted={handleDetailClose}
