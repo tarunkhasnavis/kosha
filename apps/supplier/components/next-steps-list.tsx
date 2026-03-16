@@ -233,7 +233,7 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
       {/* FAB - Add Task */}
       <button
         onClick={() => setAddOpen(true)}
-        className="fixed bottom-20 right-4 z-30 w-14 h-14 bg-teal-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-teal-600/25 active:scale-95 transition-transform"
+        className="fixed bottom-16 right-4 z-30 w-14 h-14 bg-teal-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-teal-600/25 active:scale-95 transition-transform"
       >
         <Plus className="h-6 w-6" />
       </button>

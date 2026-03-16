@@ -648,7 +648,7 @@ export function TerritoryMap({
   }
 
   return (
-    <div className="fixed inset-x-0 top-0 bottom-12 z-30" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+    <div className="fixed inset-x-0 top-0 bottom-10 z-30" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       {/* Map */}
       <div ref={mapContainer} className="w-full h-full" />
 

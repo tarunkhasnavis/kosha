@@ -3,7 +3,7 @@
 import * as React from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { cva, type VariantProps } from "class-variance-authority"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from "framer-motion"
 import { X } from "lucide-react"
 
 import { cn } from '../lib/utils'
@@ -63,6 +63,9 @@ const SheetTrigger = SheetPrimitive.Trigger
 const SheetClose = SheetPrimitive.Close
 const SheetPortal = SheetPrimitive.Portal
 
+// Context to pass onOpenChange to SheetContent for swipe-to-dismiss
+const SheetContext = React.createContext<{ onOpenChange?: (open: boolean) => void }>({})
+
 // Custom Sheet that handles its own animation state
 interface SheetProps {
   open?: boolean
@@ -87,23 +90,37 @@ const Sheet = ({ open, onOpenChange, children }: SheetProps) => {
   }
 
   return (
-    <SheetPrimitive.Root open={shouldRender} onOpenChange={onOpenChange}>
-      <AnimatePresence mode="wait" onExitComplete={handleExitComplete}>
-        {open && children}
-      </AnimatePresence>
-    </SheetPrimitive.Root>
+    <SheetContext.Provider value={{ onOpenChange }}>
+      <SheetPrimitive.Root open={shouldRender} onOpenChange={onOpenChange}>
+        <AnimatePresence mode="wait" onExitComplete={handleExitComplete}>
+          {open && children}
+        </AnimatePresence>
+      </SheetPrimitive.Root>
+    </SheetContext.Provider>
   )
 }
+
+const SWIPE_THRESHOLD = 80
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
 >(({ side = "right", className, children, hideCloseButton, ...props }, ref) => {
   const sideKey = side || "right"
+  const isBottom = sideKey === "bottom"
+  const { onOpenChange } = React.useContext(SheetContext)
+  const dragY = useMotionValue(0)
+  const overlayOpacity = useTransform(dragY, [0, 300], [1, 0.2])
+
+  const handleDragEnd = React.useCallback((_: unknown, info: PanInfo) => {
+    if (info.offset.y > SWIPE_THRESHOLD || info.velocity.y > 300) {
+      onOpenChange?.(false)
+    }
+  }, [onOpenChange])
 
   return (
     <SheetPortal forceMount>
-      {/* Overlay with fade animation - covers full screen including sidebar */}
+      {/* Overlay with fade animation */}
       <SheetPrimitive.Overlay asChild forceMount>
         <motion.div
           className="fixed inset-0 z-50 bg-black/20"
@@ -111,6 +128,7 @@ const SheetContent = React.forwardRef<
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: ANIMATION_DURATION, ease: "easeOut" }}
+          style={isBottom ? { opacity: overlayOpacity } : undefined}
         />
       </SheetPrimitive.Overlay>
 
@@ -119,17 +137,26 @@ const SheetContent = React.forwardRef<
         ref={ref}
         forceMount
         asChild
+        onPointerDownOutside={(e) => {
+          // Prevent closing when interacting with drag handle
+          if (isBottom) e.preventDefault()
+        }}
         {...props}
       >
         <motion.div
           className={cn(sheetVariants({ side }), className)}
           initial={slideVariants[sideKey].initial}
-          animate={slideVariants[sideKey].animate}
+          animate={isBottom ? { y: 0 } : slideVariants[sideKey].animate}
           exit={slideVariants[sideKey].exit}
           transition={{
             duration: ANIMATION_DURATION,
             ease: ANIMATION_EASE,
           }}
+          drag={isBottom ? "y" : false}
+          dragConstraints={{ top: 0, bottom: 0 }}
+          dragElastic={{ top: 0, bottom: 0.6 }}
+          onDragEnd={isBottom ? handleDragEnd : undefined}
+          style={isBottom ? { y: dragY } : undefined}
         >
           {children}
           {!hideCloseButton && (
