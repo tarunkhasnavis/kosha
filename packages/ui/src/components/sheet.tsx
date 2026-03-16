@@ -108,15 +108,30 @@ const SheetContent = React.forwardRef<
 >(({ side = "right", className, children, hideCloseButton, ...props }, ref) => {
   const sideKey = side || "right"
   const isBottom = sideKey === "bottom"
+  const isLeft = sideKey === "left"
+  const isSwipable = isBottom || isLeft
   const { onOpenChange } = React.useContext(SheetContext)
-  const dragY = useMotionValue(0)
-  const overlayOpacity = useTransform(dragY, [0, 300], [1, 0.2])
+  const dragValue = useMotionValue(0)
+  const overlayOpacity = useTransform(
+    dragValue,
+    isBottom ? [0, 300] : [0, -200],
+    isBottom ? [1, 0.2] : [1, 0.2]
+  )
 
   const handleDragEnd = React.useCallback((_: unknown, info: PanInfo) => {
-    if (info.offset.y > SWIPE_THRESHOLD || info.velocity.y > 300) {
+    if (isBottom && (info.offset.y > SWIPE_THRESHOLD || info.velocity.y > 300)) {
+      onOpenChange?.(false)
+    } else if (isLeft && (info.offset.x < -SWIPE_THRESHOLD || info.velocity.x < -300)) {
       onOpenChange?.(false)
     }
-  }, [onOpenChange])
+  }, [onOpenChange, isBottom, isLeft])
+
+  // Drag handle grip for left sheets
+  const leftGrip = isLeft && hideCloseButton ? (
+    <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-1 pr-1.5 opacity-30">
+      <div className="w-0.5 h-6 rounded-full bg-stone-400" />
+    </div>
+  ) : null
 
   return (
     <SheetPortal forceMount>
@@ -128,7 +143,7 @@ const SheetContent = React.forwardRef<
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: ANIMATION_DURATION, ease: "easeOut" }}
-          style={isBottom ? { opacity: overlayOpacity } : undefined}
+          style={isSwipable ? { opacity: overlayOpacity } : undefined}
         />
       </SheetPrimitive.Overlay>
 
@@ -137,28 +152,25 @@ const SheetContent = React.forwardRef<
         ref={ref}
         forceMount
         asChild
-        onPointerDownOutside={(e) => {
-          // Prevent closing when interacting with drag handle
-          if (isBottom) e.preventDefault()
-        }}
         {...props}
       >
         <motion.div
           className={cn(sheetVariants({ side }), className)}
           initial={slideVariants[sideKey].initial}
-          animate={isBottom ? { y: 0 } : slideVariants[sideKey].animate}
+          animate={isBottom ? { y: 0 } : isLeft ? { x: 0 } : slideVariants[sideKey].animate}
           exit={slideVariants[sideKey].exit}
           transition={{
             duration: ANIMATION_DURATION,
             ease: ANIMATION_EASE,
           }}
-          drag={isBottom ? "y" : false}
-          dragConstraints={{ top: 0, bottom: 0 }}
-          dragElastic={{ top: 0, bottom: 0.6 }}
-          onDragEnd={isBottom ? handleDragEnd : undefined}
-          style={isBottom ? { y: dragY } : undefined}
+          drag={isBottom ? "y" : isLeft ? "x" : false}
+          dragConstraints={isBottom ? { top: 0, bottom: 0 } : isLeft ? { left: 0, right: 0 } : undefined}
+          dragElastic={isBottom ? { top: 0, bottom: 0.6 } : isLeft ? { left: 0.6, right: 0 } : undefined}
+          onDragEnd={isSwipable ? handleDragEnd : undefined}
+          style={isBottom ? { y: dragValue } : isLeft ? { x: dragValue } : undefined}
         >
           {children}
+          {leftGrip}
           {!hideCloseButton && (
             <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
               <X className="h-4 w-4" />

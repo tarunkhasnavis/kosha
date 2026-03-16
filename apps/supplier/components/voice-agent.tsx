@@ -581,34 +581,34 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               </Link>
             </div>
 
-            {/* Gradient Orb */}
-            <div className="flex-1 flex flex-col items-center justify-center -mt-10 min-h-0">
+            {/* Gradient Orb + Subtitle — centered */}
+            <div className="flex-1 flex flex-col items-center justify-center min-h-0">
               <button
                 onClick={startCapture}
                 className="relative group focus:outline-none"
                 aria-label="Tap to talk with Kosha"
               >
                 <div
-                  className="h-40 w-40 rounded-full shadow-lg shadow-orange-200/40 transition-transform duration-200 group-active:scale-95 flex items-center justify-center"
+                  className="h-48 w-48 rounded-full shadow-lg shadow-orange-200/40 transition-transform duration-200 group-active:scale-95 flex items-center justify-center"
                   style={{
                     background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
                     animation: 'orb-breathe 4s ease-in-out infinite',
                   }}
                 />
                 <div
-                  className="absolute inset-0 h-40 w-40 rounded-full flex items-center justify-center"
+                  className="absolute inset-0 h-48 w-48 rounded-full flex items-center justify-center"
                 >
-                  <img src="/icons/kosha-k.svg" alt="Kosha" className="h-12 w-12 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
+                  <img src="/icons/kosha-k.svg" alt="Kosha" className="h-14 w-14 drop-shadow-sm" style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }} />
                 </div>
               </button>
 
-              <p className="text-sm text-stone-600 mt-4 font-medium">
+              <p className="text-sm text-stone-600 mt-3 font-medium">
                 Tap to talk with Kosha
               </p>
             </div>
 
-            {/* Text Input */}
-            <div className="w-full px-5 pb-3 shrink-0">
+            {/* Account selector + text input — pinned to bottom */}
+            <div className="shrink-0 w-full px-4 pb-3">
               {accounts.length > 0 && (
                 <div className="mb-2 flex justify-center">
                   <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
@@ -689,11 +689,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
-                  className="w-full pl-4 pr-12 py-3.5 bg-white rounded-full border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm"
+                  className="w-full pl-4 pr-12 py-3 bg-white rounded-2xl border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm"
                 />
                 <button
                   onClick={handleTextSend}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors"
                 >
                   <Send className="h-4 w-4" />
                 </button>
@@ -817,7 +817,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
             {/* Bottom Bar */}
             {captureMode === 'text' ? (
-              <div className="fixed bottom-16 left-0 right-0 px-4 z-20">
+              <div className="fixed bottom-20 left-0 right-0 px-4 z-20">
                 <div className="flex items-center gap-2 max-w-lg mx-auto">
                   <button
                     onClick={stopCapture}
@@ -846,7 +846,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 </div>
               </div>
             ) : (
-              <div className="fixed bottom-16 left-0 right-0 flex justify-center z-20">
+              <div className="fixed bottom-20 left-0 right-0 flex justify-center z-20">
                 <button
                   onClick={stopCapture}
                   className="h-14 w-14 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 active:scale-95 transition-all"
@@ -1040,7 +1040,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             </div>
 
             {/* Fixed Bottom Actions */}
-            <div className="fixed bottom-16 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
+            <div className="fixed bottom-20 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
               <div className="flex gap-3 max-w-lg mx-auto">
                 <button
                   onClick={saveCapture}
@@ -1094,7 +1094,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
       {/* Conversations Sheet */}
       <Sheet open={conversationsOpen} onOpenChange={setConversationsOpen}>
-        <SheetContent side="left" className="w-[78vw] max-w-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        <SheetContent side="left" hideCloseButton className="w-[78vw] max-w-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <SheetHeader>
             <SheetTitle>Conversations</SheetTitle>
           </SheetHeader>

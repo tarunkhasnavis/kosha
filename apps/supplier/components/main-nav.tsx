@@ -29,7 +29,7 @@ export function MainNav() {
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
     >
-      <div className="flex items-center justify-around h-10 max-w-lg mx-auto">
+      <div className="flex items-center justify-around h-14 max-w-lg mx-auto">
         {navigation.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
           return (
@@ -44,7 +44,7 @@ export function MainNav() {
               )}
             >
               <item.icon
-                className="h-5 w-5"
+                className="h-7 w-7"
                 strokeWidth={isActive ? 2.4 : 1.8}
               />
             </Link>

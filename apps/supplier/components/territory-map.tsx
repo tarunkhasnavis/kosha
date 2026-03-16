@@ -648,7 +648,7 @@ export function TerritoryMap({
   }
 
   return (
-    <div className="fixed inset-x-0 top-0 bottom-10 z-30" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+    <div className="fixed inset-x-0 top-0 bottom-14 z-30">
       {/* Map */}
       <div ref={mapContainer} className="w-full h-full" />
 
@@ -656,7 +656,7 @@ export function TerritoryMap({
       {mode === 'browse' && (
         <button
           onClick={() => { setAddStopMode(false); setSearchDrawerOpen(true); setFilterOpen(false); setStyleMenuOpen(false) }}
-          className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all hover:bg-stone-700 min-w-[200px] justify-center"
+          className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all hover:bg-stone-700 min-w-[200px] justify-center"
         >
           <Search className="h-4 w-4" />
           <span className="text-sm font-medium">Search</span>
@@ -895,7 +895,7 @@ export function TerritoryMap({
 
       {/* Browse: Theme Button (left) */}
       {mode === 'browse' && (
-        <div className="absolute top-3 left-6 z-10 flex flex-col items-start">
+        <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-6 z-10 flex flex-col items-start">
           <button
             onClick={() => { setStyleMenuOpen(!styleMenuOpen); setFilterOpen(false) }}
             className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
@@ -942,7 +942,7 @@ export function TerritoryMap({
 
       {/* Browse: Filter Button + Animated Pills */}
       {mode === 'browse' && (
-        <div className="absolute top-3 right-6 z-10 flex flex-col items-end">
+        <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] right-6 z-10 flex flex-col items-end">
           <button
             onClick={() => { setFilterOpen(!filterOpen); setStyleMenuOpen(false) }}
             className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
@@ -991,7 +991,7 @@ export function TerritoryMap({
       {/* Plan: Date Selector Pill with Chevrons */}
       {mode === 'plan' && (
         <>
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+          <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
             <button
               onClick={() => {
                 const d = new Date(planDate + 'T12:00:00')

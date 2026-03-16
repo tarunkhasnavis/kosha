@@ -85,11 +85,13 @@ button, a, input, select, textarea {
 @keyframes orb-breathe {
   0%, 100% {
     transform: scale(1);
-    filter: hue-rotate(0deg);
+    filter: hue-rotate(0deg) brightness(1);
+    box-shadow: 0 10px 25px -5px rgba(234, 160, 106, 0.3);
   }
   50% {
-    transform: scale(1.04);
-    filter: hue-rotate(8deg);
+    transform: scale(1.08);
+    filter: hue-rotate(12deg) brightness(1.05);
+    box-shadow: 0 15px 35px -5px rgba(234, 160, 106, 0.5);
   }
 }
 
