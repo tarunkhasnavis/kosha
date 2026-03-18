@@ -124,52 +124,7 @@ export default async function SettingsPage() {
                 <p className="text-xs text-stone-400">Distributor Depletion Data</p>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
-              <span className="text-[10px] text-stone-400">Last sync: 6:00 AM</span>
-            </div>
-          </div>
-
-          {/* Snowflake — Data Warehouse */}
-          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-[#29B5E8]/10 flex items-center justify-center">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#29B5E8">
-                  <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07" stroke="#29B5E8" strokeWidth="2" strokeLinecap="round" fill="none" />
-                  <circle cx="12" cy="2" r="1.5" fill="#29B5E8" />
-                  <circle cx="12" cy="22" r="1.5" fill="#29B5E8" />
-                  <circle cx="2" cy="12" r="1.5" fill="#29B5E8" />
-                  <circle cx="22" cy="12" r="1.5" fill="#29B5E8" />
-                  <circle cx="4.93" cy="4.93" r="1.5" fill="#29B5E8" />
-                  <circle cx="19.07" cy="19.07" r="1.5" fill="#29B5E8" />
-                  <circle cx="19.07" cy="4.93" r="1.5" fill="#29B5E8" />
-                  <circle cx="4.93" cy="19.07" r="1.5" fill="#29B5E8" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-stone-800">Snowflake</p>
-                <p className="text-xs text-stone-400">Data Warehouse</p>
-              </div>
-            </div>
-            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
-          </div>
-
-          {/* Tracks — Image Recognition */}
-          <div className="flex items-center justify-between p-3 rounded-lg border border-stone-100 bg-stone-50/50">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-[#FF6B35]/10 flex items-center justify-center">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#FF6B35">
-                  <rect x="2" y="3" width="20" height="18" rx="2" fill="none" stroke="#FF6B35" strokeWidth="2" />
-                  <circle cx="8.5" cy="10" r="2.5" fill="#FF6B35" />
-                  <path d="M21 18l-5-5-3 3-3-3-6 6" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-stone-800">Tracks</p>
-                <p className="text-xs text-stone-400">Image Recognition</p>
-              </div>
-            </div>
-            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
+            <span className="text-xs text-stone-400 font-medium px-2.5 py-1 rounded-full bg-stone-100">Disconnected</span>
           </div>
 
           {/* PowerBI — Analytics & Reporting */}
@@ -187,7 +142,7 @@ export default async function SettingsPage() {
                 <p className="text-xs text-stone-400">Analytics & Reporting</p>
               </div>
             </div>
-            <span className="text-xs text-emerald-600 font-medium px-2.5 py-1 rounded-full bg-emerald-50">Connected</span>
+            <span className="text-xs text-stone-400 font-medium px-2.5 py-1 rounded-full bg-stone-100">Disconnected</span>
           </div>
         </CardContent>
       </Card>

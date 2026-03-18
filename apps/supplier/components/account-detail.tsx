@@ -53,7 +53,7 @@ const insightTypeConfig: Record<string, { label: string; className: string }> = 
 
 const premiseConfig: Record<string, { label: string; className: string }> = {
   on_premise: { label: 'On Premise', className: 'bg-emerald-50 text-emerald-700' },
-  off_premise: { label: 'Off Premise', className: 'bg-blue-50 text-blue-700' },
+  off_premise: { label: 'Off Premise', className: 'bg-sky-50 text-sky-700' },
   hybrid: { label: 'Hybrid', className: 'bg-amber-50 text-amber-700' },
 }
 

@@ -32,6 +32,6 @@ export async function deleteInsight(
   }
 
   revalidatePath('/capture')
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
   return { success: true }
 }

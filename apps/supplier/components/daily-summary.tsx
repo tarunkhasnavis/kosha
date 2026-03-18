@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sheet,
@@ -17,22 +17,40 @@ import {
   Copy,
   Mail,
   X,
-  ChevronDown,
+  Truck,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import type { Insight, Task } from '@kosha/types'
 
-interface VisitSummary {
+// Extended types with distributor_name from the API
+interface SummaryInsight extends Insight {
+  distributor_name: string | null
+}
+
+interface SummaryTask extends Task {
+  distributor_name: string | null
+}
+
+interface SummaryVisit {
   id: string
+  account_id: string
   account_name: string
+  distributor_name: string | null
   account: { id: string; name: string; address: string | null }
 }
 
 interface DailySummaryData {
   date: string
-  visits: VisitSummary[]
-  insights: Insight[]
-  tasks: Task[]
+  visits: SummaryVisit[]
+  insights: SummaryInsight[]
+  tasks: SummaryTask[]
+}
+
+interface DistributorGroup {
+  distributor: string
+  visits: SummaryVisit[]
+  insights: SummaryInsight[]
+  tasks: SummaryTask[]
 }
 
 interface DailySummaryProps {
@@ -43,48 +61,86 @@ interface DailySummaryProps {
 }
 
 const WATCH_OUT_TYPES = new Set(['friction', 'competitive'])
-const OPPORTUNITY_TYPES = new Set(['demand', 'expansion', 'promotion', 'relationship'])
+const UNASSIGNED = 'Unassigned'
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
-function formatRecapText(data: DailySummaryData, dateLabel: string): string {
+function groupByDistributor(data: DailySummaryData): DistributorGroup[] {
+  const groups = new Map<string, DistributorGroup>()
+
+  const getGroup = (name: string): DistributorGroup => {
+    if (!groups.has(name)) {
+      groups.set(name, { distributor: name, visits: [], insights: [], tasks: [] })
+    }
+    return groups.get(name)!
+  }
+
+  for (const v of data.visits) getGroup(v.distributor_name || UNASSIGNED).visits.push(v)
+  for (const i of data.insights) getGroup(i.distributor_name || UNASSIGNED).insights.push(i)
+  for (const t of data.tasks) getGroup(t.distributor_name || UNASSIGNED).tasks.push(t)
+
+  // Sort: named distributors first (alphabetical), Unassigned last
+  return [...groups.values()].sort((a, b) => {
+    if (a.distributor === UNASSIGNED) return 1
+    if (b.distributor === UNASSIGNED) return -1
+    return a.distributor.localeCompare(b.distributor)
+  })
+}
+
+function formatDistributorRecap(group: DistributorGroup, dateLabel: string): string {
   const lines: string[] = []
-  lines.push(`TERRITORY RECAP — ${dateLabel}`)
+  lines.push(`RECAP FOR ${group.distributor.toUpperCase()} — ${dateLabel}`)
   lines.push('')
 
-  // Group insights by account
-  const insightsByAccount = new Map<string, Insight[]>()
-  for (const insight of data.insights) {
-    const existing = insightsByAccount.get(insight.account_name) || []
-    existing.push(insight)
-    insightsByAccount.set(insight.account_name, existing)
-  }
+  // ACTION ITEMS FIRST — this is what the wholesaler needs to act on
+  const sortedTasks = [...group.tasks].sort((a, b) =>
+    (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2)
+  )
 
-  // List each visited account with its insights
-  for (const visit of data.visits) {
-    const name = visit.account_name || visit.account?.name || 'Unknown'
-    lines.push(name.toUpperCase())
-    const accountInsights = insightsByAccount.get(name) || []
-    if (accountInsights.length > 0) {
-      for (const i of accountInsights) {
-        lines.push(`  - ${i.description}`)
-      }
-    } else {
-      lines.push('  - Routine check-in')
-    }
-    lines.push('')
-  }
-
-  // Action items
-  if (data.tasks.length > 0) {
+  if (sortedTasks.length > 0) {
     lines.push('ACTION ITEMS:')
-    data.tasks.forEach((t, idx) => {
-      const priority = t.priority ? `[${t.priority.toUpperCase()}]` : ''
+    sortedTasks.forEach((t, idx) => {
       const account = t.account_name ? ` at ${t.account_name}` : ''
-      lines.push(`${idx + 1}. ${priority} ${t.task}${account}`)
+      lines.push(`${idx + 1}. ${t.task}${account}`)
     })
     lines.push('')
   }
 
-  lines.push(`Total visits: ${data.visits.length} | Insights: ${data.insights.length} | Action items: ${data.tasks.length}`)
+  // VISIT DETAILS — context for each account
+  const insightsByAccount = new Map<string, SummaryInsight[]>()
+  for (const i of group.insights) {
+    const list = insightsByAccount.get(i.account_name) || []
+    list.push(i)
+    insightsByAccount.set(i.account_name, list)
+  }
+
+  const visitedAccounts = new Set<string>()
+  if (group.visits.length > 0 || insightsByAccount.size > 0) {
+    lines.push('VISIT DETAILS:')
+
+    for (const v of group.visits) {
+      const name = v.account_name || v.account?.name || 'Unknown'
+      visitedAccounts.add(name)
+      lines.push(name.toUpperCase())
+      const accountInsights = insightsByAccount.get(name) || []
+      if (accountInsights.length > 0) {
+        for (const i of accountInsights) lines.push(`  - ${i.description}`)
+      } else {
+        lines.push('  - Routine check-in')
+      }
+      lines.push('')
+    }
+
+    // Include insights for accounts not in visits (e.g., from captures without scheduled visits)
+    for (const [name, insights] of insightsByAccount) {
+      if (!visitedAccounts.has(name)) {
+        lines.push(name.toUpperCase())
+        for (const i of insights) lines.push(`  - ${i.description}`)
+        lines.push('')
+      }
+    }
+  }
+
+  lines.push(`Visits: ${group.visits.length} | Insights: ${group.insights.length} | Action items: ${group.tasks.length}`)
 
   return lines.join('\n')
 }
@@ -92,7 +148,7 @@ function formatRecapText(data: DailySummaryData, dateLabel: string): string {
 export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySummaryProps) {
   const [data, setData] = useState<DailySummaryData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false)
+  const [shareDistributor, setShareDistributor] = useState<string | null>(null)
   const [shareEmail, setShareEmail] = useState('')
   const [shareBody, setShareBody] = useState('')
   const [recentEmails, setRecentEmails] = useState<string[]>(() => {
@@ -118,50 +174,54 @@ export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySumma
     }
   }, [])
 
-  // Fetch when sheet opens
   const handleOpenChange = useCallback((isOpen: boolean) => {
     if (isOpen) {
       fetchSummary(date)
     } else {
-      setShareOpen(false)
+      setShareDistributor(null)
     }
     onOpenChange(isOpen)
   }, [date, fetchSummary, onOpenChange])
 
-  const watchOuts = data?.insights.filter((i) => WATCH_OUT_TYPES.has(i.insight_type)) || []
-  const opportunities = data?.insights.filter((i) => OPPORTUNITY_TYPES.has(i.insight_type)) || []
-  const actionItems = data?.tasks || []
+  const distributorGroups = useMemo(() => {
+    if (!data) return []
+    return groupByDistributor(data)
+  }, [data])
 
-  const handleCopyRecap = useCallback(() => {
+  const totalVisits = data?.visits.length || 0
+  const totalInsights = data?.insights.length || 0
+  const totalTasks = data?.tasks.length || 0
+
+  const handleCopyAll = useCallback(() => {
     if (!data) return
-    const text = formatRecapText(data, dateLabel)
+    const text = distributorGroups
+      .map((g) => formatDistributorRecap(g, dateLabel))
+      .join('\n\n---\n\n')
     navigator.clipboard.writeText(text)
-    toast({ title: 'Recap copied to clipboard' })
-  }, [data, dateLabel])
+    toast({ title: 'Full recap copied to clipboard' })
+  }, [data, distributorGroups, dateLabel])
 
-  const handleShareToWholesaler = useCallback(() => {
-    if (!data) return
-    setShareBody(formatRecapText(data, dateLabel))
-    setShareOpen(true)
-  }, [data, dateLabel])
+  const handleShareDistributor = useCallback((group: DistributorGroup) => {
+    setShareBody(formatDistributorRecap(group, dateLabel))
+    setShareDistributor(group.distributor)
+  }, [dateLabel])
 
   const handleSendEmail = useCallback(() => {
     if (!shareEmail.trim()) {
       toast({ title: 'Enter an email address', variant: 'destructive' })
       return
     }
-    // Save to recent emails
     const updated = [shareEmail, ...recentEmails.filter((e) => e !== shareEmail)].slice(0, 5)
     setRecentEmails(updated)
     if (typeof window !== 'undefined') {
       localStorage.setItem('kosha_recent_emails', JSON.stringify(updated))
     }
 
-    const subject = encodeURIComponent(`Territory Recap — ${dateLabel}`)
+    const subject = encodeURIComponent(`Recap for ${shareDistributor} — ${dateLabel}`)
     const body = encodeURIComponent(shareBody)
     window.open(`mailto:${shareEmail}?subject=${subject}&body=${body}`, '_blank')
     toast({ title: 'Opening email client...' })
-  }, [shareEmail, shareBody, dateLabel, recentEmails])
+  }, [shareEmail, shareBody, shareDistributor, dateLabel, recentEmails])
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -181,7 +241,7 @@ export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySumma
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-stone-400" />
             </div>
-          ) : !data || (data.visits.length === 0 && data.insights.length === 0 && data.tasks.length === 0) ? (
+          ) : !data || (totalVisits === 0 && totalInsights === 0 && totalTasks === 0) ? (
             <div className="flex flex-col items-center justify-center py-12 text-stone-400">
               <MapPin className="h-8 w-8 mb-3" />
               <p className="text-sm">No activity recorded for {dateLabel.toLowerCase()}</p>
@@ -195,120 +255,133 @@ export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySumma
                 exit={{ opacity: 0, y: -8 }}
                 className="space-y-5"
               >
-                {/* Visit count */}
+                {/* Totals bar */}
                 <div className="flex items-center gap-2 text-sm text-stone-600">
                   <MapPin className="h-4 w-4" />
-                  <span className="font-medium">{data.visits.length} visit{data.visits.length !== 1 ? 's' : ''}</span>
+                  <span className="font-medium">{totalVisits} visit{totalVisits !== 1 ? 's' : ''}</span>
                   <span className="text-stone-400">|</span>
-                  <span>{data.insights.length} insight{data.insights.length !== 1 ? 's' : ''}</span>
+                  <span>{totalInsights} insight{totalInsights !== 1 ? 's' : ''}</span>
                   <span className="text-stone-400">|</span>
-                  <span>{data.tasks.length} task{data.tasks.length !== 1 ? 's' : ''}</span>
+                  <span>{totalTasks} task{totalTasks !== 1 ? 's' : ''}</span>
                 </div>
 
-                {/* Watch Outs */}
-                {watchOuts.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                      <h3 className="text-sm font-semibold text-stone-800">Watch Outs</h3>
-                    </div>
-                    <div className="space-y-2">
-                      {watchOuts.map((insight) => (
-                        <div key={insight.id} className="flex items-start gap-2 pl-6">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-stone-700">{insight.description}</p>
-                            <p className="text-xs text-stone-400 mt-0.5">{insight.account_name}</p>
-                          </div>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
-                            insight.insight_type === 'friction'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
-                            {insight.sub_category || insight.insight_type}
-                          </span>
+                {/* Distributor groups */}
+                {distributorGroups.map((group) => {
+                  const watchOuts = group.insights.filter((i) => WATCH_OUT_TYPES.has(i.insight_type))
+                  const opportunities = group.insights.filter((i) => !WATCH_OUT_TYPES.has(i.insight_type))
+                  const sortedTasks = [...group.tasks].sort((a, b) =>
+                    (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2)
+                  )
+
+                  return (
+                    <div key={group.distributor} className="border border-stone-200 rounded-xl overflow-hidden">
+                      {/* Distributor header */}
+                      <div className="flex items-center justify-between px-4 py-3 bg-stone-50 border-b border-stone-200">
+                        <div className="flex items-center gap-2">
+                          <Truck className="h-4 w-4 text-stone-500" />
+                          <h3 className="text-sm font-semibold text-stone-800">{group.distributor}</h3>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                        <span className="text-xs text-stone-400">
+                          {group.visits.length} visit{group.visits.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
 
-                {/* Opportunities */}
-                {opportunities.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <TrendingUp className="h-4 w-4 text-emerald-500" />
-                      <h3 className="text-sm font-semibold text-stone-800">Opportunities</h3>
-                    </div>
-                    <div className="space-y-2">
-                      {opportunities.map((insight) => (
-                        <div key={insight.id} className="flex items-start gap-2 pl-6">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-stone-700">{insight.description}</p>
-                            <p className="text-xs text-stone-400 mt-0.5">{insight.account_name}</p>
+                      <div className="p-4 space-y-4">
+                        {/* Action items FIRST — what the wholesaler needs to do */}
+                        {sortedTasks.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <ClipboardList className="h-4 w-4 text-blue-500" />
+                              <h4 className="text-xs font-semibold text-stone-800 uppercase tracking-wide">Action Items</h4>
+                            </div>
+                            <div className="space-y-1.5">
+                              {sortedTasks.map((task) => (
+                                <div key={task.id} className="flex items-start gap-2 pl-1">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-stone-700">{task.task}</p>
+                                    <p className="text-xs text-stone-400">{task.account_name}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
-                            insight.insight_type === 'demand'
-                              ? 'bg-purple-100 text-purple-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}>
-                            {insight.sub_category || insight.insight_type}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                        )}
 
-                {/* Action Items */}
-                {actionItems.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <ClipboardList className="h-4 w-4 text-blue-500" />
-                      <h3 className="text-sm font-semibold text-stone-800">Wholesaler Action Items</h3>
-                    </div>
-                    <div className="space-y-2">
-                      {actionItems.map((task) => (
-                        <div key={task.id} className="flex items-start gap-2 pl-6">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-stone-700">{task.task}</p>
-                            <p className="text-xs text-stone-400 mt-0.5">{task.account_name}</p>
+                        {/* Watch Outs */}
+                        {watchOuts.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                              <h4 className="text-xs font-semibold text-stone-800 uppercase tracking-wide">Watch Outs</h4>
+                            </div>
+                            <div className="space-y-1.5">
+                              {watchOuts.map((insight) => (
+                                <div key={insight.id} className="flex items-start gap-2">
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 ${
+                                    insight.insight_type === 'friction' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {insight.sub_category || insight.insight_type}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-stone-700">{insight.description}</p>
+                                    <p className="text-xs text-stone-400">{insight.account_name}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
-                            task.priority === 'high'
-                              ? 'bg-red-100 text-red-700'
-                              : task.priority === 'medium'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-stone-100 text-stone-600'
-                          }`}>
-                            {task.priority}
-                          </span>
-                        </div>
-                      ))}
+                        )}
+
+                        {/* Opportunities */}
+                        {opportunities.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <TrendingUp className="h-4 w-4 text-emerald-500" />
+                              <h4 className="text-xs font-semibold text-stone-800 uppercase tracking-wide">Opportunities</h4>
+                            </div>
+                            <div className="space-y-1.5">
+                              {opportunities.map((insight) => (
+                                <div key={insight.id} className="flex items-start gap-2">
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 ${
+                                    insight.insight_type === 'demand' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'
+                                  }`}>
+                                    {insight.sub_category || insight.insight_type}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-stone-700">{insight.description}</p>
+                                    <p className="text-xs text-stone-400">{insight.account_name}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Share button for this distributor */}
+                        <button
+                          onClick={() => handleShareDistributor(group)}
+                          className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-[#D97706] text-white text-sm font-medium hover:bg-[#B45309] active:scale-[0.98] transition-all"
+                        >
+                          <Mail className="h-3.5 w-3.5" />
+                          Send to {group.distributor}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })}
 
-                {/* Share buttons */}
-                <div className="flex gap-2 pt-2">
-                  <button
-                    onClick={handleCopyRecap}
-                    className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl border border-stone-200 bg-white text-stone-700 text-sm font-medium hover:bg-stone-50 active:scale-[0.98] transition-all"
-                  >
-                    <Copy className="h-4 w-4" />
-                    Copy Recap
-                  </button>
-                  <button
-                    onClick={handleShareToWholesaler}
-                    className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-[#D97706] text-white text-sm font-medium hover:bg-[#B45309] active:scale-[0.98] transition-all"
-                  >
-                    <Mail className="h-4 w-4" />
-                    Share to Wholesaler
-                  </button>
-                </div>
+                {/* Copy all button */}
+                <button
+                  onClick={handleCopyAll}
+                  className="w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-stone-200 bg-white text-stone-700 text-sm font-medium hover:bg-stone-50 active:scale-[0.98] transition-all"
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy Full Recap
+                </button>
 
-                {/* Inline share form */}
+                {/* Inline share form (shown when a distributor is selected) */}
                 <AnimatePresence>
-                  {shareOpen && (
+                  {shareDistributor && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
@@ -317,20 +390,19 @@ export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySumma
                     >
                       <div className="border border-stone-200 rounded-xl p-4 space-y-3 bg-stone-50">
                         <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-stone-800">Send Recap</h4>
-                          <button onClick={() => setShareOpen(false)} className="text-stone-400 hover:text-stone-600">
+                          <h4 className="text-sm font-semibold text-stone-800">Send to {shareDistributor}</h4>
+                          <button onClick={() => setShareDistributor(null)} className="text-stone-400 hover:text-stone-600">
                             <X className="h-4 w-4" />
                           </button>
                         </div>
 
-                        {/* To field */}
                         <div>
                           <label className="text-xs font-medium text-stone-500 mb-1 block">To</label>
                           <input
                             type="email"
                             value={shareEmail}
                             onChange={(e) => setShareEmail(e.target.value)}
-                            placeholder="wholesaler@example.com"
+                            placeholder="rep@distributor.com"
                             className="w-full h-10 px-3 text-sm rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#D97706]/30 focus:border-[#D97706]"
                           />
                           {recentEmails.length > 0 && (
@@ -348,7 +420,6 @@ export function DailySummary({ open, onOpenChange, date, dateLabel }: DailySumma
                           )}
                         </div>
 
-                        {/* Editable body */}
                         <div>
                           <label className="text-xs font-medium text-stone-500 mb-1 block">Message</label>
                           <textarea

@@ -50,13 +50,36 @@ export async function POST(request: Request) {
     )
 
     revalidatePath('/capture')
-    revalidatePath('/accounts')
-    revalidatePath(`/accounts/${account_id}`)
+    revalidatePath('/territory')
     return NextResponse.json({ saved: true })
   }
 
-  if (!account_id || !account_name || !insights?.length) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  // Handle prep and discovery — save transcript for conversation history only
+  if (mode === 'prep' || mode === 'discovery') {
+    if (transcript) {
+      const supabase = await createClient()
+      const { error: captureError } = await supabase
+        .from('captures')
+        .insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          organization_id: orgId,
+          account_id: account_id || null,
+          account_name: account_name || (mode === 'discovery' ? 'Discovery' : 'Prep'),
+          transcript,
+          summary: null,
+        })
+      if (captureError) {
+        console.error(`Failed to save ${mode} transcript:`, captureError)
+      }
+    }
+    revalidatePath('/capture')
+    return NextResponse.json({ saved: true })
+  }
+
+  // Debrief mode — insights and tasks are optional
+  if (!account_id || !account_name) {
+    return NextResponse.json({ error: 'Missing account_id or account_name' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -81,7 +104,16 @@ export async function POST(request: Request) {
     }
   }
 
-  // Insert insights
+  // Insert insights (if any)
+  if (!insights?.length) {
+    revalidatePath('/capture')
+    revalidatePath('/territory')
+    scoreAccount(account_id).catch((err) =>
+      console.error('Background score computation failed:', err)
+    )
+    return NextResponse.json({ insights: [], tasks: [] })
+  }
+
   const insightRows = insights.map((s: {
     type: string
     description: string
@@ -151,8 +183,7 @@ export async function POST(request: Request) {
   )
 
   revalidatePath('/capture')
-  revalidatePath('/accounts')
-  revalidatePath(`/accounts/${account_id}`)
+  revalidatePath('/territory')
 
   return NextResponse.json({ insights: savedInsights, tasks: savedTasks })
 }

@@ -7,7 +7,26 @@ import { getTasksForAccount } from '@/lib/tasks/queries'
 import { getAllTasks } from '@/lib/tasks/queries'
 import { getVisitsForAccount } from '@/lib/visits/queries'
 import { getUpcomingVisits } from '@/lib/visits/queries'
+import { getVisitsForDate } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
+
+const SET_SKILL_MODE_TOOL = {
+  type: 'function' as const,
+  name: 'set_skill_mode',
+  description:
+    'Lock in the conversation skill mode. Call this IMMEDIATELY in your first response after determining what the rep wants to do. This controls the UI behavior (banners, save flow, review screen). You MUST call this before doing anything else.',
+  parameters: {
+    type: 'object',
+    properties: {
+      mode: {
+        type: 'string',
+        enum: ['prep', 'note', 'debrief', 'discovery'],
+        description: 'The skill mode: prep (pre-visit briefing), note (quick facts), debrief (post-visit structured capture), discovery (prospecting/research).',
+      },
+    },
+    required: ['mode'],
+  },
+}
 
 const SET_ACTIVE_ACCOUNT_TOOL = {
   type: 'function' as const,
@@ -69,7 +88,7 @@ const SCHEDULE_VISIT_TOOL = {
   type: 'function' as const,
   name: 'schedule_visit',
   description:
-    'Schedule a follow-up visit to an account. Call this when the rep says they need to go back, schedule a visit, or follow up in person. Clarify the date before calling.',
+    'Schedule a follow-up visit to an account. ONLY call this when the rep EXPLICITLY asks to schedule, plan, or book a visit — e.g. "schedule a visit", "I need to go back", "book a follow-up", "set up a meeting". Do NOT call this just because an account is mentioned or discussed. Always confirm the date AND get explicit confirmation from the rep before calling (e.g. "Want me to schedule that for Thursday?").',
   parameters: {
     type: 'object',
     properties: {
@@ -93,7 +112,7 @@ const SCHEDULE_VISIT_TOOL = {
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
   name: 'save_capture',
-  description: 'Save the conversation outputs. Call once at the end after the rep confirms.',
+  description: 'Save the conversation outputs. ONLY call this after you have read back the summary/insights/tasks to the rep AND they have explicitly confirmed with "yes", "save it", "that\'s good", or similar affirmative. NEVER auto-save without confirmation (except for note mode).',
   parameters: {
     type: 'object',
     properties: {
@@ -217,15 +236,26 @@ export async function POST(request: Request) {
   const { accountId } = body as { accountId?: string }
 
   // Build org-wide context (accounts list, upcoming visits, pending tasks)
-  const [accountsResult, visitsResult, tasksResult] = await Promise.all([
+  // Use start of today (not "now") so visits earlier today aren't excluded
+  const todayStr = new Date().toISOString().split('T')[0]
+  const [accountsResult, todayVisitsResult, upcomingVisitsResult, tasksResult] = await Promise.all([
     getAccounts(),
+    getVisitsForDate(todayStr),
     getUpcomingVisits(),
     getAllTasks(),
   ])
 
+  // Merge today's visits with upcoming, deduplicate by id
+  const seenIds = new Set<string>()
+  const allVisits = [...todayVisitsResult.visits, ...upcomingVisitsResult.visits].filter((v) => {
+    if (seenIds.has(v.id)) return false
+    seenIds.add(v.id)
+    return true
+  })
+
   const orgContext = formatOrgContext({
     accounts: accountsResult.accounts.map((a) => ({ name: a.name, address: a.address })),
-    upcomingVisits: visitsResult.visits.slice(0, 20).map((v) => ({
+    upcomingVisits: allVisits.slice(0, 30).map((v) => ({
       account_name: v.account_name,
       visit_date: v.visit_date,
       notes: v.notes,
@@ -259,9 +289,8 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
         voice: 'marin',
-        language: 'en',
         instructions: systemPrompt,
-        tools: [SAVE_CAPTURE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, SCHEDULE_VISIT_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL],
+        tools: [SAVE_CAPTURE_TOOL, SET_SKILL_MODE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, SCHEDULE_VISIT_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL],
         tool_choice: 'auto',
         input_audio_transcription: {
           model: 'whisper-1',
@@ -273,7 +302,7 @@ export async function POST(request: Request) {
           type: 'semantic_vad',
           eagerness: 'low',
           create_response: true,
-          interrupt_response: true,
+          interrupt_response: false,
         },
       }),
     })

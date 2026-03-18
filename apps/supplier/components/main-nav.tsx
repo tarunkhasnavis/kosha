@@ -9,13 +9,11 @@ import {
   Home,
   MapPin,
   CheckSquare,
-  Users,
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Home', href: '/capture', icon: Home },
   { name: 'Map', href: '/territory', icon: MapPin },
-  { name: 'Accounts', href: '/accounts', icon: Users },
   { name: 'Tasks', href: '/next-steps', icon: CheckSquare },
 ] as const
 

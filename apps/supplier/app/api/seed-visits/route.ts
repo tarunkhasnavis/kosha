@@ -240,7 +240,7 @@ export async function POST() {
   }
 
   // Revalidate cached pages
-  revalidatePath('/accounts', 'layout')
+  revalidatePath('/territory', 'layout')
   revalidatePath('/territory')
   revalidatePath('/visits')
   revalidatePath('/next-steps')

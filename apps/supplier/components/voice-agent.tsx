@@ -72,6 +72,7 @@ interface ExtractedCapture {
   summary: string
   insights: ExtractedInsightItem[]
   tasks: ExtractedTaskItem[]
+  notes?: string[]
 }
 
 interface VoiceAgentProps {
@@ -96,12 +97,19 @@ const priorityConfig: Record<string, { label: string; className: string }> = {
   low: { label: 'Low', className: 'bg-slate-100 text-stone-600' },
 }
 
+// ─── Farewell detection ────────────────────────────────────
+function isFarewell(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/[.,!?]/g, '')
+  return normalized.includes('okay thank you bye') || normalized.includes('ok thank you bye')
+}
+
 // ─── Component ──────────────────────────────────────────────
 
 export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [state, setState] = useState<AgentState>('idle')
+  const [skillMode, setSkillMode] = useState<'prep' | 'note' | 'debrief' | 'discovery' | null>(null)
   const [accountId, setAccountId] = useState('')
   const [accountSearch, setAccountSearch] = useState('')
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false)
@@ -114,6 +122,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const [textInput, setTextInput] = useState('')
   const [textFocused, setTextFocused] = useState(false)
   const idleInputRef = useRef<HTMLInputElement>(null)
+  const activeInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // iOS PWA keyboard-aware layout:
@@ -151,6 +160,16 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const [textSending, setTextSending] = useState(false)
   const chatHistoryRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
 
+  // Focus the active text input when entering text mode or after sending
+  useEffect(() => {
+    if (state === 'active' && captureMode === 'text' && !textSending && activeInputRef.current) {
+      const timer = setTimeout(() => {
+        activeInputRef.current?.focus()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [state, captureMode, textSending])
+
   // Pre-select account from URL param (e.g. /capture?accountId=xxx)
   useEffect(() => {
     const urlAccountId = searchParams.get('accountId')
@@ -171,6 +190,22 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const itemOrderRef = useRef<string[]>([])
 
   const selectedAccount = accounts.find((a) => a.id === accountId)
+
+  // Auto-detect account from user message text
+  const tryAutoDetectAccount = useCallback((message: string) => {
+    if (accountId) return // Already selected
+
+    const msgLower = message.toLowerCase()
+    // Find the best match — longest name that appears in the message
+    const match = accounts
+      .filter((a) => msgLower.includes(a.name.toLowerCase()))
+      .sort((a, b) => b.name.length - a.name.length)[0]
+
+    if (match) {
+      setAccountId(match.id)
+      toast({ title: `Account linked`, description: match.name })
+    }
+  }, [accountId, accounts])
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -194,24 +229,61 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     if (audioRef.current) { audioRef.current.srcObject = null; audioRef.current = null }
   }, [])
 
+  const reset = useCallback(() => {
+    setState('idle')
+    setTranscript([])
+    setExtractedCapture(null)
+    setAccountId('')
+    setCaptureMode('voice')
+    setSkillMode(null)
+    fullTranscriptRef.current = ''
+    chatHistoryRef.current = []
+  }, [])
+
   const fallbackExtract = useCallback(async () => {
     cleanup()
     const transcriptText = fullTranscriptRef.current.trim()
 
-    // Skip extraction if transcript is too short or no account is selected
-    // A meaningful debrief needs at least ~50 words and an associated account
+    // Always save transcript for conversation history (if there's content)
+    if (transcriptText) {
+      try {
+        await fetch('/api/capture/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_id: accountId || null,
+            account_name: selectedAccount?.name || (skillMode === 'discovery' ? 'Discovery' : 'Conversation'),
+            mode: skillMode || 'prep',
+            transcript: transcriptText,
+          }),
+        })
+      } catch (err) {
+        console.error('Failed to save transcript:', err)
+      }
+    }
+
+    // Prep and Discovery: transcript saved above, go straight to home
+    if (skillMode === 'prep' || skillMode === 'discovery') {
+      router.refresh()
+      reset()
+      return
+    }
+
+    // For note/debrief (or unknown mode): attempt extraction if enough content
     const wordCount = transcriptText.split(/\s+/).length
     if (!transcriptText || wordCount < 15) {
-      setState('idle')
+      router.refresh()
+      reset()
       if (transcriptText) {
-        toast({ title: 'Conversation ended', description: 'Too short to extract insights.' })
+        toast({ title: 'Conversation saved', description: 'Too short to extract insights.' })
       }
       return
     }
 
     if (!accountId) {
-      setState('idle')
-      toast({ title: 'Conversation ended', description: 'No account selected — nothing was saved.' })
+      router.refresh()
+      reset()
+      toast({ title: 'Conversation saved' })
       return
     }
 
@@ -231,19 +303,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         setExtractedCapture(data)
         setState('saving')
       } else {
-        setState('idle')
-        toast({ title: 'Capture ended', description: 'No insights could be extracted.' })
+        reset()
+        toast({ title: 'Conversation saved' })
       }
     } catch (error) {
       console.error('Fallback extraction failed:', error)
-      setState('idle')
+      reset()
       toast({
         title: 'Extraction failed',
         description: error instanceof Error ? error.message : 'Could not process the conversation.',
         variant: 'destructive',
       })
     }
-  }, [cleanup])
+  }, [cleanup, skillMode, accountId, selectedAccount, router, reset])
 
   const trackItemOrder = useCallback((itemId: string) => {
     if (itemId && !itemOrderRef.current.includes(itemId)) {
@@ -277,6 +349,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         if (userText) {
           setTranscript((prev) => sortByItemOrder([...prev, { role: 'user', text: userText, itemId }]))
           fullTranscriptRef.current += `Rep: ${userText}\n`
+          // Explicit farewell phrase ends the voice conversation
+          if (isFarewell(userText)) {
+            stopCapture()
+          }
         }
         break
       }
@@ -316,66 +392,46 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             const mode = (args.mode as string) || 'debrief'
 
             if (mode === 'note') {
-              // Save notes and continue conversation (don't end it)
+              // Note: collect all notes, show review screen for confirmation
+              setSkillMode('note')
+              cleanup()
               const notesList = (args.notes as string[]) || []
-              if (notesList.length > 0 && accountId) {
-                fetch('/api/capture/save', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    account_id: accountId,
-                    account_name: selectedAccount?.name || 'Unknown Account',
-                    mode: 'note',
-                    notes: notesList,
-                    transcript: fullTranscriptRef.current || null,
-                  }),
-                })
-                  .then((res) => res.json())
-                  .then((data) => {
-                    const dc = dcRef.current
-                    if (!dc || dc.readyState !== 'open') return
-                    dc.send(JSON.stringify({
-                      type: 'conversation.item.create',
-                      item: {
-                        type: 'function_call_output',
-                        call_id: callId,
-                        output: JSON.stringify({ success: true, noteCount: notesList.length }),
-                      },
-                    }))
-                    dc.send(JSON.stringify({ type: 'response.create' }))
-                    toast({
-                      title: `${notesList.length} note${notesList.length !== 1 ? 's' : ''} saved`,
-                      description: selectedAccount?.name || undefined,
-                    })
-                    router.refresh()
-                  })
-                  .catch(() => {
-                    const dc = dcRef.current
-                    if (!dc || dc.readyState !== 'open') return
-                    dc.send(JSON.stringify({
-                      type: 'conversation.item.create',
-                      item: {
-                        type: 'function_call_output',
-                        call_id: callId,
-                        output: JSON.stringify({ error: 'Failed to save notes' }),
-                      },
-                    }))
-                    dc.send(JSON.stringify({ type: 'response.create' }))
-                  })
-              }
-              functionCallArgsRef.current = ''
+              setExtractedCapture({
+                summary: '',
+                insights: [],
+                tasks: [],
+                notes: notesList,
+              })
+              setState('saving')
               return
             }
 
             if (mode === 'prep') {
+              // Prep: save transcript for history, go straight to home
+              setSkillMode('prep')
               cleanup()
-              setState('done')
+              // Save transcript silently for conversation history
+              if (fullTranscriptRef.current.trim() && accountId) {
+                fetch('/api/capture/save', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    account_id: accountId || null,
+                    account_name: selectedAccount?.name || 'Unknown Account',
+                    mode: 'prep',
+                    transcript: fullTranscriptRef.current,
+                  }),
+                }).catch(console.error)
+              }
               toast({ title: 'Good luck!' })
               router.refresh()
+              // Go straight to home — no done screen
+              reset()
               return
             }
 
-            // Default: debrief mode
+            // Debrief mode: show review screen with insights/tasks
+            setSkillMode('debrief')
             const capture = args as unknown as ExtractedCapture
             if (!capture.insights || capture.insights.length === 0) {
               fallbackExtract()
@@ -385,6 +441,29 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             setState('saving')
           } catch {
             fallbackExtract()
+          }
+        } else if (name === 'set_skill_mode') {
+          // Lock in skill mode — purely client-side, no server call needed
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            const newMode = args.mode as 'prep' | 'note' | 'debrief' | 'discovery'
+            setSkillMode(newMode)
+            const dc = dcRef.current
+            if (dc && dc.readyState === 'open') {
+              dc.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({ success: true, mode: newMode }),
+                },
+              }))
+              dc.send(JSON.stringify({ type: 'response.create' }))
+            }
+          } catch {
+            functionCallArgsRef.current = ''
           }
         } else if (name === 'set_active_account') {
           // Resolve account name to ID and update client state
@@ -580,6 +659,12 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       dc.onmessage = (e) => {
         try { handleRealtimeEvent(JSON.parse(e.data)) } catch { /* ignore */ }
       }
+      dc.onclose = () => {
+        // Connection closed (AI ended session or network drop) — save transcript
+        if (state === 'active' && fullTranscriptRef.current.trim()) {
+          fallbackExtract()
+        }
+      }
 
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
@@ -622,16 +707,30 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
   const stopCapture = useCallback(async () => {
     if (extractedCapture) { cleanup(); return }
-    if (transcript.length > 0) {
+    // Save if there's any transcript content (check ref, not state — state may lag)
+    if (transcript.length > 0 || fullTranscriptRef.current.trim()) {
       await fallbackExtract()
     } else {
+      // Truly empty session — go back to idle
       cleanup()
+      setTranscript([])
+      fullTranscriptRef.current = ''
+      chatHistoryRef.current = []
       setState('idle')
     }
-  }, [cleanup, transcript.length, extractedCapture, fallbackExtract])
+  }, [cleanup, transcript.length, captureMode, extractedCapture, fallbackExtract])
 
   const saveCapture = useCallback(async () => {
     if (!extractedCapture) return
+
+    if (!accountId) {
+      setAccountPopoverOpen(true)
+      toast({
+        title: 'Select an account',
+        description: 'Choose which account to save this capture to.',
+      })
+      return
+    }
 
     setSaving(true)
     try {
@@ -641,9 +740,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         body: JSON.stringify({
           account_id: accountId || null,
           account_name: selectedAccount?.name || 'Unknown Account',
+          mode: skillMode || 'debrief',
           summary: extractedCapture.summary,
           insights: extractedCapture.insights,
           tasks: extractedCapture.tasks,
+          notes: extractedCapture.notes,
           transcript: fullTranscriptRef.current || null,
         }),
       })
@@ -670,21 +771,14 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     cleanup()
     setExtractedCapture(null)
     setCaptureMode('voice')
+    setSkillMode(null)
     chatHistoryRef.current = []
     setState('idle')
   }, [cleanup])
 
-  const reset = useCallback(() => {
-    setState('idle')
-    setTranscript([])
-    setExtractedCapture(null)
-    setAccountId('')
-    setCaptureMode('voice')
-    fullTranscriptRef.current = ''
-    chatHistoryRef.current = []
-  }, [])
 
   const startTextChat = useCallback(async (initialMessage: string) => {
+    tryAutoDetectAccount(initialMessage)
     setCaptureMode('text')
     setState('active')
     setTranscript([])
@@ -734,15 +828,22 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     } finally {
       setTextSending(false)
     }
-  }, [fallbackExtract, accountId, router])
+  }, [fallbackExtract, accountId, router, tryAutoDetectAccount])
 
   const sendTextMessage = useCallback(async (message: string) => {
     if (!message.trim() || textSending) return
+    tryAutoDetectAccount(message)
 
     const userEntry: TranscriptEntry = { role: 'user', text: message }
     setTranscript((prev) => [...prev, userEntry])
     fullTranscriptRef.current += `Rep: ${message}\n`
     chatHistoryRef.current.push({ role: 'user', content: message })
+
+    // Explicit farewell phrase ends the conversation
+    if (isFarewell(message)) {
+      await fallbackExtract()
+      return
+    }
 
     setTextSending(true)
     try {
@@ -779,7 +880,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     } finally {
       setTextSending(false)
     }
-  }, [textSending, fallbackExtract, accountId, router])
+  }, [textSending, fallbackExtract, accountId, router, tryAutoDetectAccount])
 
   const handleTextSend = useCallback(() => {
     if (!textInput.trim()) return
@@ -803,7 +904,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   return (
     <div
       ref={containerRef}
-      className="fixed top-0 left-0 right-0 overflow-hidden bg-stone-50 z-30"
+      className={`fixed top-0 left-0 right-0 overflow-hidden bg-stone-50 ${state === 'idle' ? 'z-30' : 'z-50'}`}
       style={{ height: '100dvh' }}
     >
       <AnimatePresence mode="popLayout">
@@ -831,7 +932,14 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                     <p className="text-sm font-semibold text-stone-800">
                       {selectedAccount?.name || 'Conversation'}
                     </p>
-                    <p className="text-xs text-stone-500">Text chat</p>
+                    {selectedAccount && (skillMode === 'note' || skillMode === 'debrief') ? (
+                      <div className="inline-flex items-center gap-1 mt-0.5">
+                        <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                        <span className="text-[11px] font-medium text-teal-600">Saving to this account</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-stone-500">{selectedAccount?.name || 'Text chat'}</p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -897,9 +1005,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                         <PopoverContent
                           className="w-[calc(100vw-2.5rem)] p-0 rounded-2xl border-stone-200 shadow-lg"
                           align="center"
-                          sideOffset={8}
+                          side="top"
+                          sideOffset={4}
+                          avoidCollisions={false}
                         >
-                          <div className="p-3 border-b border-stone-100">
+                          <div className="p-2 border-b border-stone-100">
                             <div className="relative">
                               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
                               <input
@@ -912,7 +1022,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                               />
                             </div>
                           </div>
-                          <div className="max-h-60 overflow-y-auto py-1">
+                          <div className="max-h-40 overflow-y-auto py-0.5">
                             <button
                               onClick={() => {
                                 setAccountId('')
@@ -1020,9 +1130,12 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           >
             {/* Header with small orb */}
             <div className="flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
-              <div className="flex items-center gap-3">
+              <button
+                onClick={stopCapture}
+                className="flex items-center gap-3 -ml-1 px-1 py-1 rounded-xl hover:bg-stone-100 active:bg-stone-200 transition-colors"
+              >
                 <div
-                  className="h-10 w-10 rounded-full"
+                  className="h-10 w-10 rounded-full shrink-0"
                   style={{
                     background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
                     animation: isSpeaking
@@ -1030,7 +1143,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                       : 'orb-pulse-small 2s ease-in-out infinite',
                   }}
                 />
-                <div>
+                <div className="text-left">
                   <p className="text-sm font-semibold text-stone-800">
                     {selectedAccount?.name || 'Conversation'}
                   </p>
@@ -1040,7 +1153,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                       : (isMuted ? 'Muted' : isSpeaking ? 'Kosha is speaking...' : 'Listening...')}
                   </p>
                 </div>
-              </div>
+              </button>
               <div className="flex items-center gap-2">
                 {captureMode === 'voice' && (
                   <button
@@ -1055,20 +1168,17 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               </div>
             </div>
 
-            {/* Mode indicator */}
-            <div className="flex items-center gap-2 px-5 pb-3">
-              {captureMode === 'voice' ? (
-                <>
-                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-xs font-medium text-red-500 uppercase tracking-wider">Live</span>
-                </>
-              ) : (
-                <>
-                  <div className="h-2 w-2 rounded-full bg-teal-500" />
-                  <span className="text-xs font-medium text-teal-600 uppercase tracking-wider">Chat</span>
-                </>
-              )}
-            </div>
+            {/* Account association indicator — only for note/debrief */}
+            {selectedAccount && (skillMode === 'note' || skillMode === 'debrief') && (
+              <div className="flex items-center gap-1.5 px-5 pb-2">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-100">
+                  <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                  <span className="text-[11px] font-medium text-teal-700">
+                    Saving to {selectedAccount.name}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Transcript */}
             <div
@@ -1113,38 +1223,56 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                       </div>
                     </motion.div>
                   ))}
+                  {/* Thinking orb */}
+                  {textSending && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex justify-start"
+                    >
+                      <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl rounded-bl-md bg-white border border-stone-100 shadow-sm">
+                        <div
+                          className="h-6 w-6 rounded-full"
+                          style={{
+                            background: 'linear-gradient(135deg, #b8d8a8 0%, #e8c86a 12%, #f0b86e 28%, #eda06a 55%, #e8946a 72%, #d898c0 86%, #88b4d8 100%)',
+                            animation: 'orb-thinking 1.4s ease-in-out infinite',
+                          }}
+                        />
+                        <span className="text-xs text-stone-400">Thinking...</span>
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Bottom Bar */}
             {captureMode === 'text' ? (
-              <div className="shrink-0 px-4 py-3 border-t border-stone-100 bg-stone-50">
+              <div className="shrink-0 px-4 py-2 border-t border-stone-100 bg-stone-50" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}>
                 <div className="flex items-center gap-2 max-w-lg mx-auto">
                   <button
                     onClick={stopCapture}
-                    className="h-10 w-10 shrink-0 bg-stone-200 hover:bg-stone-300 text-stone-600 rounded-full flex items-center justify-center active:scale-95 transition-all"
+                    className="h-10 w-10 shrink-0 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center active:scale-95 transition-all shadow-sm"
                   >
-                    <X className="h-4 w-4" />
+                    <Square className="h-3.5 w-3.5 fill-current" />
                   </button>
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      placeholder="Type a message..."
-                      value={textInput}
-                      onChange={(e) => setTextInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
-                      disabled={textSending}
-                      className="w-full pl-4 pr-12 py-3 bg-white rounded-full border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm disabled:opacity-50"
-                    />
-                    <button
-                      onClick={handleTextSend}
-                      disabled={textSending || !textInput.trim()}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+                  <input
+                    ref={activeInputRef}
+                    type="text"
+                    placeholder="Type a message..."
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                    disabled={textSending}
+                    className="flex-1 min-w-0 pl-4 pr-4 py-3 bg-white rounded-full border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 shadow-sm disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleTextSend}
+                    disabled={textSending || !textInput.trim()}
+                    className="h-10 w-10 shrink-0 bg-teal-600 hover:bg-teal-700 text-white rounded-full flex items-center justify-center transition-colors disabled:opacity-50 shadow-sm"
                     >
                       {textSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1190,7 +1318,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             className="flex flex-col h-full"
           >
             {/* Review Header */}
-            <div className="flex items-center justify-between px-5 pb-3 pt-14">
+            <div className="flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
               <h2 className="text-lg font-bold text-stone-800">Review Capture</h2>
               <button
                 onClick={() => setIsEditing(!isEditing)}
@@ -1201,6 +1329,61 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 <Pencil className="h-4 w-4" />
               </button>
             </div>
+
+            {/* Account selector (shown if no account linked) */}
+            {!accountId && (
+              <div className="px-5 pb-2">
+                <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <span className="text-xs text-amber-700 flex-1">Select an account to save this capture</span>
+                  <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button className="px-3 py-1.5 rounded-full text-xs font-medium text-white bg-[#D97706] hover:bg-[#B45309] transition-colors">
+                        Choose Account
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[calc(100vw-2.5rem)] p-0 rounded-2xl border-stone-200 shadow-lg"
+                      align="center"
+                      side="bottom"
+                      sideOffset={8}
+                      avoidCollisions
+                      collisionPadding={16}
+                    >
+                      <div className="p-3 border-b border-stone-100">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                          <input
+                            type="text"
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-stone-50 rounded-lg border-0 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-800/10"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto py-1">
+                        {accounts
+                          .filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase()))
+                          .map((account) => (
+                            <button
+                              key={account.id}
+                              onClick={() => {
+                                setAccountId(account.id)
+                                setAccountSearch('')
+                                setAccountPopoverOpen(false)
+                              }}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-stone-600 active:bg-stone-50 transition-colors"
+                            >
+                              <span>{account.name}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            )}
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto px-5 pb-32 space-y-5">
@@ -1223,7 +1406,52 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 )
               )}
 
+              {/* Notes (shown for note mode) */}
+              {extractedCapture.notes && extractedCapture.notes.length > 0 && (
+                <div>
+                  <h3 className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-3">
+                    Notes ({extractedCapture.notes.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {extractedCapture.notes.map((note, i) => (
+                      <div key={i} className="bg-white rounded-xl p-3.5 border border-stone-100 flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          {isEditing ? (
+                            <Input
+                              value={note}
+                              onChange={(e) => {
+                                setExtractedCapture((prev) => {
+                                  if (!prev || !prev.notes) return prev
+                                  const notes = [...prev.notes]
+                                  notes[i] = e.target.value
+                                  return { ...prev, notes }
+                                })
+                              }}
+                              className="text-sm h-8 border-stone-200"
+                            />
+                          ) : (
+                            <p className="text-sm text-stone-700">{note}</p>
+                          )}
+                        </div>
+                        {isEditing && (
+                          <button
+                            onClick={() => setExtractedCapture((prev) => {
+                              if (!prev || !prev.notes) return prev
+                              return { ...prev, notes: prev.notes.filter((_, idx) => idx !== i) }
+                            })}
+                            className="p-1 text-stone-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Insights */}
+              {extractedCapture.insights.length > 0 && (
               <div>
                 <h3 className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-3">
                   Insights ({extractedCapture.insights.length})
@@ -1288,6 +1516,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                   })}
                 </div>
               </div>
+              )}
 
               {/* Tasks */}
               {extractedCapture.tasks.length > 0 && (
@@ -1342,11 +1571,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             </div>
 
             {/* Fixed Bottom Actions */}
-            <div className="fixed bottom-20 left-0 right-0 px-5 pb-4 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20">
+            <div className="fixed bottom-0 left-0 right-0 px-5 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pt-6 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
               <div className="flex gap-3 max-w-lg mx-auto">
                 <button
                   onClick={saveCapture}
-                  disabled={saving || extractedCapture.insights.length === 0}
+                  disabled={saving}
                   className="flex-1 h-12 bg-[#D97706] hover:bg-[#B45309] text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all"
                 >
                   {saving ? (
@@ -1457,6 +1686,9 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-10 h-1 rounded-full bg-stone-300" />
           </div>
+          <SheetHeader className="sr-only">
+            <SheetTitle>{selectedAccount?.name || 'Account Details'}</SheetTitle>
+          </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pt-2 pb-5">
             {selectedAccount && (
               <AccountDetail

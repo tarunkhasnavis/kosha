@@ -31,23 +31,25 @@ import {
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
-  Palette,
   Sparkles,
   Building2,
   Calendar,
   MinusCircle,
-  BarChart3,
+  ClipboardList,
+  Users,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import { TerritoryAccountPanel } from './territory-account-panel'
+import { AccountDetail } from './account-detail'
+import { AccountCard } from './account-card'
+import { fetchAccountDetails } from '@/lib/territory/actions'
 import { DailySummary } from './daily-summary'
 import { createAccount } from '@/lib/accounts/actions'
 import { claimDiscoveredAccount } from '@/lib/discovery/actions'
 import { createVisit, deleteVisit } from '@/lib/visits/actions'
 import { toast } from '@/hooks/use-toast'
-import type { Account, DiscoveredAccount, DiscoveryCategory } from '@kosha/types'
+import type { Account, AccountContact, Capture, DiscoveredAccount, DiscoveryCategory, Insight, Task, Visit } from '@kosha/types'
 import type { VisitWithAccount } from '@/lib/visits/queries'
 
 interface PlaceResult {
@@ -65,13 +67,6 @@ interface PlaceResult {
 }
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
-
-const MAP_STYLES = [
-  { key: 'streets', label: 'Streets', url: 'mapbox://styles/mapbox/streets-v12' },
-  { key: 'light', label: 'Light', url: 'mapbox://styles/mapbox/light-v11' },
-  { key: 'dark', label: 'Dark', url: 'mapbox://styles/mapbox/dark-v11' },
-  { key: 'satellite', label: 'Satellite', url: 'mapbox://styles/mapbox/satellite-streets-v12' },
-] as const
 
 const CATEGORY_PILLS: { key: DiscoveryCategory | 'my_accounts'; label: string }[] = [
   { key: 'bar', label: 'Bar' },
@@ -129,15 +124,49 @@ export function TerritoryMap({
   const [mode, setMode] = useState<MapMode>('browse')
   const [activeCategory, setActiveCategory] = useState<DiscoveryCategory | 'my_accounts'>('my_accounts')
   const [filterOpen, setFilterOpen] = useState(false)
-  const [mapStyle, setMapStyle] = useState<typeof MAP_STYLES[number]['key']>('streets')
-  const [styleMenuOpen, setStyleMenuOpen] = useState(false)
   const [searchDrawerOpen, setSearchDrawerOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [drawerCategory, setDrawerCategory] = useState<DiscoveryCategory | 'all'>('all')
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [accountsListOpen, setAccountsListOpen] = useState(false)
+
+  // Account detail data (fetched on demand when panel opens)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailInsights, setDetailInsights] = useState<Insight[]>([])
+  const [detailTasks, setDetailTasks] = useState<Task[]>([])
+  const [detailVisits, setDetailVisits] = useState<Visit[]>([])
+  const [detailCaptures, setDetailCaptures] = useState<Capture[]>([])
+  const [detailContacts, setDetailContacts] = useState<AccountContact[]>([])
   const [selectedDiscovered, setSelectedDiscovered] = useState<DiscoveredAccount | null>(null)
   const [claiming, setClaiming] = useState(false)
+
+  // Fetch account details when panel opens
+  useEffect(() => {
+    if (!selectedAccount || !panelOpen) return
+
+    setDetailLoading(true)
+    fetchAccountDetails(selectedAccount.id)
+      .then((details) => {
+        setDetailInsights(details.insights)
+        setDetailTasks(details.tasks)
+        setDetailVisits(details.visits)
+        setDetailCaptures(details.captures)
+        setDetailContacts(details.contacts)
+      })
+      .finally(() => setDetailLoading(false))
+  }, [selectedAccount?.id, panelOpen])
+
+  function handlePanelClose() {
+    setPanelOpen(false)
+    setSelectedAccount(null)
+    setDetailInsights([])
+    setDetailTasks([])
+    setDetailVisits([])
+    setDetailCaptures([])
+    setDetailContacts([])
+    router.refresh()
+  }
 
   // Google Places search state
   const [placesResults, setPlacesResults] = useState<PlaceResult[]>([])
@@ -743,8 +772,8 @@ export function TerritoryMap({
       {/* Search Pill (centered between theme + filter) */}
       {mode === 'browse' && (
         <button
-          onClick={() => { setAddStopMode(false); setSearchDrawerOpen(true); setFilterOpen(false); setStyleMenuOpen(false) }}
-          className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all hover:bg-stone-700 min-w-[200px] justify-center"
+          onClick={() => { setAddStopMode(false); setSearchDrawerOpen(true); setFilterOpen(false) }}
+          className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-8 py-2.5 rounded-full bg-white/95 backdrop-blur-sm text-stone-700 shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 transition-all hover:bg-stone-50 min-w-[200px] justify-center"
         >
           <Search className="h-4 w-4" />
           <span className="text-sm font-medium">Search</span>
@@ -753,7 +782,7 @@ export function TerritoryMap({
 
       {/* Search Drawer */}
       <Sheet open={searchDrawerOpen} onOpenChange={(open) => { setSearchDrawerOpen(open); if (!open) setAddStopMode(false) }}>
-        <SheetContent side="bottom" hideCloseButton className="rounded-t-2xl p-0 flex flex-col bg-white" style={{ height: 'calc(100dvh - env(safe-area-inset-top, 0px) - 56px)' }}>
+        <SheetContent side="bottom" hideCloseButton className="rounded-t-2xl p-0 flex flex-col bg-white" style={{ height: 'calc(100dvh - env(safe-area-inset-top, 0px) - 80px)' }}>
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1">
             <div className="w-10 h-1 rounded-full bg-stone-300" />
@@ -960,11 +989,11 @@ export function TerritoryMap({
       </Sheet>
 
       {/* Mode Toggle */}
-      <div className="absolute left-1/2 -translate-x-1/2 z-10 bg-white/95 backdrop-blur-sm rounded-full shadow-lg border border-stone-200 p-2 flex" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) - 0.75rem)' }}>
+      <div className="absolute left-1/2 -translate-x-1/2 z-10 bg-white/95 backdrop-blur-sm rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 p-2 flex" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) - 0.75rem)' }}>
         <button
           onClick={() => setMode('browse')}
           className={`relative px-7 py-3.5 text-sm font-semibold rounded-full transition-colors duration-150 ${
-            mode === 'browse' ? 'text-white' : 'text-stone-600 hover:text-stone-800'
+            mode === 'browse' ? 'text-white' : 'text-stone-500 hover:text-stone-800'
           }`}
         >
           {mode === 'browse' && (
@@ -982,7 +1011,7 @@ export function TerritoryMap({
         <button
           onClick={() => setMode('plan')}
           className={`relative px-7 py-3.5 text-sm font-semibold rounded-full transition-colors duration-150 ${
-            mode === 'plan' ? 'text-white' : 'text-stone-600 hover:text-stone-800'
+            mode === 'plan' ? 'text-white' : 'text-stone-500 hover:text-stone-800'
           }`}
         >
           {mode === 'plan' && (
@@ -999,59 +1028,23 @@ export function TerritoryMap({
         </button>
       </div>
 
-      {/* Browse: Theme Button (left) */}
+      {/* Browse: Accounts List Button (left) */}
       {mode === 'browse' && (
-        <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-6 z-10 flex flex-col items-start">
-          <button
-            onClick={() => { setStyleMenuOpen(!styleMenuOpen); setFilterOpen(false) }}
-            className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
-          >
-            <Palette className="h-4 w-4" />
-          </button>
-
-          {styleMenuOpen && (
-            <div className="fixed inset-0 z-0" onClick={() => setStyleMenuOpen(false)} />
-          )}
-
-          <div className="relative z-10 flex flex-col gap-1.5 mt-2">
-            {MAP_STYLES.map((style, index) => (
-              <button
-                key={style.key}
-                onClick={() => {
-                  setMapStyle(style.key)
-                  setStyleMenuOpen(false)
-                  if (map.current) {
-                    map.current.setStyle(style.url)
-                  }
-                }}
-                style={{
-                  opacity: styleMenuOpen ? 1 : 0,
-                  transform: styleMenuOpen ? 'translateY(0) scale(1)' : 'translateY(-8px) scale(0.9)',
-                  transitionProperty: 'opacity, transform',
-                  transitionDuration: '200ms',
-                  transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
-                  transitionDelay: styleMenuOpen ? `${index * 40}ms` : '0ms',
-                  pointerEvents: styleMenuOpen ? 'auto' : 'none',
-                }}
-                className={`px-4 py-2 rounded-full text-sm font-medium shadow-[0_2px_12px_rgba(0,0,0,0.15)] transition-colors whitespace-nowrap w-fit ${
-                  mapStyle === style.key
-                    ? 'bg-stone-800 text-white'
-                    : 'bg-white text-stone-700'
-                }`}
-              >
-                {style.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <button
+          onClick={() => { setAccountsListOpen(true); setFilterOpen(false) }}
+          className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] left-6 z-10 flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 transition-all bg-white/95 backdrop-blur-sm text-stone-700 hover:bg-stone-50"
+          title="Accounts"
+        >
+          <Users className="h-4 w-4" />
+        </button>
       )}
 
       {/* Browse: Filter Button + Animated Pills */}
       {mode === 'browse' && (
         <div className="absolute top-[calc(env(safe-area-inset-top,0px)+12px)] right-6 z-10 flex flex-col items-end">
           <button
-            onClick={() => { setFilterOpen(!filterOpen); setStyleMenuOpen(false) }}
-            className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white"
+            onClick={() => setFilterOpen(!filterOpen)}
+            className="flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 transition-all bg-white/95 backdrop-blur-sm text-stone-700 hover:bg-stone-50"
           >
             <SlidersHorizontal className="h-4 w-4" />
           </button>
@@ -1097,7 +1090,7 @@ export function TerritoryMap({
       {/* Plan: Date Selector Pill with Chevrons */}
       {mode === 'plan' && (
         <>
-          {/* Navigate button — top right */}
+          {/* Navigate button — top-left, below summary button */}
           {routeInfo && routeInfo.stops.length >= 2 && (
             <button
               onClick={() => {
@@ -1111,9 +1104,10 @@ export function TerritoryMap({
                 const url = `https://www.google.com/maps/dir/${waypointParam}/${destParam}`
                 window.open(url, '_blank')
               }}
-              className="absolute top-[calc(env(safe-area-inset-top,0px)+76px)] right-6 z-10 flex items-center justify-center w-14 h-14 rounded-full bg-stone-800 shadow-[0_2px_12px_rgba(0,0,0,0.2)] hover:bg-stone-700 active:scale-95 transition-all"
+              className="absolute z-10 flex items-center justify-center rounded-full bg-white/95 backdrop-blur-sm shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 hover:bg-stone-50 active:scale-95 transition-all"
+              style={{ top: 'calc(env(safe-area-inset-top, 0px) + 164px)', right: '1.5rem', width: '3.25rem', height: '3.25rem' }}
             >
-              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none">
+              <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#EA4335" />
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 2.61 1.43 4.88 3.54 6.15L12 11.5V2z" fill="#4285F4" />
                 <path d="M8.54 15.15C9.56 16.52 10.82 18.14 12 22c1.18-3.86 2.44-5.48 3.46-6.85L12 11.5 8.54 15.15z" fill="#34A853" />
@@ -1130,14 +1124,14 @@ export function TerritoryMap({
                 d.setDate(d.getDate() - 1)
                 setPlanDate(d.toISOString().split('T')[0])
               }}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] hover:bg-stone-700 transition-all"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-white/95 backdrop-blur-sm text-stone-700 shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 hover:bg-stone-50 transition-all"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
             <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
               <PopoverTrigger asChild>
                 <button
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] hover:bg-stone-700 transition-all min-w-[160px] justify-center"
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-white/95 backdrop-blur-sm text-stone-700 shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 hover:bg-stone-50 transition-all min-w-[160px] justify-center"
                 >
                   <Calendar className="h-4 w-4" />
                   <span className="text-sm font-medium">{formatPlanDateLabel(planDate)}</span>
@@ -1163,7 +1157,7 @@ export function TerritoryMap({
                 d.setDate(d.getDate() + 1)
                 setPlanDate(d.toISOString().split('T')[0])
               }}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-stone-800 text-white shadow-[0_2px_12px_rgba(0,0,0,0.2)] hover:bg-stone-700 transition-all"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-white/95 backdrop-blur-sm text-stone-700 shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 hover:bg-stone-50 transition-all"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -1472,12 +1466,90 @@ export function TerritoryMap({
         </div>
       )}
 
-      {/* Account detail panel */}
-      <TerritoryAccountPanel
-        account={selectedAccount}
-        open={panelOpen}
-        onClose={() => { setPanelOpen(false); setSelectedAccount(null) }}
-      />
+      {/* Account detail sheet */}
+      <Sheet open={panelOpen} onOpenChange={(open) => { if (!open) handlePanelClose() }}>
+        <SheetContent
+          side="bottom"
+          hideCloseButton
+          className="flex flex-col p-0 bg-white h-[85dvh]"
+        >
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 rounded-full bg-stone-300" />
+          </div>
+          <SheetHeader className="sr-only">
+            <SheetTitle>{selectedAccount?.name || 'Account'}</SheetTitle>
+            <SheetDescription>Account details</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pt-2 pb-5">
+            {selectedAccount && (
+              <AccountDetail
+                account={selectedAccount}
+                visits={detailVisits}
+                insights={detailInsights}
+                tasks={detailTasks}
+                captures={detailCaptures}
+                contacts={detailContacts}
+                loading={detailLoading}
+                onClose={handlePanelClose}
+                onDeleted={handlePanelClose}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Accounts list sheet */}
+      <Sheet open={accountsListOpen} onOpenChange={setAccountsListOpen}>
+        <SheetContent
+          side="bottom"
+          hideCloseButton
+          className="flex flex-col p-0 bg-white"
+          style={{ height: 'calc(100dvh - env(safe-area-inset-top, 0px) - 80px)' }}
+        >
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 rounded-full bg-stone-300" />
+          </div>
+          <SheetHeader className="px-5 pb-0">
+            <SheetTitle className="text-lg font-bold text-stone-800">My Accounts</SheetTitle>
+            <SheetDescription className="sr-only">Browse your accounts</SheetDescription>
+          </SheetHeader>
+          <div className="px-5 pt-3 pb-2">
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search accounts..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-100 bg-stone-50 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-800/10 focus:border-stone-300 transition-all"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-2">
+            {accounts
+              .filter((a) => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
+              .sort((a, b) => b.score - a.score)
+              .map((account) => (
+                <AccountCard
+                  key={account.id}
+                  account={account}
+                  onClick={() => {
+                    setAccountsListOpen(false)
+                    setSelectedAccount(account)
+                    setPanelOpen(true)
+                    // Fly to account on map
+                    if (map.current && account.latitude && account.longitude) {
+                      map.current.flyTo({ center: [account.longitude, account.latitude], zoom: 14 })
+                    }
+                  }}
+                />
+              ))}
+            {accounts.filter((a) => a.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+              <div className="text-center py-12 text-sm text-stone-400">No accounts found</div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Add Account dialog */}
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
@@ -1517,15 +1589,17 @@ export function TerritoryMap({
         </DialogContent>
       </Dialog>
 
-      {/* Daily Summary Button */}
-      <button
-        onClick={() => setSummaryOpen(true)}
-        className="absolute z-10 flex items-center justify-center w-10 h-10 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.2)] border-none transition-all bg-stone-800 text-white hover:bg-stone-700 active:scale-95"
-        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)', right: mode === 'browse' ? '4.5rem' : '1.5rem' }}
-        title="Daily Summary"
-      >
-        <BarChart3 className="h-4 w-4" />
-      </button>
+      {/* Daily Summary Button — right side, hidden when filter/style menu open */}
+      {!filterOpen && (
+        <button
+          onClick={() => setSummaryOpen(true)}
+          className="absolute z-10 flex items-center justify-center w-13 h-13 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.15)] border border-stone-200 transition-all bg-white/95 backdrop-blur-sm text-stone-700 hover:bg-stone-50 active:scale-95"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 100px)', right: '1.5rem', width: '3.25rem', height: '3.25rem' }}
+          title="Daily Summary"
+        >
+          <ClipboardList className="h-5 w-5" />
+        </button>
+      )}
 
       {/* Daily Summary Sheet */}
       <DailySummary
@@ -1549,28 +1623,45 @@ export function TerritoryMap({
 
 // --- Marker Factories ---
 
+const LABEL_ZOOM_THRESHOLD = 13
+
 function createAccountMarker(
   account: Account,
   color: string,
   mapInstance: mapboxgl.Map,
   onClick: (account: Account) => void
 ): mapboxgl.Marker {
+  // Wrapper for pin + label
+  const wrapper = document.createElement('div')
+  wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none;'
+
   const el = document.createElement('div')
-  el.style.cssText = `width:28px;height:28px;background:${color};border:2px solid white;border-radius:50%;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;transition:transform 0.15s ease;`
+  el.style.cssText = `width:28px;height:28px;background:${color};border:2px solid white;border-radius:50%;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;transition:transform 0.15s ease;pointer-events:auto;`
   el.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`
   el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.2)' })
   el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
 
-  const marker = new mapboxgl.Marker({ element: el })
+  // Persistent name label (shown at high zoom)
+  const label = document.createElement('div')
+  label.textContent = account.name
+  label.style.cssText = `font-size:11px;font-weight:600;color:#292524;background:white;padding:1px 6px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.15);opacity:0;transition:opacity 0.2s ease;pointer-events:none;max-width:120px;overflow:hidden;text-overflow:ellipsis;`
+
+  wrapper.appendChild(el)
+  wrapper.appendChild(label)
+
+  const marker = new mapboxgl.Marker({ element: wrapper, anchor: 'center' })
     .setLngLat([account.longitude!, account.latitude!])
     .addTo(mapInstance)
 
-  const popup = new mapboxgl.Popup({ offset: 20, closeButton: false, closeOnClick: false })
-    .setHTML(`<div style="font-size:13px;font-weight:500;padding:2px 4px;">${account.name}</div>`)
+  // Show/hide label based on zoom
+  function updateLabelVisibility() {
+    const zoom = mapInstance.getZoom()
+    label.style.opacity = zoom >= LABEL_ZOOM_THRESHOLD ? '1' : '0'
+  }
+  updateLabelVisibility()
+  mapInstance.on('zoom', updateLabelVisibility)
 
-  el.addEventListener('mouseenter', () => { marker.setPopup(popup); marker.togglePopup() })
-  el.addEventListener('mouseleave', () => { popup.remove() })
-  el.addEventListener('click', () => { popup.remove(); onClick(account) })
+  el.addEventListener('click', () => onClick(account))
 
   return marker
 }

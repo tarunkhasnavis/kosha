@@ -2,8 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { Search, Plus, ChevronDown, ChevronRight } from 'lucide-react'
+import { Search, Plus, ChevronDown, ChevronRight, Sparkles, Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -16,7 +15,7 @@ import {
   SelectValue,
   DatePicker,
 } from '@kosha/ui'
-import { toggleTaskCompleted, createTask } from '@/lib/tasks/actions'
+import { toggleTaskCompleted, createTask, updateTask, deleteTask } from '@/lib/tasks/actions'
 import type { Task } from '@kosha/types'
 import type { Account } from '@kosha/types'
 
@@ -32,40 +31,47 @@ const CATEGORY_CONFIG = {
 function categorizeTask(task: Task): TaskCategory {
   if (task.completed) return 'later'
 
+  // Parse due_date as local date (not UTC) to avoid timezone mismatch
   const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const dueDate = new Date(task.due_date)
-  dueDate.setHours(0, 0, 0, 0)
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const dueStr = task.due_date.slice(0, 10)
 
-  const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (dueStr < todayStr) return 'overdue'
+  if (dueStr === todayStr) return 'today'
 
-  if (diffDays < 0) return 'overdue'
-  if (diffDays === 0) return 'today'
+  const dueDate = new Date(dueStr + 'T00:00:00')
+  const todayDate = new Date(todayStr + 'T00:00:00')
+  const diffDays = Math.floor((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24))
+
   if (diffDays <= 7) return 'this_week'
   return 'later'
 }
 
 function formatDueDate(dateStr: string): string {
   const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const date = new Date(dateStr)
-  date.setHours(0, 0, 0, 0)
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const dueStr = dateStr.slice(0, 10)
 
-  const diffDays = Math.floor((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (dueStr === todayStr) return 'Today'
 
-  if (diffDays === 0) return 'Today'
+  // Compare using local dates to avoid UTC offset issues
+  const dueDate = new Date(dueStr + 'T00:00:00')
+  const todayDate = new Date(todayStr + 'T00:00:00')
+  const diffDays = Math.round((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24))
+
   if (diffDays === 1) return 'Tomorrow'
   if (diffDays === -1) return 'Yesterday'
 
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 interface NextStepsListProps {
   tasks: Task[]
   accounts: Account[]
+  priorityAccounts?: Account[]
 }
 
-export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
+export function NextStepsList({ tasks, accounts, priorityAccounts = [] }: NextStepsListProps) {
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [optimisticTasks, setOptimisticTasks] = useState(tasks)
@@ -78,6 +84,63 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
   const [newTaskAccountId, setNewTaskAccountId] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined)
   const [creating, setCreating] = useState(false)
+
+  // Edit Task dialog state
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [editTaskText, setEditTaskText] = useState('')
+  const [editTaskDueDate, setEditTaskDueDate] = useState<Date | undefined>(undefined)
+  const [editTaskPriority, setEditTaskPriority] = useState<'high' | 'medium' | 'low'>('medium')
+  const [updating, setUpdating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  function openEditDialog(task: Task) {
+    setEditingTask(task)
+    setEditTaskText(task.task)
+    setEditTaskDueDate(new Date(task.due_date + 'T12:00:00'))
+    setEditTaskPriority(task.priority as 'high' | 'medium' | 'low')
+    setEditOpen(true)
+  }
+
+  async function handleUpdateTask() {
+    if (!editingTask || !editTaskText.trim() || !editTaskDueDate) return
+
+    setUpdating(true)
+    const result = await updateTask(editingTask.id, {
+      task: editTaskText.trim(),
+      dueDate: editTaskDueDate.toISOString().split('T')[0],
+      priority: editTaskPriority,
+    })
+    setUpdating(false)
+
+    if (result.success) {
+      setOptimisticTasks((prev) =>
+        prev.map((t) =>
+          t.id === editingTask.id
+            ? { ...t, task: editTaskText.trim(), due_date: editTaskDueDate!.toISOString().split('T')[0], priority: editTaskPriority }
+            : t
+        )
+      )
+      setEditOpen(false)
+      setEditingTask(null)
+      router.refresh()
+    }
+  }
+
+  async function handleDeleteTask() {
+    if (!editingTask) return
+
+    setDeleting(true)
+    const result = await deleteTask(editingTask.id)
+    setDeleting(false)
+
+    if (result.success) {
+      setOptimisticTasks((prev) => prev.filter((t) => t.id !== editingTask.id))
+      setEditOpen(false)
+      setEditingTask(null)
+      router.refresh()
+    }
+  }
 
   const selectedAccountForTask = accounts.find((a) => a.id === newTaskAccountId)
 
@@ -116,7 +179,7 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
     )
   }, [optimisticTasks, search])
 
-  const { categorized, completedTasks } = useMemo(() => {
+  const { categorized, completedTasks, suggestedTasks } = useMemo(() => {
     const incomplete = filteredTasks.filter((t) => !t.completed)
     const completed = filteredTasks.filter((t) => t.completed)
 
@@ -132,8 +195,16 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
       groups[category].push(task)
     }
 
-    return { categorized: groups, completedTasks: completed }
-  }, [filteredTasks])
+    // Derive suggested tasks: incomplete tasks from highest-scored accounts
+    const priorityAccountIds = new Set(priorityAccounts.map((a) => a.id))
+    const scoreMap = new Map(priorityAccounts.map((a) => [a.id, a.score]))
+    const suggested = incomplete
+      .filter((t) => priorityAccountIds.has(t.account_id))
+      .sort((a, b) => (scoreMap.get(b.account_id) || 0) - (scoreMap.get(a.account_id) || 0))
+      .slice(0, 2)
+
+    return { categorized: groups, completedTasks: completed, suggestedTasks: suggested }
+  }, [filteredTasks, priorityAccounts])
 
   const handleToggle = async (taskId: string, completed: boolean) => {
     setOptimisticTasks((prev) =>
@@ -163,6 +234,27 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
 
       {/* Task Sections */}
       <div className="flex-1 px-4 pb-24 space-y-6">
+        {/* Suggested (AI-scored) */}
+        {suggestedTasks.length > 0 && (
+          <section>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <h2 className="text-sm font-semibold text-stone-800">Suggested</h2>
+            </div>
+            <div className="space-y-2">
+              {suggestedTasks.map((task) => (
+                <TaskCard
+                  key={`suggested-${task.id}`}
+                  task={task}
+                  category={categorizeTask(task)}
+                  onToggle={handleToggle}
+                  onEdit={openEditDialog}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {categories.map((category) => {
           const tasksInCategory = categorized[category]
           if (tasksInCategory.length === 0) return null
@@ -181,7 +273,9 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
                   <TaskCard
                     key={task.id}
                     task={task}
+                    category={category}
                     onToggle={handleToggle}
+                    onEdit={openEditDialog}
                   />
                 ))}
               </div>
@@ -209,7 +303,9 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
                   <TaskCard
                     key={task.id}
                     task={task}
+                    category={categorizeTask(task)}
                     onToggle={handleToggle}
+                    onEdit={openEditDialog}
                   />
                 ))}
               </div>
@@ -304,18 +400,88 @@ export function NextStepsList({ tasks, accounts }: NextStepsListProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditingTask(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          {editingTask && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <label className="text-sm font-medium text-stone-700 mb-1.5 block">Account</label>
+                <p className="text-sm text-stone-500 px-3 py-2 bg-stone-50 rounded-lg">{editingTask.account_name}</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-stone-700 mb-1.5 block">Task</label>
+                <textarea
+                  value={editTaskText}
+                  onChange={(e) => setEditTaskText(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-stone-200 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-600/30 focus:border-amber-600 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-stone-700 mb-1.5 block">Priority</label>
+                <Select value={editTaskPriority} onValueChange={(v) => setEditTaskPriority(v as 'high' | 'medium' | 'low')}>
+                  <SelectTrigger className="focus:ring-amber-600/30 focus:border-amber-600">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-stone-700 mb-1.5 block">Due Date</label>
+                <DatePicker
+                  selected={editTaskDueDate}
+                  onSelect={setEditTaskDueDate}
+                  placeholder="Pick a date"
+                  className="focus-visible:ring-amber-600/30 focus-visible:border-amber-600"
+                />
+              </div>
+
+              <button
+                onClick={handleUpdateTask}
+                disabled={updating || !editTaskText.trim() || !editTaskDueDate}
+                className="w-full py-2.5 bg-[#D97706] hover:bg-[#B45309] text-white text-sm font-medium rounded-lg disabled:opacity-40 active:scale-[0.98] transition-all"
+              >
+                {updating ? 'Saving...' : 'Save Changes'}
+              </button>
+
+              <button
+                onClick={handleDeleteTask}
+                disabled={deleting}
+                className="w-full py-2.5 bg-white hover:bg-red-50 text-red-600 text-sm font-medium rounded-lg border border-stone-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {deleting ? 'Deleting...' : 'Delete Task'}
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 interface TaskCardProps {
   task: Task
+  category: TaskCategory
   onToggle: (taskId: string, completed: boolean) => Promise<void>
+  onEdit: (task: Task) => void
 }
 
-function TaskCard({ task, onToggle }: TaskCardProps) {
-  const dueDateStr = formatDueDate(task.due_date)
-  const isOverdue = categorizeTask(task) === 'overdue' && !task.completed
+function TaskCard({ task, category, onToggle, onEdit }: TaskCardProps) {
+  const isOverdue = category === 'overdue' && !task.completed
+  const dueDateStr = category === 'today' ? 'Today' : formatDueDate(task.due_date)
 
   return (
     <div className="flex items-start gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
@@ -334,17 +500,17 @@ function TaskCard({ task, onToggle }: TaskCardProps) {
         )}
       </button>
 
-      <div className="flex-1 min-w-0">
-        <Link
-          href={`/accounts/${task.account_id}`}
-          className="text-sm font-semibold text-stone-800 hover:underline"
-        >
+      <button
+        onClick={() => onEdit(task)}
+        className="flex-1 min-w-0 text-left"
+      >
+        <p className="text-sm font-semibold text-stone-800">
           {task.account_name}
-        </Link>
+        </p>
         <p className={`text-sm mt-0.5 ${task.completed ? 'line-through text-stone-400' : 'text-stone-600'}`}>
           {task.task}
         </p>
-      </div>
+      </button>
 
       <span className={`flex-shrink-0 text-xs font-medium px-2 py-1 rounded-lg ${
         isOverdue

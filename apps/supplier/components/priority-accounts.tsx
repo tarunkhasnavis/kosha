@@ -37,7 +37,7 @@ export function PriorityAccounts({ accounts }: PriorityAccountsProps) {
         {accounts.map((account) => (
           <Link
             key={account.id}
-            href={`/accounts/${account.id}`}
+            href={`/territory?accountId=${account.id}`}
             className="flex items-center gap-3 bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm hover:shadow-md transition-shadow"
           >
             <ScoreIndicator score={account.score} />

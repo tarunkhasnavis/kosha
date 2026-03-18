@@ -66,7 +66,7 @@ export async function claimDiscoveredAccount(
     .eq('id', discoveredAccountId)
 
   revalidatePath('/territory')
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
 
   return { account: account as Account }
 }

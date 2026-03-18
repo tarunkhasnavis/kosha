@@ -7,7 +7,6 @@ import { getAccounts, getAccount, getAccountContacts, getAccountNotes } from '@/
 import { getTasksForAccount, getAllTasks } from '@/lib/tasks/queries'
 import { getVisitsForAccount, getUpcomingVisits } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
-import { createClient } from '@kosha/supabase/server'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -46,7 +45,10 @@ async function buildAccountContext(accountId: string): Promise<string | undefine
  * POST /api/capture/chat
  *
  * Text-based chat with the Kosha AI agent.
- * Accepts conversation history and returns the next assistant message.
+ * Purely conversational — no tool calls. The AI discusses accounts,
+ * answers questions, and captures insights through conversation.
+ * Any actions (scheduling visits, saving data) happen through
+ * explicit user flows in the UI, not through AI tool execution.
  */
 export async function POST(request: Request) {
   const user = await getUser()
@@ -98,109 +100,20 @@ export async function POST(request: Request) {
 
   const systemPrompt = composePrompt({ accountContext, orgContext })
 
-  const chatTools = [
-    {
-      type: 'function' as const,
-      function: {
-        name: 'schedule_visit',
-        description: 'Schedule a follow-up visit to an account.',
-        parameters: {
-          type: 'object',
-          properties: {
-            account_name: { type: 'string', description: 'The name of the account to visit.' },
-            visit_date: { type: 'string', description: 'ISO 8601 date string for the visit.' },
-            notes: { type: 'string', description: 'Optional agenda or purpose for the visit.' },
-          },
-          required: ['account_name', 'visit_date'],
-        },
-      },
-    },
-  ]
-
   try {
     const openai = getOpenAI()
-    const allMessages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ]
 
-    let response = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: allMessages,
-      tools: chatTools,
-      tool_choice: 'auto',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages,
+      ],
       temperature: 0.6,
       max_tokens: 400,
     })
 
-    let choice = response.choices[0]
-    let scheduledVisit: { account_name: string; visit_date: string } | null = null
-
-    // Handle tool calls (schedule_visit)
-    if (choice?.finish_reason === 'tool_calls' && choice.message?.tool_calls) {
-      for (const toolCall of choice.message.tool_calls) {
-        if (toolCall.function.name === 'schedule_visit') {
-          const args = JSON.parse(toolCall.function.arguments)
-          const supabase = await createClient()
-
-          // Find account
-          const { data: accounts } = await supabase
-            .from('accounts')
-            .select('id, name')
-            .eq('organization_id', orgId)
-            .ilike('name', `%${args.account_name}%`)
-            .limit(1)
-
-          let toolResult: string
-          if (accounts && accounts.length > 0) {
-            const account = accounts[0]
-            const { error: insertError } = await supabase
-              .from('visits')
-              .insert({
-                user_id: user.id,
-                organization_id: orgId,
-                account_id: account.id,
-                account_name: account.name,
-                visit_date: args.visit_date,
-                notes: args.notes?.trim() || null,
-              })
-
-            if (insertError) {
-              toolResult = JSON.stringify({ error: 'Failed to schedule visit' })
-            } else {
-              scheduledVisit = { account_name: account.name, visit_date: args.visit_date }
-              toolResult = JSON.stringify({
-                success: true,
-                account_name: account.name,
-                visit_date: args.visit_date,
-                message: `Visit scheduled for ${account.name} on ${new Date(args.visit_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.`,
-              })
-            }
-          } else {
-            toolResult = JSON.stringify({ error: `No account found matching "${args.account_name}"` })
-          }
-
-          // Send tool result back and get final response
-          allMessages.push(choice.message as { role: 'assistant'; content: string })
-          allMessages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: toolResult,
-          })
-        }
-      }
-
-      // Get the follow-up response after tool execution
-      response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: allMessages,
-        temperature: 0.6,
-        max_tokens: 400,
-      })
-      choice = response.choices[0]
-    }
-
-    const content = choice?.message?.content
+    const content = response.choices[0]?.message?.content
     if (!content) {
       return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
     }
@@ -214,7 +127,6 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: cleanContent,
       isComplete,
-      ...(scheduledVisit && { scheduledVisit }),
     })
   } catch (error) {
     console.error('Chat API error:', error)

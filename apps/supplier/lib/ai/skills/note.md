@@ -10,9 +10,10 @@ When the rep states a fact, observation, or piece of account knowledge:
 
 ### Save Flow
 1. Keep collecting notes until the rep signals they're done ("that's all", "nope", "done", etc.)
-2. Only THEN call save_capture with mode "note" and ALL collected notes in the notes array
-3. Do NOT call save_capture after each individual note — batch them
-4. If the rep switches to a different account or a different skill (debrief, prep), save all collected notes for the current account FIRST, then transition
+2. Read back all collected notes: "Here's what I have: [list notes]. Save these?"
+3. Wait for confirmation ("yes", "save it", "that's good", etc.)
+4. On confirmation: call save_capture with mode "note" and ALL collected notes in the notes array
+5. Do NOT call save_capture after each individual note — batch them all into one call
 
 ### Example Flow
 ```
@@ -21,8 +22,9 @@ AI: "Got it. Anything else?"
 Rep: "Yeah, parking is behind the building"
 AI: "Got it. Anything else?"
 Rep: "That's all"
+AI: "Here's what I have: Closed Mondays, and parking is behind the building. Save these?"
+Rep: "Yes"
 AI: [calls save_capture({ mode: "note", notes: ["They're closed Mondays", "Parking is behind the building"] })]
-AI: "Saved."
 ```
 
 ### What NOT to Do
@@ -30,4 +32,3 @@ AI: "Saved."
 - Do NOT probe for insights or run a questionnaire
 - Do NOT over-process the note — save it as the rep stated it
 - Do NOT add commentary or analysis
-- Do NOT end the conversation after saving — the rep may want to continue

@@ -53,24 +53,24 @@ const supabase = createClient(SUPABASE_URL, SERVICE_KEY)
 
 // --- Tampa FL Area Managed Accounts ---
 const ACCOUNTS = [
-  { name: "Salty Shamrock Irish Pub", address: "6186 N US Hwy 41, Apollo Beach, FL 33572", industry: "Bar", premise_type: "on_premise", lat: 27.7718, lng: -82.3945 },
-  { name: "Mango Jo's Bar and Liquors", address: "2500 N Westshore Blvd, Tampa, FL 33607", industry: "Bar", premise_type: "on_premise", lat: 27.9575, lng: -82.5232 },
-  { name: "Apollo Beach Society Wine Bar", address: "138 Harbor Village Ln, Apollo Beach, FL 33572", industry: "Bar", premise_type: "on_premise", lat: 27.7695, lng: -82.3962 },
-  { name: "Beef 'O' Brady's", address: "5765 US 41, Apollo Beach, FL 33572", industry: "Restaurant", premise_type: "on_premise", lat: 27.7752, lng: -82.3942 },
-  { name: "Circles Waterfront Restaurant", address: "5102 Interbay Blvd, Tampa, FL 33611", industry: "Restaurant", premise_type: "on_premise", lat: 27.8863, lng: -82.4985 },
-  { name: "Hattricks Tavern", address: "107 S Franklin St, Tampa, FL 33602", industry: "Bar", premise_type: "on_premise", lat: 27.9466, lng: -82.4579 },
-  { name: "The Bricks of Ybor", address: "1327 E 7th Ave, Tampa, FL 33605", industry: "Bar", premise_type: "on_premise", lat: 27.9604, lng: -82.4389 },
-  { name: "Coppertail Brewing Co", address: "2601 E 2nd Ave, Tampa, FL 33605", industry: "Brewery", premise_type: "on_premise", lat: 27.9557, lng: -82.4350 },
-  { name: "Cigar City Brewing", address: "3924 W Spruce St, Tampa, FL 33607", industry: "Brewery", premise_type: "on_premise", lat: 27.9535, lng: -82.5110 },
-  { name: "Total Wine & More", address: "1501 N Dale Mabry Hwy, Tampa, FL 33607", industry: "Liquor Store", premise_type: "off_premise", lat: 27.9525, lng: -82.5044 },
-  { name: "ABC Fine Wine & Spirits", address: "8340 N Dale Mabry Hwy, Tampa, FL 33614", industry: "Liquor Store", premise_type: "off_premise", lat: 28.0230, lng: -82.5040 },
-  { name: "Bern's Steak House", address: "1208 S Howard Ave, Tampa, FL 33606", industry: "Restaurant", premise_type: "on_premise", lat: 27.9347, lng: -82.4823 },
-  { name: "Columbia Restaurant", address: "2117 E 7th Ave, Tampa, FL 33605", industry: "Restaurant", premise_type: "on_premise", lat: 27.9601, lng: -82.4331 },
-  { name: "Ulele", address: "1810 N Highland Ave, Tampa, FL 33602", industry: "Restaurant", premise_type: "on_premise", lat: 27.9565, lng: -82.4577 },
-  { name: "Wawa - Riverview", address: "10655 Bloomingdale Ave, Riverview, FL 33578", industry: "Convenience Store", premise_type: "off_premise", lat: 27.8585, lng: -82.3285 },
-  { name: "The Grand Hyatt Tampa Bay", address: "2900 Bayport Dr, Tampa, FL 33607", industry: "Hotel", premise_type: "on_premise", lat: 27.9170, lng: -82.5425 },
-  { name: "Epicurean Hotel", address: "1207 S Howard Ave, Tampa, FL 33606", industry: "Hotel", premise_type: "on_premise", lat: 27.9350, lng: -82.4822 },
-  { name: "Duckweed Urban Grocery", address: "947 E Columbus Dr, Tampa, FL 33602", industry: "Convenience Store", premise_type: "off_premise", lat: 27.9560, lng: -82.4510 },
+  { name: "Salty Shamrock Irish Pub", address: "6186 N US Hwy 41, Apollo Beach, FL 33572", industry: "Bar", premise_type: "on_premise", lat: 27.7718, lng: -82.3945, distributor: "Southern Glazer's" },
+  { name: "Mango Jo's Bar and Liquors", address: "2500 N Westshore Blvd, Tampa, FL 33607", industry: "Bar", premise_type: "on_premise", lat: 27.9575, lng: -82.5232, distributor: "Southern Glazer's" },
+  { name: "Apollo Beach Society Wine Bar", address: "138 Harbor Village Ln, Apollo Beach, FL 33572", industry: "Bar", premise_type: "on_premise", lat: 27.7695, lng: -82.3962, distributor: "Southern Glazer's" },
+  { name: "Beef 'O' Brady's", address: "5765 US 41, Apollo Beach, FL 33572", industry: "Restaurant", premise_type: "on_premise", lat: 27.7752, lng: -82.3942, distributor: "Republic National" },
+  { name: "Circles Waterfront Restaurant", address: "5102 Interbay Blvd, Tampa, FL 33611", industry: "Restaurant", premise_type: "on_premise", lat: 27.8863, lng: -82.4985, distributor: "Southern Glazer's" },
+  { name: "Hattricks Tavern", address: "107 S Franklin St, Tampa, FL 33602", industry: "Bar", premise_type: "on_premise", lat: 27.9466, lng: -82.4579, distributor: "Republic National" },
+  { name: "The Bricks of Ybor", address: "1327 E 7th Ave, Tampa, FL 33605", industry: "Bar", premise_type: "on_premise", lat: 27.9604, lng: -82.4389, distributor: "Republic National" },
+  { name: "Coppertail Brewing Co", address: "2601 E 2nd Ave, Tampa, FL 33605", industry: "Brewery", premise_type: "on_premise", lat: 27.9557, lng: -82.4350, distributor: "Southern Glazer's" },
+  { name: "Cigar City Brewing", address: "3924 W Spruce St, Tampa, FL 33607", industry: "Brewery", premise_type: "on_premise", lat: 27.9535, lng: -82.5110, distributor: "Southern Glazer's" },
+  { name: "Total Wine & More", address: "1501 N Dale Mabry Hwy, Tampa, FL 33607", industry: "Liquor Store", premise_type: "off_premise", lat: 27.9525, lng: -82.5044, distributor: "Southern Glazer's" },
+  { name: "ABC Fine Wine & Spirits", address: "8340 N Dale Mabry Hwy, Tampa, FL 33614", industry: "Liquor Store", premise_type: "off_premise", lat: 28.0230, lng: -82.5040, distributor: "Republic National" },
+  { name: "Bern's Steak House", address: "1208 S Howard Ave, Tampa, FL 33606", industry: "Restaurant", premise_type: "on_premise", lat: 27.9347, lng: -82.4823, distributor: "Southern Glazer's" },
+  { name: "Columbia Restaurant", address: "2117 E 7th Ave, Tampa, FL 33605", industry: "Restaurant", premise_type: "on_premise", lat: 27.9601, lng: -82.4331, distributor: "Republic National" },
+  { name: "Ulele", address: "1810 N Highland Ave, Tampa, FL 33602", industry: "Restaurant", premise_type: "on_premise", lat: 27.9565, lng: -82.4577, distributor: "Southern Glazer's" },
+  { name: "Wawa - Riverview", address: "10655 Bloomingdale Ave, Riverview, FL 33578", industry: "Convenience Store", premise_type: "off_premise", lat: 27.8585, lng: -82.3285, distributor: "Republic National" },
+  { name: "The Grand Hyatt Tampa Bay", address: "2900 Bayport Dr, Tampa, FL 33607", industry: "Hotel", premise_type: "on_premise", lat: 27.9170, lng: -82.5425, distributor: "Southern Glazer's" },
+  { name: "Epicurean Hotel", address: "1207 S Howard Ave, Tampa, FL 33606", industry: "Hotel", premise_type: "on_premise", lat: 27.9350, lng: -82.4822, distributor: "Southern Glazer's" },
+  { name: "Duckweed Urban Grocery", address: "947 E Columbus Dr, Tampa, FL 33602", industry: "Convenience Store", premise_type: "off_premise", lat: 27.9560, lng: -82.4510, distributor: "Republic National" },
 ]
 
 // --- Discovered Accounts (not yet managed) ---
@@ -125,11 +125,9 @@ function generateTasks(accountIds: Record<string, string>) {
   }
 
   return [
-    // Overdue
-    { account_key: "Salty Shamrock Irish Pub", task: "Address VitaBlend placement with Marcus — he mentioned competitor gaining shelf space", due_date: taskDate(-5), priority: "high" },
-    { account_key: "Total Wine & More", task: "Submit updated pricing sheet for Q2 promotional program", due_date: taskDate(-3), priority: "high" },
-    { account_key: "Beef 'O' Brady's", task: "Follow up on draft beer line cleaning schedule discussion", due_date: taskDate(-2), priority: "medium" },
-    { account_key: "ABC Fine Wine & Spirits", task: "Send ROI analysis for premium bourbon end-cap display", due_date: taskDate(-1), priority: "medium" },
+    // Overdue (only 2)
+    { account_key: "Salty Shamrock Irish Pub", task: "Address VitaBlend placement with Marcus — he mentioned competitor gaining shelf space", due_date: taskDate(-3), priority: "high" },
+    { account_key: "Total Wine & More", task: "Submit updated pricing sheet for Q2 promotional program", due_date: taskDate(-1), priority: "high" },
 
     // Today
     { account_key: "Circles Waterfront Restaurant", task: "Follow up with Diane on inventory order — she mentioned running low on Modelo", due_date: taskDate(0), priority: "high" },
@@ -146,8 +144,7 @@ function generateTasks(accountIds: Record<string, string>) {
     { account_key: "Epicurean Hotel", task: "Set up meeting with new beverage director", due_date: taskDate(5), priority: "medium" },
     { account_key: "Mango Jo's Bar and Liquors", task: "Check on premium shelf display compliance", due_date: taskDate(6), priority: "low" },
 
-    // Wholesaler action items
-    { account_key: "ABC Fine Wine & Spirits", task: "Restock White Claw Mango 12pk — out of stock 4+ days", due_date: taskDate(1), priority: "high" },
+    // Wholesaler action items (no ABC Fine Wine — user will populate via voice agent)
     { account_key: "Salty Shamrock Irish Pub", task: "Restock Mango facing on end cap display", due_date: taskDate(1), priority: "medium" },
     { account_key: "Hattricks Tavern", task: "Expedite Mike's Harder Strawberry delivery — missed last shipment", due_date: taskDate(1), priority: "high" },
     { account_key: "Columbia Restaurant", task: "Send updated shelf reset planogram to reclaim lost facing", due_date: taskDate(2), priority: "medium" },
@@ -187,10 +184,25 @@ function generateVisits(accountIds: Record<string, string>) {
     { account_key: "The Grand Hyatt Tampa Bay", visit_date: visitDate(0, 15), notes: "Pool bar summer program kickoff" },
     { account_key: "Epicurean Hotel", visit_date: visitDate(0, 16), notes: "Meet new beverage director" },
 
-    // Tomorrow visits
+    // Tomorrow (Wednesday)
     { account_key: "Apollo Beach Society Wine Bar", visit_date: visitDate(1, 10), notes: "Wine tasting delivery" },
     { account_key: "Salty Shamrock Irish Pub", visit_date: visitDate(1, 12), notes: "Address placement concerns with Marcus" },
     { account_key: "Mango Jo's Bar and Liquors", visit_date: visitDate(1, 14), notes: "Shelf display audit" },
+
+    // Thursday
+    { account_key: "Total Wine & More", visit_date: visitDate(2, 9), notes: "Q2 pricing review with Sarah" },
+    { account_key: "ABC Fine Wine & Spirits", visit_date: visitDate(2, 11), notes: "Check shelf placement and competitive pricing" },
+    { account_key: "Bern's Steak House", visit_date: visitDate(2, 14), notes: "Follow up on Napa Cabernet tasting samples" },
+    { account_key: "Epicurean Hotel", visit_date: visitDate(2, 16), notes: "Beverage director portfolio walkthrough" },
+
+    // Friday
+    { account_key: "Hattricks Tavern", visit_date: visitDate(3, 10), notes: "Verify cocktail menu card placement" },
+    { account_key: "The Bricks of Ybor", visit_date: visitDate(3, 12), notes: "Initial Q3 multi-venue proposal discussion" },
+    { account_key: "Columbia Restaurant", visit_date: visitDate(3, 14), notes: "Shelf reset visit — reclaim lost facing" },
+
+    // Saturday (lighter day)
+    { account_key: "Beef 'O' Brady's", visit_date: visitDate(4, 10), notes: "Weekend traffic check and display audit" },
+    { account_key: "Wawa - Riverview", visit_date: visitDate(4, 12), notes: "Cooler placement review" },
   ]
 }
 
@@ -240,13 +252,10 @@ function generateInsights(accountIds: Record<string, string>) {
     { account_key: "Epicurean Hotel", type: "relationship", description: "New beverage director started — opportunity to establish relationship and placement", sub_category: "new_buyer", suggested_action: "Schedule introductory meeting with portfolio overview" },
     { account_key: "Mango Jo's Bar and Liquors", type: "friction", description: "Premium shelf display not maintained per planogram — products moved to lower shelf", sub_category: "compliance", suggested_action: "Visit to reset display and discuss compliance with staff" },
     { account_key: "The Bricks of Ybor", type: "expansion", description: "Ybor district revival driving increased foot traffic — multi-venue opportunity", sub_category: "market_trend", suggested_action: "Develop district-wide proposal covering multiple Ybor venues" },
-    { account_key: "ABC Fine Wine & Spirits", type: "promotion", description: "End-cap bourbon display showing 40% lift vs. regular shelf position", sub_category: "display_performance", suggested_action: "Propose expansion to additional store locations" },
-
     // CPG-specific insights (simulating VIP depletion + Tracks shelf data)
+    // NOTE: No ABC Fine Wine insights — user will populate via voice agent demo
     { account_key: "Total Wine & More", type: "demand", description: "White Claw Mango 12pk: 52 cases/30 days, up 8% vs prior period", sub_category: "depletion_trend", suggested_action: "Maintain current inventory levels — strong velocity" },
     { account_key: "Total Wine & More", type: "competitive", description: "Mark Anthony shelf share: 34% (up from 31%). Gained 2 facings from Truly", sub_category: "shelf_share", suggested_action: "Lock in shelf space with updated planogram" },
-    { account_key: "ABC Fine Wine & Spirits", type: "friction", description: "White Claw Mango 12pk out of stock for 4+ days", sub_category: "oos", suggested_action: "Contact wholesaler to expedite restock" },
-    { account_key: "ABC Fine Wine & Spirits", type: "competitive", description: "Truly 12pk priced at $14.99 vs our $15.99 — $1 undercut on shelf", sub_category: "pricing_observation", suggested_action: "Review pricing strategy for competitive parity" },
     { account_key: "Salty Shamrock Irish Pub", type: "demand", description: "Mike's Harder Lemonade: top SKU, 18 cases/week at this location", sub_category: "velocity", suggested_action: "Ensure consistent supply and visibility" },
     { account_key: "Salty Shamrock Irish Pub", type: "competitive", description: "End cap display maintained — 5 of 6 SKUs faced correctly, missing Mango flavor", sub_category: "display_compliance", suggested_action: "Restock Mango facing on next delivery" },
     { account_key: "Circles Waterfront Restaurant", type: "demand", description: "White Claw Variety 24pk: 8 cases/week, strongest performer in on-premise", sub_category: "depletion_trend", suggested_action: "Propose featured placement on summer cocktail menu" },
@@ -330,6 +339,7 @@ async function seed() {
     premise_type: a.premise_type,
     latitude: a.lat,
     longitude: a.lng,
+    distributor_name: a.distributor,
   }))
 
   const { data: insertedAccounts, error: accountError } = await supabase

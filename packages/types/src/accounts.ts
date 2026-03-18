@@ -17,6 +17,7 @@ export interface Account {
   phone: string | null
   website: string | null
   hours: string | null
+  distributor_name: string | null
   score: number
   score_reasons: string[]
   scored_at: string | null

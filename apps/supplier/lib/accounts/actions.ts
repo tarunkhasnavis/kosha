@@ -66,7 +66,7 @@ export async function createAccount(
     return { account: null, error: 'Failed to create account' }
   }
 
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
 
   revalidatePath('/territory')
   return { account: data as Account }
@@ -125,8 +125,7 @@ export async function updateAccount(
     return { account: null, error: 'Failed to update account' }
   }
 
-  revalidatePath('/accounts')
-  revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/territory')
 
   revalidatePath('/territory')
   return { account: data as Account }
@@ -155,7 +154,7 @@ export async function deleteAccount(
     return { success: false, error: 'Failed to delete account' }
   }
 
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
 
   revalidatePath('/territory')
   return { success: true }
@@ -190,6 +189,5 @@ export async function createAccountNote(
     return { success: false, error: 'Failed to create note' }
   }
 
-  revalidatePath(`/accounts/${accountId}`)
   return { success: true }
 }

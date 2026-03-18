@@ -62,8 +62,7 @@ export async function createVisit(
   )
 
   revalidatePath('/visits')
-  revalidatePath('/accounts')
-  revalidatePath(`/accounts/${input.account_id}`)
+  revalidatePath('/territory')
   return { visit: data as Visit }
 }
 
@@ -89,6 +88,6 @@ export async function deleteVisit(
   }
 
   revalidatePath('/visits')
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
   return { success: true }
 }

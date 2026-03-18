@@ -43,7 +43,7 @@ export async function toggleTaskCompleted(
     )
   }
 
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
   revalidatePath('/next-steps')
   return { success: true }
 }
@@ -69,7 +69,41 @@ export async function deleteTask(
     return { success: false, error: 'Failed to delete task' }
   }
 
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
+  return { success: true }
+}
+
+/**
+ * Update a task's text, due date, or priority.
+ */
+export async function updateTask(
+  taskId: string,
+  input: { task?: string; dueDate?: string; priority?: 'high' | 'medium' | 'low' }
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const updates: Record<string, unknown> = {}
+  if (input.task !== undefined) updates.task = input.task
+  if (input.dueDate !== undefined) updates.due_date = input.dueDate
+  if (input.priority !== undefined) updates.priority = input.priority
+
+  if (Object.keys(updates).length === 0) return { success: true }
+
+  const { error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', taskId)
+
+  if (error) {
+    console.error('Failed to update task:', error)
+    return { success: false, error: 'Failed to update task' }
+  }
+
+  revalidatePath('/next-steps')
+  revalidatePath('/territory')
   return { success: true }
 }
 
@@ -107,6 +141,6 @@ export async function createTask(input: {
   }
 
   revalidatePath('/next-steps')
-  revalidatePath('/accounts')
+  revalidatePath('/territory')
   return { success: true }
 }
