@@ -1,4 +1,5 @@
 import { getUser } from '@kosha/supabase'
+import { createClient } from '@kosha/supabase/server'
 import { getOrganizationId } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { composePrompt, formatAccountContext, formatOrgContext } from '@/lib/ai/compose-prompt'
@@ -84,35 +85,220 @@ const GET_ACCOUNT_DETAILS_TOOL = {
   },
 }
 
-const SCHEDULE_VISIT_TOOL = {
+const MANAGE_VISITS_TOOL = {
   type: 'function' as const,
-  name: 'schedule_visit',
+  name: 'manage_visits',
   description:
-    'Schedule a follow-up visit to an account. ONLY call this when the rep EXPLICITLY asks to schedule, plan, or book a visit — e.g. "schedule a visit", "I need to go back", "book a follow-up", "set up a meeting". Do NOT call this just because an account is mentioned or discussed. Always confirm the date AND get explicit confirmation from the rep before calling (e.g. "Want me to schedule that for Thursday?").',
+    'Manage visits/stops on the route. Actions: "schedule" (add a stop), "delete" (remove a stop), "move" (reschedule — deletes old, creates new). "Stops" and "visits" are synonymous. Requires explicit confirmation. For delete/move, get the visit_id from get_route_info first.',
   parameters: {
     type: 'object',
+    strict: true,
     properties: {
+      action: {
+        type: 'string',
+        enum: ['schedule', 'delete', 'move'],
+        description: 'The action to perform.',
+      },
       account_name: {
         type: 'string',
-        description: 'The name of the account to visit.',
+        description: 'Account name for the visit.',
       },
       visit_date: {
         type: 'string',
-        description: 'ISO 8601 date string for the visit (e.g., "2026-03-20T10:00:00"). Ask the rep for the date if not mentioned.',
+        description: 'ISO 8601 date. For "move": the NEW date. Infer from "next week", "tomorrow", etc.',
+      },
+      visit_id: {
+        type: 'string',
+        description: 'ID of existing visit (for delete/move). Get from get_route_info.',
       },
       notes: {
         type: 'string',
-        description: 'Optional agenda or purpose for the visit.',
+        description: 'Purpose of the visit. Infer from context.',
       },
     },
-    required: ['account_name', 'visit_date'],
+    required: ['action', 'account_name'],
+    additionalProperties: false,
+  },
+}
+
+const GET_ROUTE_INFO_TOOL = {
+  type: 'function' as const,
+  name: 'get_route_info',
+  description:
+    'Get the route (list of stops/visits) for a date. Returns visit IDs, account names, times. Use when rep asks about their route, stops, schedule, or "where am I going today?".',
+  parameters: {
+    type: 'object',
+    strict: true,
+    properties: {
+      date: {
+        type: 'string',
+        description: 'ISO date (YYYY-MM-DD). Default to today if not specified.',
+      },
+    },
+    required: ['date'],
+    additionalProperties: false,
+  },
+}
+
+const MANAGE_ACCOUNT_TOOL = {
+  type: 'function' as const,
+  name: 'manage_account',
+  description:
+    'Create, delete, or claim accounts. "claim" converts a discovered prospect into a managed account. Requires explicit confirmation.',
+  parameters: {
+    type: 'object',
+    strict: true,
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['create', 'delete', 'claim'],
+      },
+      account_name: {
+        type: 'string',
+        description: 'Name of the account.',
+      },
+      address: {
+        type: 'string',
+        description: 'Address (for create).',
+      },
+      premise_type: {
+        type: 'string',
+        enum: ['on_premise', 'off_premise', 'hybrid'],
+        description: 'Venue type (for create).',
+      },
+      phone: {
+        type: 'string',
+        description: 'Phone number (for create).',
+      },
+      account_id: {
+        type: 'string',
+        description: 'ID of account to delete.',
+      },
+      discovered_account_id: {
+        type: 'string',
+        description: 'ID of discovered account to claim. Get from search_discovery_accounts.',
+      },
+    },
+    required: ['action', 'account_name'],
+    additionalProperties: false,
+  },
+}
+
+const MANAGE_TASK_TOOL = {
+  type: 'function' as const,
+  name: 'manage_task',
+  description:
+    'Create, update, delete, or complete tasks for an account. For create: infer priority and due date from context. For complete: mark a task as done. Get task_id from get_account_details.',
+  parameters: {
+    type: 'object',
+    strict: true,
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['create', 'update', 'delete', 'complete'],
+      },
+      account_name: {
+        type: 'string',
+        description: 'Account the task belongs to.',
+      },
+      task: {
+        type: 'string',
+        description: 'Task description (for create/update).',
+      },
+      priority: {
+        type: 'string',
+        enum: ['high', 'medium', 'low'],
+      },
+      due_date: {
+        type: 'string',
+        description: 'ISO date for due date.',
+      },
+      task_id: {
+        type: 'string',
+        description: 'ID of existing task (for update/delete/complete).',
+      },
+    },
+    required: ['action', 'account_name'],
+    additionalProperties: false,
+  },
+}
+
+const MANAGE_NOTES_TOOL = {
+  type: 'function' as const,
+  name: 'manage_notes',
+  description:
+    'Add, update, or delete notes for an account. For add: no confirmation needed. For update/delete: get note_id from get_account_details.',
+  parameters: {
+    type: 'object',
+    strict: true,
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['add', 'update', 'delete'],
+      },
+      account_name: {
+        type: 'string',
+      },
+      content: {
+        type: 'string',
+        description: 'Note content (for add/update).',
+      },
+      note_id: {
+        type: 'string',
+        description: 'ID of note to update/delete.',
+      },
+    },
+    required: ['action', 'account_name'],
+    additionalProperties: false,
+  },
+}
+
+const MANAGE_CONTACTS_TOOL = {
+  type: 'function' as const,
+  name: 'manage_contacts',
+  description:
+    'Add, update, or delete contacts for an account. For add: no confirmation needed. For update/delete: get contact_id from get_account_details.',
+  parameters: {
+    type: 'object',
+    strict: true,
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['add', 'update', 'delete'],
+      },
+      account_name: {
+        type: 'string',
+      },
+      contact_name: {
+        type: 'string',
+        description: 'Name of the contact.',
+      },
+      role: {
+        type: 'string',
+        description: 'Job title or role.',
+      },
+      phone: {
+        type: 'string',
+        description: 'Phone number.',
+      },
+      email: {
+        type: 'string',
+        description: 'Email address.',
+      },
+      contact_id: {
+        type: 'string',
+        description: 'ID of contact to update/delete.',
+      },
+    },
+    required: ['action', 'account_name'],
+    additionalProperties: false,
   },
 }
 
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
   name: 'save_capture',
-  description: 'Save the conversation outputs. ONLY call this after you have read back the summary/insights/tasks to the rep AND they have explicitly confirmed with "yes", "save it", "that\'s good", or similar affirmative. NEVER auto-save without confirmation (except for note mode).',
+  description: 'Save conversation data. Call ONLY after the rep confirms ("yes", "save it", "that\'s good"). For debrief: include summary, insights, tasks. For note: include notes array. For prep: no data fields needed.',
   parameters: {
     type: 'object',
     properties: {
@@ -235,6 +421,20 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const { accountId } = body as { accountId?: string }
 
+  // Fetch user profile + org name for personalization
+  const supabase = await createClient()
+  const { data: profile } = await supabase
+    .from('supplier_profiles')
+    .select('full_name, role')
+    .eq('id', user.id)
+    .single()
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', orgId)
+    .single()
+
   // Build org-wide context (accounts list, upcoming visits, pending tasks)
   // Use start of today (not "now") so visits earlier today aren't excluded
   const todayStr = new Date().toISOString().split('T')[0]
@@ -277,7 +477,18 @@ export async function POST(request: Request) {
     accountContext = await buildAccountContext(accountId)
   }
 
-  const systemPrompt = composePrompt({ accountContext, orgContext })
+  // Build user context for personalization
+  const firstName = profile?.full_name?.split(' ')[0] || null
+  const userContext = firstName
+    ? `You are speaking with ${firstName}${profile?.role ? `, a ${profile.role}` : ''}${org?.name ? ` at ${org.name}` : ''}. Address them by their first name.`
+    : undefined
+
+  const now = new Date()
+  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' })
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const timeContext = `Today is ${dayOfWeek}, ${dateStr}.`
+
+  const systemPrompt = composePrompt({ accountContext, orgContext, userContext, timeContext })
 
   try {
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
@@ -290,17 +501,16 @@ export async function POST(request: Request) {
         model: 'gpt-4o-realtime-preview',
         voice: 'marin',
         instructions: systemPrompt,
-        tools: [SAVE_CAPTURE_TOOL, SET_SKILL_MODE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, SCHEDULE_VISIT_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL],
+        tools: [SAVE_CAPTURE_TOOL, SET_SKILL_MODE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, MANAGE_VISITS_TOOL, GET_ROUTE_INFO_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL, MANAGE_ACCOUNT_TOOL, MANAGE_TASK_TOOL, MANAGE_NOTES_TOOL, MANAGE_CONTACTS_TOOL],
         tool_choice: 'auto',
         input_audio_transcription: {
           model: 'whisper-1',
-          language: 'en',
         },
         temperature: 0.6,
         max_response_output_tokens: 1200,
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'low',
+          eagerness: 'medium',
           create_response: true,
           interrupt_response: false,
         },

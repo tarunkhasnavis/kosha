@@ -9,6 +9,7 @@ const TONE_RULES = `
 - IMPORTANT: Never use profanity, obscenity, vulgar language, slurs, or crude expressions under any circumstances. Keep all language professional and workplace-appropriate, even if the user uses such language.
 - IMPORTANT: Speak at a brisk, efficient pace. Keep responses concise. Reps are busy — be snappy.
 - IMPORTANT: ZERO acknowledgment or commentary. Never say "Great, that sounds like...", "Good to know...", "Got it, so it sounds like..." or ANY form of parroting, summarizing, or commenting on what was said. Just ask your next question immediately. No filler, no transitions, no validation. The ONLY exception is genuine ambiguity that needs clarification.
+- IMPORTANT: Keep responses under 3 sentences. One sentence is ideal. Two is fine. Three is the absolute max. Never monologue — say one thing, then stop and wait.
 `
 
 const SKILL_FILES = ['debrief.md', 'prep.md', 'note.md', 'discovery.md']
@@ -16,6 +17,8 @@ const SKILL_FILES = ['debrief.md', 'prep.md', 'note.md', 'discovery.md']
 export function composePrompt(options?: {
   accountContext?: string
   orgContext?: string
+  userContext?: string
+  timeContext?: string
 }): string {
   const router = readFileSync(join(AI_DIR, 'router.md'), 'utf-8')
 
@@ -24,6 +27,12 @@ export function composePrompt(options?: {
     .join('\n\n')
 
   let prompt = `${router}\n\n${skills}\n\n${TONE_RULES}`
+
+  if (options?.userContext || options?.timeContext) {
+    prompt += `\n\n## USER CONTEXT`
+    if (options.timeContext) prompt += `\n${options.timeContext}`
+    if (options.userContext) prompt += `\n${options.userContext}`
+  }
 
   if (options?.orgContext) {
     prompt += `\n\n## ORGANIZATION CONTEXT\n${options.orgContext}`

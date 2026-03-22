@@ -1,5 +1,4 @@
 import { getAccounts } from '@/lib/accounts/queries'
-import { getDiscoveredAccounts } from '@/lib/discovery/queries'
 import { getVisitsForDate } from '@/lib/visits/queries'
 import { TerritoryMap } from '@/components/territory-map'
 
@@ -12,12 +11,10 @@ function getDateString(daysFromNow: number): string {
 export default async function TerritoryPage() {
   const [
     { accounts },
-    { accounts: discoveredAccounts },
     { visits: todayVisits },
     { visits: tomorrowVisits },
   ] = await Promise.all([
     getAccounts(),
-    getDiscoveredAccounts(),
     getVisitsForDate(getDateString(0)),
     getVisitsForDate(getDateString(1)),
   ])
@@ -25,7 +22,6 @@ export default async function TerritoryPage() {
   return (
     <TerritoryMap
       accounts={accounts}
-      discoveredAccounts={discoveredAccounts}
       todayVisits={todayVisits}
       tomorrowVisits={tomorrowVisits}
     />

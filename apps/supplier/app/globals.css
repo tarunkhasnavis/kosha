@@ -84,14 +84,14 @@ button, a, input, select, textarea {
 /* Idle: gentle breathing + hue shift */
 @keyframes orb-breathe {
   0%, 100% {
-    transform: scale(1);
-    filter: hue-rotate(0deg) brightness(1);
-    box-shadow: 0 10px 25px -5px rgba(234, 160, 106, 0.3);
+    transform: scale(0.915);
+    filter: hue-rotate(0deg) brightness(0.97);
+    box-shadow: 0 8px 20px -5px rgba(234, 160, 106, 0.25);
   }
   50% {
-    transform: scale(1.08);
-    filter: hue-rotate(12deg) brightness(1.05);
-    box-shadow: 0 15px 35px -5px rgba(234, 160, 106, 0.5);
+    transform: scale(1.085);
+    filter: hue-rotate(12deg) brightness(1.06);
+    box-shadow: 0 20px 45px -5px rgba(234, 160, 106, 0.55);
   }
 }
 

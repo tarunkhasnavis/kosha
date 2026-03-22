@@ -18,6 +18,7 @@ import { SettingsCard } from './components/settings-card'
 import { TeamMembers } from './components/team-members'
 import { SignOutButton } from './components/sign-out-button'
 import { SalesforceSync } from './components/salesforce-sync'
+import { FeedbackForm } from './components/feedback-form'
 
 async function getOrganizationData(orgId: string) {
   const supabase = await createClient()
@@ -146,6 +147,10 @@ export default async function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <SettingsCard title="Send Feedback">
+        <FeedbackForm />
+      </SettingsCard>
 
       <SignOutButton />
     </div>

@@ -81,7 +81,6 @@ type MapMode = 'browse' | 'plan'
 
 interface TerritoryMapProps {
   accounts: Account[]
-  discoveredAccounts: DiscoveredAccount[]
   todayVisits: VisitWithAccount[]
   tomorrowVisits: VisitWithAccount[]
 }
@@ -109,7 +108,6 @@ function formatPlanDateLabel(dateStr: string): string {
 
 export function TerritoryMap({
   accounts,
-  discoveredAccounts,
   todayVisits,
   tomorrowVisits,
 }: TerritoryMapProps) {
@@ -140,6 +138,11 @@ export function TerritoryMap({
   const [detailContacts, setDetailContacts] = useState<AccountContact[]>([])
   const [selectedDiscovered, setSelectedDiscovered] = useState<DiscoveredAccount | null>(null)
   const [claiming, setClaiming] = useState(false)
+
+  // Discovered accounts — fetched live from Google Places based on map viewport
+  // Uses Partial<DiscoveredAccount> since live results don't have organization_id/created_at
+  const [discoveredAccounts, setDiscoveredAccounts] = useState<DiscoveredAccount[]>([])
+  const [discoveryLoading, setDiscoveryLoading] = useState(false)
 
   // Fetch account details when panel opens
   useEffect(() => {
@@ -191,6 +194,10 @@ export function TerritoryMap({
   // Add Stop mode
   const [addStopMode, setAddStopMode] = useState(false)
 
+  // User location state
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
+
   // Add Account dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [newAccountName, setNewAccountName] = useState('')
@@ -227,7 +234,50 @@ export function TerritoryMap({
 
   const filteredDiscovered = useMemo(() => activeCategory === 'my_accounts'
     ? []
-    : discoveredAccounts.filter((d) => d.category === activeCategory), [activeCategory, discoveredAccounts])
+    : discoveredAccounts.filter((d: DiscoveredAccount) => d.category === activeCategory), [activeCategory, discoveredAccounts])
+
+  // Fetch discovered accounts via live Google Places search
+  const fetchDiscovery = useCallback(() => {
+    if (activeCategory === 'my_accounts' || !map.current) {
+      setDiscoveredAccounts([])
+      return
+    }
+
+    const center = map.current.getCenter()
+    // Estimate radius from map zoom (rough: zoom 10 ≈ 30km, zoom 13 ≈ 5km)
+    const zoom = map.current.getZoom()
+    const radius = Math.round(40000 / Math.pow(2, Math.max(0, zoom - 10)))
+
+    setDiscoveryLoading(true)
+    fetch(`/api/discovery/live?category=${activeCategory}&lat=${center.lat}&lng=${center.lng}&radius=${Math.min(radius, 50000)}`)
+      .then((res) => res.json())
+      .then((data) => setDiscoveredAccounts(data.accounts || []))
+      .catch(() => setDiscoveredAccounts([]))
+      .finally(() => setDiscoveryLoading(false))
+  }, [activeCategory])
+
+  // Re-fetch when category changes
+  useEffect(() => {
+    fetchDiscovery()
+  }, [fetchDiscovery])
+
+  // Re-fetch on map pan/zoom (debounced) when in discovery mode
+  useEffect(() => {
+    if (!map.current || activeCategory === 'my_accounts') return
+
+    let timeout: ReturnType<typeof setTimeout>
+    const handler = () => {
+      clearTimeout(timeout)
+      timeout = setTimeout(fetchDiscovery, 500)
+    }
+
+    map.current.on('moveend', handler)
+    const currentMap = map.current
+    return () => {
+      clearTimeout(timeout)
+      currentMap.off('moveend', handler)
+    }
+  }, [activeCategory, fetchDiscovery])
 
   // Filtered + ranked list for the search drawer
   const drawerResults = useMemo(() => {
@@ -341,8 +391,8 @@ export function TerritoryMap({
     const timer = setTimeout(async () => {
       try {
         const center = map.current?.getCenter()
-        const lat = center?.lat ?? 27.9506
-        const lng = center?.lng ?? -82.4572
+        const lat = center?.lat ?? 34.2073
+        const lng = center?.lng ?? -84.1402
         const res = await fetch(`/api/places/search?q=${encodeURIComponent(q)}&lat=${lat}&lng=${lng}`)
         if (res.ok) {
           const data = await res.json()
@@ -436,6 +486,20 @@ export function TerritoryMap({
     }
   }, [selectedPlace])
 
+  // Request user location on mount
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      },
+      () => {
+        // Permission denied or error — fall back to default (Tampa)
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }, [])
+
   // Initialize map
   useEffect(() => {
     if (!mapContainer.current || !MAPBOX_TOKEN) return
@@ -445,7 +509,7 @@ export function TerritoryMap({
     const mapInstance = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: [-82.4572, 27.9506], // Tampa FL
+      center: [-84.1402, 34.2073], // Cumming GA fallback
       zoom: 10,
     })
 
@@ -456,6 +520,47 @@ export function TerritoryMap({
       map.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fly to user location when it becomes available
+  useEffect(() => {
+    if (!map.current || !userLocation) return
+    // Only fly if map is still near the default center (hasn't been moved by user or fitBounds)
+    const center = map.current.getCenter()
+    const isNearDefault = Math.abs(center.lat - 34.2073) < 0.5 && Math.abs(center.lng - (-84.1402)) < 0.5
+    if (isNearDefault) {
+      map.current.flyTo({ center: [userLocation.lng, userLocation.lat], zoom: 11, duration: 1500 })
+    }
+  }, [userLocation])
+
+  // Blue dot for user location
+  useEffect(() => {
+    if (!map.current || !userLocation) return
+
+    // Remove old marker
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove()
+    }
+
+    const el = document.createElement('div')
+    el.style.cssText = `
+      width: 16px; height: 16px;
+      background: #3b82f6;
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 2px 8px rgba(0,0,0,0.2);
+    `
+
+    userMarkerRef.current = new mapboxgl.Marker({ element: el })
+      .setLngLat([userLocation.lng, userLocation.lat])
+      .addTo(map.current)
+
+    return () => {
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove()
+        userMarkerRef.current = null
+      }
+    }
+  }, [userLocation])
 
   // Update markers when accounts/mode/category change
   useEffect(() => {
@@ -1715,7 +1820,7 @@ function fitBoundsToPoints(points: [number, number][], mapInstance: mapboxgl.Map
   const bounds = new mapboxgl.LngLatBounds()
   points.forEach((p) => bounds.extend(p))
   mapInstance.fitBounds(bounds, {
-    padding: { top: 100, bottom: 120, left: 40, right: 40 },
+    padding: { top: 40, bottom: 300, left: 20, right: 20 },
     maxZoom: 14,
   })
 }

@@ -38,6 +38,7 @@ export async function POST(request: Request) {
 
   // Return concise shape — only what the LLM needs to speak about
   const accounts = result.accounts.slice(0, clampedLimit).map((a) => ({
+    discovered_account_id: a.id,
     name: a.name,
     address: a.address,
     category: a.category,

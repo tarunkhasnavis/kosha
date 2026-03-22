@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results: [] })
   }
 
-  const lat = request.nextUrl.searchParams.get('lat') || '27.9506'
-  const lng = request.nextUrl.searchParams.get('lng') || '-82.4572'
+  const lat = request.nextUrl.searchParams.get('lat') || '34.2073'
+  const lng = request.nextUrl.searchParams.get('lng') || '-84.1402'
 
   try {
     // Use Places API (New) Text Search

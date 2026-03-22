@@ -12,7 +12,7 @@ import { getUser } from '@kosha/supabase'
 import { getOrganizationId } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { geocodeAddress } from '@/lib/geocoding'
-import type { Account, CreateAccountInput, UpdateAccountInput } from '@kosha/types'
+import type { Account, CreateAccountInput, UpdateAccountInput, AccountContact } from '@kosha/types'
 
 /**
  * Create a new account
@@ -187,6 +187,146 @@ export async function createAccountNote(
   if (error) {
     console.error('Failed to create note:', error)
     return { success: false, error: 'Failed to create note' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Update an account note
+ */
+export async function updateAccountNote(
+  noteId: string,
+  content: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('account_notes')
+    .update({ content: content.trim() })
+    .eq('id', noteId)
+
+  if (error) {
+    console.error('Failed to update note:', error)
+    return { success: false, error: 'Failed to update note' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Delete an account note
+ */
+export async function deleteAccountNote(
+  noteId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('account_notes')
+    .delete()
+    .eq('id', noteId)
+
+  if (error) {
+    console.error('Failed to delete note:', error)
+    return { success: false, error: 'Failed to delete note' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Create a contact for an account
+ */
+export async function createAccountContact(
+  accountId: string,
+  input: { name: string; role?: string; phone?: string; email?: string }
+): Promise<{ contact: AccountContact | null; error?: string }> {
+  const user = await getUser()
+  if (!user) return { contact: null, error: 'Not authenticated' }
+
+  const orgId = await getOrganizationId()
+  if (!orgId) return { contact: null, error: 'No organization found' }
+
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('account_contacts')
+    .insert({
+      organization_id: orgId,
+      account_id: accountId,
+      name: input.name.trim(),
+      role: input.role?.trim() || null,
+      phone: input.phone?.trim() || null,
+      email: input.email?.trim() || null,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Failed to create contact:', error)
+    return { contact: null, error: 'Failed to create contact' }
+  }
+
+  return { contact: data as AccountContact }
+}
+
+/**
+ * Update an account contact
+ */
+export async function updateAccountContact(
+  contactId: string,
+  input: { name?: string; role?: string; phone?: string; email?: string }
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const updateData: Record<string, unknown> = {}
+  if (input.name !== undefined) updateData.name = input.name.trim()
+  if (input.role !== undefined) updateData.role = input.role?.trim() || null
+  if (input.phone !== undefined) updateData.phone = input.phone?.trim() || null
+  if (input.email !== undefined) updateData.email = input.email?.trim() || null
+
+  const { error } = await supabase
+    .from('account_contacts')
+    .update(updateData)
+    .eq('id', contactId)
+
+  if (error) {
+    console.error('Failed to update contact:', error)
+    return { success: false, error: 'Failed to update contact' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Delete an account contact
+ */
+export async function deleteAccountContact(
+  contactId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('account_contacts')
+    .delete()
+    .eq('id', contactId)
+
+  if (error) {
+    console.error('Failed to delete contact:', error)
+    return { success: false, error: 'Failed to delete contact' }
   }
 
   return { success: true }

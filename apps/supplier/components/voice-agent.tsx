@@ -125,6 +125,19 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const activeInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // User geolocation for live discovery
+  const userLocationRef = useRef<{ lat: number; lng: number } | null>(null)
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userLocationRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+      },
+      () => { /* permission denied — will fall back to default */ },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }, [])
+
   // iOS PWA keyboard-aware layout:
   // Track visualViewport height AND offsetTop to position the container
   // exactly over the visible area, even when iOS scrolls behind the keyboard.
@@ -177,6 +190,28 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       setAccountId(urlAccountId)
     }
   }, [searchParams, accounts])
+
+  // Pre-warm: fetch ephemeral token on mount so startCapture is faster
+  const prewarmedRef = useRef<{ client_secret: string; timestamp: number } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const prewarm = async () => {
+      try {
+        const res = await fetch('/api/capture/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId: accountId || undefined }),
+        })
+        if (!res.ok || cancelled) return
+        const { client_secret } = await res.json()
+        if (client_secret && !cancelled) {
+          prewarmedRef.current = { client_secret, timestamp: Date.now() }
+        }
+      } catch { /* ignore pre-warm failures */ }
+    }
+    prewarm()
+    return () => { cancelled = true }
+  }, [accountId])
 
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const dcRef = useRef<RTCDataChannel | null>(null)
@@ -347,6 +382,12 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
         if (userText) {
+          // Client-side noise filter: skip single-word transcriptions (likely ambient noise)
+          // unless it's a farewell phrase which should always be processed
+          const wordCount = userText.split(/\s+/).length
+          if (wordCount <= 1 && !isFarewell(userText)) {
+            break // Skip noise — don't add to transcript or context
+          }
           setTranscript((prev) => sortByItemOrder([...prev, { role: 'user', text: userText, itemId }]))
           fullTranscriptRef.current += `Rep: ${userText}\n`
           // Explicit farewell phrase ends the voice conversation
@@ -514,16 +555,20 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           } catch {
             functionCallArgsRef.current = ''
           }
-        } else if (name === 'schedule_visit') {
-          // Schedule a visit — call API and send result back to the model
+        } else if (name === 'manage_visits' || name === 'schedule_visit') {
+          // Unified visit management (schedule/delete/move) or legacy schedule_visit
           const argsString = (event.arguments as string) || functionCallArgsRef.current
           functionCallArgsRef.current = ''
           try {
             const args = JSON.parse(argsString)
-            fetch('/api/capture/tools/schedule-visit', {
+            // Support legacy schedule_visit tool name
+            const payload = name === 'schedule_visit'
+              ? { ...args, action: 'schedule' }
+              : args
+            fetch('/api/capture/tools/manage-visits', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(args),
+              body: JSON.stringify(payload),
             })
               .then((res) => res.json())
               .then((data) => {
@@ -539,7 +584,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 }))
                 dc.send(JSON.stringify({ type: 'response.create' }))
                 if (data.success) {
-                  toast({ title: 'Visit scheduled', description: data.message })
+                  const actionLabel = data.action === 'deleted' ? 'Visit removed' : data.action === 'moved' ? 'Visit moved' : 'Visit scheduled'
+                  toast({ title: actionLabel, description: data.message })
                   router.refresh()
                 }
               })
@@ -548,24 +594,221 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 if (!dc || dc.readyState !== 'open') return
                 dc.send(JSON.stringify({
                   type: 'conversation.item.create',
-                  item: {
-                    type: 'function_call_output',
-                    call_id: callId,
-                    output: JSON.stringify({ error: 'Failed to schedule visit' }),
-                  },
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to manage visit' }) },
                 }))
                 dc.send(JSON.stringify({ type: 'response.create' }))
               })
           } catch {
             functionCallArgsRef.current = ''
           }
-        } else if (name === 'search_discovery_accounts' || name === 'get_account_details') {
-          // Lookup tools — fetch data from server and send result back to the model
+        } else if (name === 'manage_account') {
+          // Account create/delete/claim
           const argsString = (event.arguments as string) || functionCallArgsRef.current
           functionCallArgsRef.current = ''
-          const endpoint = name === 'search_discovery_accounts'
-            ? '/api/capture/tools/discovery'
-            : '/api/capture/tools/account-details'
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/manage-account', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(data) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+                if (data.success) {
+                  const label = data.action === 'created' ? 'Account created' : data.action === 'claimed' ? 'Account added' : 'Account deleted'
+                  toast({ title: label, description: data.message })
+                  router.refresh()
+                }
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to manage account' }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'manage_task') {
+          // Task create/update/delete/complete
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/manage-task', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(data) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+                if (data.success) {
+                  const label = data.action === 'created' ? 'Task created' : data.action === 'completed' ? 'Task completed' : data.action === 'deleted' ? 'Task deleted' : 'Task updated'
+                  toast({ title: label, description: data.message })
+                  router.refresh()
+                }
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to manage task' }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'manage_notes') {
+          // Note add/update/delete
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/manage-notes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(data) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+                if (data.success) {
+                  toast({ title: 'Note ' + data.action, description: data.message })
+                }
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to manage note' }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'manage_contacts') {
+          // Contact add/update/delete
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            fetch('/api/capture/tools/manage-contacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(data) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+                if (data.success) {
+                  toast({ title: 'Contact ' + data.action, description: data.message })
+                }
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to manage contact' }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'search_discovery_accounts') {
+          // Live discovery — search Google Places near user's location
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          try {
+            const args = JSON.parse(argsString)
+            const loc = userLocationRef.current
+            const params = new URLSearchParams()
+            if (args.category) params.set('category', args.category)
+            if (loc) {
+              params.set('lat', String(loc.lat))
+              params.set('lng', String(loc.lng))
+            } else {
+              // Fallback — use a default location
+              params.set('lat', '34.2198')
+              params.set('lng', '-84.1287')
+            }
+            fetch(`/api/discovery/live?${params}`)
+              .then((res) => res.json())
+              .then((data) => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                // Slim down for the LLM — only send what it needs to speak about
+                const slimAccounts = (data.accounts || []).slice(0, args.limit || 10).map((a: { name: string; address: string; category: string; ai_score: number; ai_reasons: string[]; google_rating: number | null; phone: string | null; website: string | null }) => ({
+                  name: a.name,
+                  address: a.address,
+                  category: a.category,
+                  ai_score: a.ai_score,
+                  ai_reasons: a.ai_reasons,
+                  google_rating: a.google_rating,
+                  phone: a.phone,
+                  website: a.website,
+                }))
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ accounts: slimAccounts }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+              .catch(() => {
+                const dc = dcRef.current
+                if (!dc || dc.readyState !== 'open') return
+                dc.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to search for prospects' }) },
+                }))
+                dc.send(JSON.stringify({ type: 'response.create' }))
+              })
+          } catch {
+            functionCallArgsRef.current = ''
+          }
+        } else if (name === 'get_account_details' || name === 'get_route_info') {
+          // Read-only lookup tools — fetch data and send result back to the model
+          const argsString = (event.arguments as string) || functionCallArgsRef.current
+          functionCallArgsRef.current = ''
+          const endpointMap: Record<string, string> = {
+            get_account_details: '/api/capture/tools/account-details',
+            get_route_info: '/api/capture/tools/route-info',
+          }
+          const endpoint = endpointMap[name]
           try {
             const args = JSON.parse(argsString)
             fetch(endpoint, {
@@ -577,16 +820,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               .then((data) => {
                 const dc = dcRef.current
                 if (!dc || dc.readyState !== 'open') return
-                // Send function call output back to the model
                 dc.send(JSON.stringify({
                   type: 'conversation.item.create',
-                  item: {
-                    type: 'function_call_output',
-                    call_id: callId,
-                    output: JSON.stringify(data),
-                  },
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(data) },
                 }))
-                // Trigger the model to respond with the data
                 dc.send(JSON.stringify({ type: 'response.create' }))
               })
               .catch(() => {
@@ -594,11 +831,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                 if (!dc || dc.readyState !== 'open') return
                 dc.send(JSON.stringify({
                   type: 'conversation.item.create',
-                  item: {
-                    type: 'function_call_output',
-                    call_id: callId,
-                    output: JSON.stringify({ error: 'Failed to fetch data' }),
-                  },
+                  item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'Failed to fetch data' }) },
                 }))
                 dc.send(JSON.stringify({ type: 'response.create' }))
               })
@@ -624,16 +857,25 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     itemOrderRef.current = []
 
     try {
-      const sessionRes = await fetch('/api/capture/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: accountId || undefined }),
-      })
-      if (!sessionRes.ok) {
-        const err = await sessionRes.json()
-        throw new Error(err.error || 'Failed to create session')
+      // Use pre-warmed token if fresh (<45s old), otherwise fetch on demand
+      let client_secret: string | undefined
+      const prewarmed = prewarmedRef.current
+      if (prewarmed && Date.now() - prewarmed.timestamp < 45_000) {
+        client_secret = prewarmed.client_secret
+        prewarmedRef.current = null
+      } else {
+        const sessionRes = await fetch('/api/capture/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId: accountId || undefined }),
+        })
+        if (!sessionRes.ok) {
+          const err = await sessionRes.json()
+          throw new Error(err.error || 'Failed to create session')
+        }
+        const data = await sessionRes.json()
+        client_secret = data.client_secret
       }
-      const { client_secret } = await sessionRes.json()
       if (!client_secret) throw new Error('No client secret returned')
 
       const pc = new RTCPeerConnection()
@@ -658,6 +900,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       dcRef.current = dc
       dc.onmessage = (e) => {
         try { handleRealtimeEvent(JSON.parse(e.data)) } catch { /* ignore */ }
+      }
+      dc.onopen = () => {
+        // Trigger immediate AI greeting to eliminate "boot-up" silence
+        dc.send(JSON.stringify({ type: 'response.create' }))
       }
       dc.onclose = () => {
         // Connection closed (AI ended session or network drop) — save transcript

@@ -44,8 +44,8 @@ export async function POST() {
 
   for (const account of accounts) {
     try {
-      const lat = account.latitude || 27.9506
-      const lng = account.longitude || -82.4572
+      const lat = account.latitude || 34.2073
+      const lng = account.longitude || -84.1402
 
       const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
         method: 'POST',
