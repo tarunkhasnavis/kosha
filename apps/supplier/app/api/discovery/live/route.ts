@@ -16,6 +16,21 @@ const CATEGORY_QUERIES: Record<string, string> = {
   brewery: 'brewery taproom',
   hotel: 'hotels',
   convenience_store: 'convenience store gas station',
+  all: 'bars restaurants breweries liquor stores',
+}
+
+/**
+ * Infer a category from Google Places types
+ */
+function inferCategory(types: string[]): string {
+  const t = new Set(types)
+  if (t.has('bar') || t.has('night_club') || t.has('pub') || t.has('wine_bar') || t.has('cocktail_bar')) return 'bar'
+  if (t.has('brewery') || t.has('taproom')) return 'brewery'
+  if (t.has('liquor_store')) return 'liquor_store'
+  if (t.has('lodging') || t.has('hotel')) return 'hotel'
+  if (t.has('convenience_store') || t.has('gas_station')) return 'convenience_store'
+  if (t.has('restaurant') || t.has('food') || t.has('meal_takeaway') || t.has('cafe')) return 'restaurant'
+  return 'restaurant' // default fallback
 }
 
 /**
@@ -119,7 +134,7 @@ export async function GET(request: Request) {
             radius: Math.min(parseInt(radius), 50000),
           },
         },
-        maxResultCount: 20,
+        maxResultCount: 25,
       }),
     })
 
@@ -176,7 +191,7 @@ export async function GET(request: Request) {
           organization_id: orgId,
           name,
           address,
-          category,
+          category: category === 'all' ? inferCategory(place.types || []) : category,
           latitude: place.location.latitude,
           longitude: place.location.longitude,
           google_place_id: place.id,

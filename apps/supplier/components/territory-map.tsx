@@ -232,52 +232,36 @@ export function TerritoryMap({
     (v) => v.account?.latitude != null && v.account?.longitude != null
   )
 
+  // Category pills filter the already-fetched discovered accounts client-side
   const filteredDiscovered = useMemo(() => activeCategory === 'my_accounts'
-    ? []
+    ? discoveredAccounts
     : discoveredAccounts.filter((d: DiscoveredAccount) => d.category === activeCategory), [activeCategory, discoveredAccounts])
 
-  // Fetch discovered accounts via live Google Places search
+  // Fetch all discovered accounts once (25 across all categories)
   const fetchDiscovery = useCallback(() => {
-    if (activeCategory === 'my_accounts' || !map.current) {
-      setDiscoveredAccounts([])
-      return
-    }
+    if (!map.current) return
 
     const center = map.current.getCenter()
-    // Estimate radius from map zoom (rough: zoom 10 ≈ 30km, zoom 13 ≈ 5km)
     const zoom = map.current.getZoom()
     const radius = Math.round(40000 / Math.pow(2, Math.max(0, zoom - 10)))
 
     setDiscoveryLoading(true)
-    fetch(`/api/discovery/live?category=${activeCategory}&lat=${center.lat}&lng=${center.lng}&radius=${Math.min(radius, 50000)}`)
+    fetch(`/api/discovery/live?category=all&lat=${center.lat}&lng=${center.lng}&radius=${Math.min(radius, 50000)}`)
       .then((res) => res.json())
       .then((data) => setDiscoveredAccounts(data.accounts || []))
       .catch(() => setDiscoveredAccounts([]))
       .finally(() => setDiscoveryLoading(false))
-  }, [activeCategory])
+  }, [])
 
-  // Re-fetch when category changes
+  // Auto-fetch discovered accounts once user location is available
+  const initialDiscoveryDone = useRef(false)
   useEffect(() => {
-    fetchDiscovery()
-  }, [fetchDiscovery])
-
-  // Re-fetch on map pan/zoom (debounced) when in discovery mode
-  useEffect(() => {
-    if (!map.current || activeCategory === 'my_accounts') return
-
-    let timeout: ReturnType<typeof setTimeout>
-    const handler = () => {
-      clearTimeout(timeout)
-      timeout = setTimeout(fetchDiscovery, 500)
-    }
-
-    map.current.on('moveend', handler)
-    const currentMap = map.current
-    return () => {
-      clearTimeout(timeout)
-      currentMap.off('moveend', handler)
-    }
-  }, [activeCategory, fetchDiscovery])
+    if (!userLocation || !map.current || initialDiscoveryDone.current) return
+    initialDiscoveryDone.current = true
+    // Small delay to let the map settle after flyTo
+    const timeout = setTimeout(fetchDiscovery, 1800)
+    return () => clearTimeout(timeout)
+  }, [userLocation, fetchDiscovery])
 
   // Filtered + ranked list for the search drawer
   const drawerResults = useMemo(() => {
@@ -576,6 +560,14 @@ export function TerritoryMap({
       if (activeCategory === 'my_accounts') {
         mappableAccounts.forEach((account) => {
           const marker = createAccountMarker(account, '#d97706', map.current!, handleMarkerClick)
+          markersRef.current.push(marker)
+        })
+
+        // Show auto-discovered accounts as gray markers
+        filteredDiscovered.forEach((discovered) => {
+          const marker = createDiscoveredMarker(discovered, map.current!, (d) => {
+            setSelectedDiscovered(d)
+          })
           markersRef.current.push(marker)
         })
 
