@@ -217,6 +217,9 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const dcRef = useRef<RTCDataChannel | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null)
+  const userHasSpokenRef = useRef(false)
+  const greetingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentAssistantTextRef = useRef('')
   const fullTranscriptRef = useRef('')
@@ -262,6 +265,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null }
     if (audioRef.current) { audioRef.current.srcObject = null; audioRef.current = null }
+    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null }
+    if (greetingTimeoutRef.current) { clearTimeout(greetingTimeoutRef.current); greetingTimeoutRef.current = null }
   }, [])
 
   const reset = useCallback(() => {
@@ -381,6 +386,11 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         const userText = (event.transcript as string || '').trim()
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
+        userHasSpokenRef.current = true
+        if (greetingTimeoutRef.current) {
+          clearTimeout(greetingTimeoutRef.current)
+          greetingTimeoutRef.current = null
+        }
         if (userText) {
           // Client-side noise filter: skip single-word transcriptions (likely ambient noise)
           // unless it's a farewell phrase which should always be processed
@@ -855,6 +865,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     fullTranscriptRef.current = ''
     functionCallArgsRef.current = ''
     itemOrderRef.current = []
+    userHasSpokenRef.current = false
 
     try {
       // Use pre-warmed token if fresh (<45s old), otherwise fetch on demand
@@ -878,8 +889,28 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       }
       if (!client_secret) throw new Error('No client secret returned')
 
-      const pc = new RTCPeerConnection()
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      })
       pcRef.current = pc
+
+      // Monitor connection health — log drops instead of silently dying
+      pc.oniceconnectionstatechange = () => {
+        const iceState = pc.iceConnectionState
+        console.log('[voice] ICE connection state:', iceState)
+        if (iceState === 'disconnected') {
+          // Transient drop (common on mobile) — wait for recovery
+          console.warn('[voice] ICE disconnected — waiting for recovery...')
+        } else if (iceState === 'failed') {
+          console.error('[voice] ICE connection failed — ending session')
+          if (fullTranscriptRef.current.trim()) {
+            fallbackExtract()
+          } else {
+            cleanup()
+            setState('idle')
+          }
+        }
+      }
 
       const audio = document.createElement('audio')
       audio.autoplay = true
@@ -902,8 +933,29 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         try { handleRealtimeEvent(JSON.parse(e.data)) } catch { /* ignore */ }
       }
       dc.onopen = () => {
-        // Trigger immediate AI greeting to eliminate "boot-up" silence
-        dc.send(JSON.stringify({ type: 'response.create' }))
+        // Play a short beep so user knows the mic is live
+        try {
+          const actx = new AudioContext()
+          const osc = actx.createOscillator()
+          const gain = actx.createGain()
+          osc.connect(gain)
+          gain.connect(actx.destination)
+          osc.frequency.value = 880
+          gain.gain.value = 0.15
+          osc.start()
+          gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.15)
+          osc.stop(actx.currentTime + 0.15)
+          setTimeout(() => actx.close().catch(() => {}), 300)
+        } catch { /* audio context not available — non-critical */ }
+
+        // Wait 5s — only greet if user hasn't spoken yet
+        userHasSpokenRef.current = false
+        greetingTimeoutRef.current = setTimeout(() => {
+          if (!userHasSpokenRef.current && dcRef.current?.readyState === 'open') {
+            dcRef.current.send(JSON.stringify({ type: 'response.create' }))
+          }
+          greetingTimeoutRef.current = null
+        }, 5000)
       }
       dc.onclose = () => {
         // Connection closed (AI ended session or network drop) — save transcript
@@ -927,6 +979,14 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
       const answerSdp = await sdpRes.text()
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+
+      // Keep screen awake during voice session
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request('screen')
+        }
+      } catch { /* wake lock not supported or denied — non-critical */ }
+
       setState('active')
     } catch (error) {
       console.error('Failed to start capture:', error)
