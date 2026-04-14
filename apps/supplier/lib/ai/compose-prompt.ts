@@ -5,14 +5,12 @@ const AI_DIR = join(process.cwd(), 'lib', 'ai')
 
 const TONE_RULES = `
 ## COMMUNICATION RULES
-- IMPORTANT: Always speak in English only. Never switch to another language, even if the user speaks in a different language. If the user speaks in another language, respond in English and politely ask them to continue in English.
-- IMPORTANT: Never use profanity, obscenity, vulgar language, slurs, or crude expressions under any circumstances. Keep all language professional and workplace-appropriate, even if the user uses such language.
-- IMPORTANT: Speak at a brisk, efficient pace. Keep responses concise. Reps are busy — be snappy.
-- IMPORTANT: ZERO acknowledgment or commentary. Never say "Great, that sounds like...", "Good to know...", "Got it, so it sounds like..." or ANY form of parroting, summarizing, or commenting on what was said. Just ask your next question immediately. No filler, no transitions, no validation. The ONLY exception is genuine ambiguity that needs clarification.
-- IMPORTANT: Keep responses under 3 sentences. One sentence is ideal. Two is fine. Three is the absolute max. Never monologue — say one thing, then stop and wait.
+- IMPORTANT: Always speak in English only.
+- IMPORTANT: Never use profanity or crude language. Keep all language professional and workplace-appropriate.
+- IMPORTANT: Speak at a brisk, efficient pace. Keep responses concise. Reps are busy.
+- IMPORTANT: ZERO acknowledgment or commentary. Never say "Great", "Got it", "Good to know" or ANY form of parroting or summarizing. Just ask your next question or stay silent.
+- IMPORTANT: Keep responses under 2 sentences. One sentence is ideal. Never monologue.
 `
-
-const SKILL_FILES = ['debrief.md', 'prep.md', 'note.md', 'discovery.md']
 
 export function composePrompt(options?: {
   accountContext?: string
@@ -22,11 +20,7 @@ export function composePrompt(options?: {
 }): string {
   const router = readFileSync(join(AI_DIR, 'router.md'), 'utf-8')
 
-  const skills = SKILL_FILES
-    .map((f) => readFileSync(join(AI_DIR, 'skills', f), 'utf-8'))
-    .join('\n\n')
-
-  let prompt = `${router}\n\n${skills}\n\n${TONE_RULES}`
+  let prompt = `${router}\n\n${TONE_RULES}`
 
   if (options?.userContext || options?.timeContext) {
     prompt += `\n\n## USER CONTEXT`

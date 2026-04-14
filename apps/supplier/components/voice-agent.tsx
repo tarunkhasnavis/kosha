@@ -109,7 +109,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [state, setState] = useState<AgentState>('idle')
-  const [skillMode, setSkillMode] = useState<'prep' | 'note' | 'debrief' | 'discovery' | null>(null)
   const [accountId, setAccountId] = useState('')
   const [accountSearch, setAccountSearch] = useState('')
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false)
@@ -218,8 +217,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const streamRef = useRef<MediaStream | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
-  const userHasSpokenRef = useRef(false)
-  const greetingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const currentAssistantTextRef = useRef('')
   const fullTranscriptRef = useRef('')
@@ -266,7 +263,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null }
     if (audioRef.current) { audioRef.current.srcObject = null; audioRef.current = null }
     if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null }
-    if (greetingTimeoutRef.current) { clearTimeout(greetingTimeoutRef.current); greetingTimeoutRef.current = null }
   }, [])
 
   const reset = useCallback(() => {
@@ -275,8 +271,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     setExtractedCapture(null)
     setAccountId('')
     setCaptureMode('voice')
-    setSkillMode(null)
-    fullTranscriptRef.current = ''
+        fullTranscriptRef.current = ''
     chatHistoryRef.current = []
   }, [])
 
@@ -292,8 +287,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             account_id: accountId || null,
-            account_name: selectedAccount?.name || (skillMode === 'discovery' ? 'Discovery' : 'Conversation'),
-            mode: skillMode || 'prep',
+            account_name: selectedAccount?.name || (false ? 'Discovery' : 'Conversation'),
+            mode: 'debrief',
             transcript: transcriptText,
           }),
         })
@@ -302,14 +297,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       }
     }
 
-    // Prep and Discovery: transcript saved above, go straight to home
-    if (skillMode === 'prep' || skillMode === 'discovery') {
-      router.refresh()
-      reset()
-      return
-    }
-
-    // For note/debrief (or unknown mode): attempt extraction if enough content
+    // Attempt extraction if enough content
     const wordCount = transcriptText.split(/\s+/).length
     if (!transcriptText || wordCount < 15) {
       router.refresh()
@@ -355,7 +343,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         variant: 'destructive',
       })
     }
-  }, [cleanup, skillMode, accountId, selectedAccount, router, reset])
+  }, [cleanup, accountId, selectedAccount, router, reset])
 
   const trackItemOrder = useCallback((itemId: string) => {
     if (itemId && !itemOrderRef.current.includes(itemId)) {
@@ -386,11 +374,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         const userText = (event.transcript as string || '').trim()
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
-        userHasSpokenRef.current = true
-        if (greetingTimeoutRef.current) {
-          clearTimeout(greetingTimeoutRef.current)
-          greetingTimeoutRef.current = null
-        }
         if (userText) {
           // Client-side noise filter: skip single-word transcriptions (likely ambient noise)
           // unless it's a farewell phrase which should always be processed
@@ -444,7 +427,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
             if (mode === 'note') {
               // Note: collect all notes, show review screen for confirmation
-              setSkillMode('note')
+              
               cleanup()
               const notesList = (args.notes as string[]) || []
               setExtractedCapture({
@@ -459,7 +442,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
 
             if (mode === 'prep') {
               // Prep: save transcript for history, go straight to home
-              setSkillMode('prep')
+              
               cleanup()
               // Save transcript silently for conversation history
               if (fullTranscriptRef.current.trim() && accountId) {
@@ -482,7 +465,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             }
 
             // Debrief mode: show review screen with insights/tasks
-            setSkillMode('debrief')
+            
             const capture = args as unknown as ExtractedCapture
             if (!capture.insights || capture.insights.length === 0) {
               fallbackExtract()
@@ -492,29 +475,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             setState('saving')
           } catch {
             fallbackExtract()
-          }
-        } else if (name === 'set_skill_mode') {
-          // Lock in skill mode — purely client-side, no server call needed
-          const argsString = (event.arguments as string) || functionCallArgsRef.current
-          functionCallArgsRef.current = ''
-          try {
-            const args = JSON.parse(argsString)
-            const newMode = args.mode as 'prep' | 'note' | 'debrief' | 'discovery'
-            setSkillMode(newMode)
-            const dc = dcRef.current
-            if (dc && dc.readyState === 'open') {
-              dc.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'function_call_output',
-                  call_id: callId,
-                  output: JSON.stringify({ success: true, mode: newMode }),
-                },
-              }))
-              dc.send(JSON.stringify({ type: 'response.create' }))
-            }
-          } catch {
-            functionCallArgsRef.current = ''
           }
         } else if (name === 'set_active_account') {
           // Resolve account name to ID and update client state
@@ -865,7 +825,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     fullTranscriptRef.current = ''
     functionCallArgsRef.current = ''
     itemOrderRef.current = []
-    userHasSpokenRef.current = false
 
     try {
       // Use pre-warmed token if fresh (<45s old), otherwise fetch on demand
@@ -933,29 +892,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         try { handleRealtimeEvent(JSON.parse(e.data)) } catch { /* ignore */ }
       }
       dc.onopen = () => {
-        // Play a short beep so user knows the mic is live
-        try {
-          const actx = new AudioContext()
-          const osc = actx.createOscillator()
-          const gain = actx.createGain()
-          osc.connect(gain)
-          gain.connect(actx.destination)
-          osc.frequency.value = 880
-          gain.gain.value = 0.15
-          osc.start()
-          gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.15)
-          osc.stop(actx.currentTime + 0.15)
-          setTimeout(() => actx.close().catch(() => {}), 300)
-        } catch { /* audio context not available — non-critical */ }
-
-        // Wait 5s — only greet if user hasn't spoken yet
-        userHasSpokenRef.current = false
-        greetingTimeoutRef.current = setTimeout(() => {
-          if (!userHasSpokenRef.current && dcRef.current?.readyState === 'open') {
-            dcRef.current.send(JSON.stringify({ type: 'response.create' }))
-          }
-          greetingTimeoutRef.current = null
-        }, 5000)
+        // Agent stays silent — no greeting, no beep, no response.create
+        // The agent only speaks after the rep speaks first
       }
       dc.onclose = () => {
         // Connection closed (AI ended session or network drop) — save transcript
@@ -1046,7 +984,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         body: JSON.stringify({
           account_id: accountId || null,
           account_name: selectedAccount?.name || 'Unknown Account',
-          mode: skillMode || 'debrief',
+          mode: 'debrief',
           summary: extractedCapture.summary,
           insights: extractedCapture.insights,
           tasks: extractedCapture.tasks,
@@ -1077,8 +1015,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     cleanup()
     setExtractedCapture(null)
     setCaptureMode('voice')
-    setSkillMode(null)
-    chatHistoryRef.current = []
+        chatHistoryRef.current = []
     setState('idle')
   }, [cleanup])
 
@@ -1238,7 +1175,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                     <p className="text-sm font-semibold text-stone-800">
                       {selectedAccount?.name || 'Conversation'}
                     </p>
-                    {selectedAccount && (skillMode === 'note' || skillMode === 'debrief') ? (
+                    {selectedAccount && (true) ? (
                       <div className="inline-flex items-center gap-1 mt-0.5">
                         <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />
                         <span className="text-[11px] font-medium text-teal-600">Saving to this account</span>
@@ -1475,7 +1412,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
             </div>
 
             {/* Account association indicator — only for note/debrief */}
-            {selectedAccount && (skillMode === 'note' || skillMode === 'debrief') && (
+            {selectedAccount && (true) && (
               <div className="flex items-center gap-1.5 px-5 pb-2">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-100">
                   <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />

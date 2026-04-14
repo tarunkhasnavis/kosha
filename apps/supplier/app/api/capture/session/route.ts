@@ -11,24 +11,6 @@ import { getUpcomingVisits } from '@/lib/visits/queries'
 import { getVisitsForDate } from '@/lib/visits/queries'
 import { getInsightsForAccount } from '@/lib/insights/queries'
 
-const SET_SKILL_MODE_TOOL = {
-  type: 'function' as const,
-  name: 'set_skill_mode',
-  description:
-    'Lock in the conversation skill mode. Call this IMMEDIATELY in your first response after determining what the rep wants to do. This controls the UI behavior (banners, save flow, review screen). You MUST call this before doing anything else.',
-  parameters: {
-    type: 'object',
-    properties: {
-      mode: {
-        type: 'string',
-        enum: ['prep', 'note', 'debrief', 'discovery'],
-        description: 'The skill mode: prep (pre-visit briefing), note (quick facts), debrief (post-visit structured capture), discovery (prospecting/research).',
-      },
-    },
-    required: ['mode'],
-  },
-}
-
 const SET_ACTIVE_ACCOUNT_TOOL = {
   type: 'function' as const,
   name: 'set_active_account',
@@ -298,14 +280,14 @@ const MANAGE_CONTACTS_TOOL = {
 const SAVE_CAPTURE_TOOL = {
   type: 'function' as const,
   name: 'save_capture',
-  description: 'Save conversation data. Call ONLY after the rep confirms ("yes", "save it", "that\'s good"). For debrief: include summary, insights, tasks. For note: include notes array. For prep: no data fields needed.',
+  description: 'Save conversation data. Call ONLY after the rep confirms ("yes", "save it", "that\'s good"). Include a summary and any insights or tasks extracted from the conversation.',
   parameters: {
     type: 'object',
     properties: {
       mode: {
         type: 'string',
-        enum: ['debrief', 'note', 'prep'],
-        description: 'The conversation mode: debrief (post-visit with insights/tasks), note (quick account notes), or prep (pre-visit briefing).',
+        enum: ['debrief', 'note'],
+        description: 'Use "debrief" for visit summaries with insights/tasks. Use "note" for quick notes.',
       },
       summary: {
         type: 'string',
@@ -499,20 +481,20 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview',
-        voice: 'marin',
+        voice: 'shimmer',
         instructions: systemPrompt,
-        tools: [SAVE_CAPTURE_TOOL, SET_SKILL_MODE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, MANAGE_VISITS_TOOL, GET_ROUTE_INFO_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL, MANAGE_ACCOUNT_TOOL, MANAGE_TASK_TOOL, MANAGE_NOTES_TOOL, MANAGE_CONTACTS_TOOL],
+        tools: [SAVE_CAPTURE_TOOL, SET_ACTIVE_ACCOUNT_TOOL, MANAGE_VISITS_TOOL, GET_ROUTE_INFO_TOOL, SEARCH_DISCOVERY_TOOL, GET_ACCOUNT_DETAILS_TOOL, MANAGE_ACCOUNT_TOOL, MANAGE_TASK_TOOL, MANAGE_NOTES_TOOL, MANAGE_CONTACTS_TOOL],
         tool_choice: 'auto',
         input_audio_transcription: {
           model: 'whisper-1',
         },
-        temperature: 0.6,
-        max_response_output_tokens: 1200,
+        temperature: 0.4,
+        max_response_output_tokens: 300,
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'medium',
+          eagerness: 'low',
           create_response: true,
-          interrupt_response: false,
+          interrupt_response: true,
         },
       }),
     })

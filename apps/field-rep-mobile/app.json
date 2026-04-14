@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Kosha Field Rep",
+    "slug": "field-rep-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "kosha-field-rep",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAFAF9"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kosha.fieldrep",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Kosha uses the microphone for voice notes and debriefs",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.kosha.fieldrep",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FAFAF9"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Kosha uses the microphone for voice notes and debriefs"
+        }
+      ],
+      "expo-font",
+      "expo-sqlite",
+      "expo-audio"
+    ]
+  }
+}
