@@ -152,8 +152,8 @@ export async function POST(request: Request) {
           .from('accounts')
           .update({ last_contact: new Date().toISOString() })
           .eq('id', existing.id)
-      } else if (account.is_new) {
-        // Create placeholder account
+      } else {
+        // Account not found — create it
         const { data: newAccount } = await supabase
           .from('accounts')
           .insert({
