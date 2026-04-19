@@ -488,7 +488,7 @@ export async function POST(request: Request) {
         input_audio_transcription: {
           model: 'whisper-1',
         },
-        temperature: 0.4,
+        temperature: 0.6,
         max_response_output_tokens: 300,
         turn_detection: {
           type: 'semantic_vad',

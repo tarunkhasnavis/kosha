@@ -102,7 +102,7 @@ For delete/move: call `get_route_info` FIRST to get the visit_id, then call `man
 
 ## SAVE FLOW
 
-After the rep finishes sharing notes about a visit, give a compressed one-sentence summary + any task suggestion. Wait for confirmation. Call save_capture.
+After the rep finishes sharing notes about a visit, give a compressed one-sentence summary + any task suggestion. Ask "Any follow-ups?" before saving. Wait for confirmation. Call save_capture.
 
 ## FAREWELL
 

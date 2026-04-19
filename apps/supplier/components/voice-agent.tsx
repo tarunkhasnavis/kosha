@@ -97,10 +97,31 @@ const priorityConfig: Record<string, { label: string; className: string }> = {
   low: { label: 'Low', className: 'bg-slate-100 text-stone-600' },
 }
 
+// ─── Whisper hallucination filtering ───────────────────────
+const WHISPER_HALLUCINATION_PATTERNS = [
+  /^thank you( for watching| for listening)?\.?$/i,
+  /^(please )?subscribe/i,
+  /^(like and )?subscribe/i,
+  /^thanks for watching/i,
+  /^see you (in the )?next/i,
+  /^MBC /,
+  /^JTBC /,
+]
+
+function isWhisperHallucination(text: string): boolean {
+  // Non-Latin script detection (Korean, Chinese, Arabic, Cyrillic, etc.)
+  if (/[^\u0000-\u024F\u1E00-\u1EFF\u2000-\u206F\u2190-\u21FF\u2200-\u22FF\u0300-\u036F]/.test(text)) {
+    return true
+  }
+  return WHISPER_HALLUCINATION_PATTERNS.some((p) => p.test(text.trim()))
+}
+
 // ─── Farewell detection ────────────────────────────────────
+const FAREWELL_PHRASES = ['bye', 'see ya', 'thats it', 'goodbye', 'stop recording', 'thanks kosha', 'okay thank you bye', 'ok thank you bye']
+
 function isFarewell(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/[.,!?]/g, '')
-  return normalized.includes('okay thank you bye') || normalized.includes('ok thank you bye')
+  const normalized = text.trim().toLowerCase().replace(/[.,!?']/g, '')
+  return FAREWELL_PHRASES.some((phrase) => normalized.includes(phrase))
 }
 
 // ─── Component ──────────────────────────────────────────────
@@ -275,9 +296,23 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     chatHistoryRef.current = []
   }, [])
 
+  const transcriptRef = useRef<TranscriptEntry[]>([])
+  transcriptRef.current = transcript
+
+  const buildSortedTranscript = useCallback(() => {
+    const order = itemOrderRef.current
+    const sorted = [...transcriptRef.current].sort((a, b) => {
+      const aIdx = a.itemId ? order.indexOf(a.itemId) : -1
+      const bIdx = b.itemId ? order.indexOf(b.itemId) : -1
+      if (aIdx === -1 || bIdx === -1) return 0
+      return aIdx - bIdx
+    })
+    return sorted.map((e) => `${e.role === 'user' ? 'Rep' : 'Assistant'}: ${e.text}`).join('\n')
+  }, [])
+
   const fallbackExtract = useCallback(async () => {
     cleanup()
-    const transcriptText = fullTranscriptRef.current.trim()
+    const transcriptText = buildSortedTranscript()
 
     // Always save transcript for conversation history (if there's content)
     if (transcriptText) {
@@ -343,7 +378,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         variant: 'destructive',
       })
     }
-  }, [cleanup, accountId, selectedAccount, router, reset])
+  }, [cleanup, accountId, selectedAccount, router, reset, buildSortedTranscript])
 
   const trackItemOrder = useCallback((itemId: string) => {
     if (itemId && !itemOrderRef.current.includes(itemId)) {
@@ -375,6 +410,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
         if (userText) {
+          // Filter Whisper hallucinations (non-Latin text, known false patterns)
+          if (isWhisperHallucination(userText)) {
+            break
+          }
           // Client-side noise filter: skip single-word transcriptions (likely ambient noise)
           // unless it's a farewell phrase which should always be processed
           const wordCount = userText.split(/\s+/).length
@@ -445,7 +484,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
               
               cleanup()
               // Save transcript silently for conversation history
-              if (fullTranscriptRef.current.trim() && accountId) {
+              const sortedTranscript = buildSortedTranscript()
+              if (sortedTranscript && accountId) {
                 fetch('/api/capture/save', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -453,7 +493,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
                     account_id: accountId || null,
                     account_name: selectedAccount?.name || 'Unknown Account',
                     mode: 'prep',
-                    transcript: fullTranscriptRef.current,
+                    transcript: sortedTranscript,
                   }),
                 }).catch(console.error)
               }
@@ -989,7 +1029,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           insights: extractedCapture.insights,
           tasks: extractedCapture.tasks,
           notes: extractedCapture.notes,
-          transcript: fullTranscriptRef.current || null,
+          transcript: buildSortedTranscript() || fullTranscriptRef.current || null,
         }),
       })
       if (!res.ok) {
