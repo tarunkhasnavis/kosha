@@ -23,24 +23,28 @@ const EXTRACTION_PROMPT = `You extract structured data from a sales rep's voice 
 
 Given a transcript, extract:
 
-1. ACCOUNTS — business/venue names mentioned.
+1. TITLE — a short, meaningful title for this note (5-8 words max). Combine the account name with the key topic. Examples: "Roosters: seltzer order + competitor intel", "Pint House: new account intro with Greg", "Shenanigans: routine check-in, no changes"
+
+2. ACCOUNTS — business/venue names mentioned.
    - name: the business name exactly as mentioned
 
-2. TASKS — follow-up action items the rep needs to do.
+3. TASKS — follow-up action items the rep needs to do.
    - task: clear description of what needs to happen
    - due_date: if mentioned (resolve relative dates to ISO format), null otherwise
    - account_name: which account this relates to
 
-3. SUMMARY — bullet-point summary of key takeaways. Each bullet is one fact or observation. Keep it scannable — a rep should absorb it in 5 seconds.
+4. SUMMARY — bullet-point summary of key takeaways. Each bullet is one fact or observation. Keep it scannable — a rep should absorb it in 5 seconds.
 
 Rules:
 - Only extract clearly actionable tasks ("send pricing by Friday"), not vague intentions ("maybe follow up")
 - Account names should match exactly as the rep said them
 - Summary should be bullet points, not prose. 3-6 bullets max.
 - If no accounts or tasks mentioned, return empty arrays
+- Title should always be present even if no account is mentioned (use the topic instead)
 
 Respond with JSON:
 {
+  "title": "Roosters: seltzer order + competitor intel",
   "summary": "- Met with Danny, bar manager\\n- Wants citrus seltzer line, 5 cases\\n- Delivery needed by Friday\\n- Competitor across street switched distributors",
   "accounts": [{ "name": "Roosters" }],
   "tasks": [{ "task": "Send pricing sheet to Danny", "due_date": "2026-04-18", "account_name": "Roosters" }]
@@ -182,7 +186,7 @@ export async function POST(request: Request) {
         user_id: user.id,
         organization_id: orgId,
         account_id: primaryAccountId,
-        account_name: primaryAccountName || 'Unknown',
+        account_name: primaryAccountName || extracted.title || 'Untitled',
         transcript,
         summary: extracted.summary || null,
       })
@@ -218,6 +222,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       session_id: captureId,
+      title: extracted.title || primaryAccountName || 'Untitled',
       summary: extracted.summary,
       accounts: extracted.accounts,
       tasks: extracted.tasks,
