@@ -134,12 +134,14 @@ export async function POST(request: Request) {
 
     for (const account of extracted.accounts || []) {
       // Try to find existing account (case-insensitive)
-      const { data: existing } = await supabase
+      const { data: existing, error: lookupError } = await supabase
         .from('accounts')
         .select('id, name')
         .ilike('name', account.name)
         .limit(1)
-        .single()
+        .maybeSingle()
+
+      console.log('Account lookup:', account.name, '→', existing ? existing.name : 'not found', lookupError ? `error: ${lookupError.message}` : '')
 
       if (existing) {
         accountIds.push(existing.id)
@@ -154,7 +156,8 @@ export async function POST(request: Request) {
           .eq('id', existing.id)
       } else {
         // Account not found — create it
-        const { data: newAccount } = await supabase
+        console.log('Creating account:', account.name, 'for user:', user.id, 'org:', orgId)
+        const { data: newAccount, error: accountError } = await supabase
           .from('accounts')
           .insert({
             name: account.name,
@@ -167,7 +170,10 @@ export async function POST(request: Request) {
           .select('id, name')
           .single()
 
-        if (newAccount) {
+        if (accountError) {
+          console.error('Failed to create account:', accountError)
+        } else if (newAccount) {
+          console.log('Account created:', newAccount.id, newAccount.name)
           accountIds.push(newAccount.id)
           if (!primaryAccountId) {
             primaryAccountId = newAccount.id
