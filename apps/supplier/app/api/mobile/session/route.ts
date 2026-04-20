@@ -133,15 +133,13 @@ export async function POST(request: Request) {
     let primaryAccountName: string | null = null
 
     for (const account of extracted.accounts || []) {
-      // Try to find existing account (case-insensitive)
-      const { data: existing, error: lookupError } = await supabase
-        .from('accounts')
-        .select('id, name')
-        .ilike('name', account.name)
+      // Fuzzy match against existing accounts using pg_trgm
+      const { data: matches, error: lookupError } = await supabase
+        .rpc('match_account', { search_name: account.name })
         .limit(1)
-        .maybeSingle()
 
-      console.log('Account lookup:', account.name, '→', existing ? existing.name : 'not found', lookupError ? `error: ${lookupError.message}` : '')
+      const existing = matches?.[0] || null
+      console.log('Account lookup:', account.name, '→', existing ? `${existing.name} (sim: ${existing.sim})` : 'not found', lookupError ? `error: ${lookupError.message}` : '')
 
       if (existing) {
         accountIds.push(existing.id)
