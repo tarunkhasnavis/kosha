@@ -313,6 +313,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const fallbackExtract = useCallback(async () => {
     cleanup()
     const transcriptText = buildSortedTranscript()
+    const extractAccountId = accountId || null
+    const extractAccountName = selectedAccount?.name || 'Field Notes'
 
     // Always save transcript for conversation history (if there's content)
     if (transcriptText) {
@@ -321,8 +323,8 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            account_id: accountId || null,
-            account_name: selectedAccount?.name || (false ? 'Discovery' : 'Conversation'),
+            account_id: extractAccountId,
+            account_name: extractAccountName,
             mode: 'debrief',
             transcript: transcriptText,
           }),
@@ -340,13 +342,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
       if (transcriptText) {
         toast({ title: 'Conversation saved', description: 'Too short to extract insights.' })
       }
-      return
-    }
-
-    if (!accountId) {
-      router.refresh()
-      reset()
-      toast({ title: 'Conversation saved' })
       return
     }
 
@@ -1007,15 +1002,6 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const saveCapture = useCallback(async () => {
     if (!extractedCapture) return
 
-    if (!accountId) {
-      setAccountPopoverOpen(true)
-      toast({
-        title: 'Select an account',
-        description: 'Choose which account to save this capture to.',
-      })
-      return
-    }
-
     setSaving(true)
     try {
       const res = await fetch('/api/capture/save', {
@@ -1023,7 +1009,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           account_id: accountId || null,
-          account_name: selectedAccount?.name || 'Unknown Account',
+          account_name: selectedAccount?.name || 'Field Notes',
           mode: 'debrief',
           summary: extractedCapture.summary,
           insights: extractedCapture.insights,

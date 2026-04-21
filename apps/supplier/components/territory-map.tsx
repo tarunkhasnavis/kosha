@@ -106,6 +106,8 @@ function formatPlanDateLabel(dateStr: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+const DISCOVERY_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DISCOVERY !== 'false'
+
 export function TerritoryMap({
   accounts,
   todayVisits,
@@ -239,7 +241,7 @@ export function TerritoryMap({
 
   // Fetch all discovered accounts once (25 across all categories)
   const fetchDiscovery = useCallback(() => {
-    if (!map.current) return
+    if (!map.current || !DISCOVERY_ENABLED) return
 
     const center = map.current.getCenter()
     const zoom = map.current.getZoom()
@@ -563,8 +565,8 @@ export function TerritoryMap({
           markersRef.current.push(marker)
         })
 
-        // Show auto-discovered accounts as gray markers
-        filteredDiscovered.forEach((discovered) => {
+        // Show auto-discovered accounts as gray markers (if discovery enabled)
+        DISCOVERY_ENABLED && filteredDiscovered.forEach((discovered) => {
           const marker = createDiscoveredMarker(discovered, map.current!, (d) => {
             setSelectedDiscovered(d)
           })
@@ -902,8 +904,8 @@ export function TerritoryMap({
               />
             </div>
 
-            {/* Category Filter Pills — horizontal scroll */}
-            {!addStopMode && <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+            {/* Category Filter Pills — horizontal scroll (discovery only) */}
+            {DISCOVERY_ENABLED && !addStopMode && <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
               <button
                 onClick={() => setDrawerCategory('all')}
                 className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors shrink-0 ${
@@ -933,7 +935,7 @@ export function TerritoryMap({
           {/* Results List */}
           <div className="flex-1 overflow-y-auto px-5 pt-2 pb-8">
             {/* Discovered Accounts (ranked by AI score) */}
-            {drawerResults.discovered.length > 0 && (
+            {DISCOVERY_ENABLED && drawerResults.discovered.length > 0 && (
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-amber-500" />
@@ -1401,7 +1403,7 @@ export function TerritoryMap({
       </Sheet>
 
       {/* Discovery Preview Card */}
-      {selectedDiscovered && (
+      {DISCOVERY_ENABLED && selectedDiscovered && (
         <div className="absolute left-3 right-3 z-20" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 4.5rem)' }}>
           <div className="bg-white rounded-2xl shadow-xl border border-stone-200 p-4 space-y-3">
             <div className="flex items-start justify-between">
