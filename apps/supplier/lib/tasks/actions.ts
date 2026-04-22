@@ -126,6 +126,7 @@ export async function createTask(input: {
   const supabase = await createClient()
 
   const { error } = await supabase.from('tasks').insert({
+    user_id: user.id,
     organization_id: orgId,
     account_id: input.accountId,
     account_name: input.accountName,
