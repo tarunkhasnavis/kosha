@@ -201,7 +201,7 @@ export function NextStepsList({ tasks, accounts, priorityAccounts = [] }: NextSt
     const suggested = incomplete
       .filter((t) => priorityAccountIds.has(t.account_id))
       .sort((a, b) => (scoreMap.get(b.account_id) || 0) - (scoreMap.get(a.account_id) || 0))
-      .slice(0, 2)
+      .slice(0, 1)
 
     return { categorized: groups, completedTasks: completed, suggestedTasks: suggested }
   }, [filteredTasks, priorityAccounts])

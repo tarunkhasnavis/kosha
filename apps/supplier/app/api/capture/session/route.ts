@@ -494,7 +494,7 @@ export async function POST(request: Request) {
           type: 'semantic_vad',
           eagerness: 'low',
           create_response: true,
-          interrupt_response: true,
+          interrupt_response: false,
         },
       }),
     })
