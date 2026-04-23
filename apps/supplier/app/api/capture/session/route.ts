@@ -489,7 +489,7 @@ export async function POST(request: Request) {
           model: 'whisper-1',
         },
         temperature: 0.6,
-        max_response_output_tokens: 1024,
+        max_response_output_tokens: 300,
         turn_detection: {
           type: 'semantic_vad',
           eagerness: 'low',
