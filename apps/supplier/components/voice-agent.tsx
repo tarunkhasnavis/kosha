@@ -138,6 +138,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const isSpeakingRef = useRef(false)
   const [isMuted, setIsMuted] = useState(false)
   const [textInput, setTextInput] = useState('')
   const [textFocused, setTextFocused] = useState(false)
@@ -405,6 +406,10 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
         if (userText) {
+          // Drop transcriptions that arrived while the agent was speaking — likely echo
+          if (isSpeakingRef.current) {
+            break
+          }
           // Filter Whisper hallucinations (non-Latin text, known false patterns)
           if (isWhisperHallucination(userText)) {
             break
@@ -429,6 +434,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
         currentAssistantTextRef.current += delta
         const itemId = event.item_id as string
         if (itemId) trackItemOrder(itemId)
+        isSpeakingRef.current = true
         setIsSpeaking(true)
         break
       }
@@ -441,6 +447,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
           fullTranscriptRef.current += `Assistant: ${assistantText}\n`
         }
         currentAssistantTextRef.current = ''
+        isSpeakingRef.current = false
         setIsSpeaking(false)
         break
       }
@@ -855,6 +862,7 @@ export function VoiceAgent({ accounts, captures = [] }: VoiceAgentProps) {
     setState('connecting')
     setTranscript([])
     setExtractedCapture(null)
+    isSpeakingRef.current = false
     setIsSpeaking(false)
     currentAssistantTextRef.current = ''
     fullTranscriptRef.current = ''
