@@ -1591,6 +1591,18 @@ export function TerritoryMap({
                 loading={detailLoading}
                 onClose={handlePanelClose}
                 onDeleted={handlePanelClose}
+                onRefresh={() => {
+                  setDetailLoading(true)
+                  fetchAccountDetails(selectedAccount.id)
+                    .then((details) => {
+                      setDetailInsights(details.insights)
+                      setDetailTasks(details.tasks)
+                      setDetailVisits(details.visits)
+                      setDetailCaptures(details.captures)
+                      setDetailContacts(details.contacts)
+                    })
+                    .finally(() => setDetailLoading(false))
+                }}
               />
             )}
           </div>

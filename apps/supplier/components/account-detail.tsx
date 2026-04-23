@@ -37,7 +37,7 @@ import {
 import { AccountForm } from './account-form'
 import { TaskList } from './task-list'
 import { ConversationList } from './conversation-list'
-import { deleteAccount } from '@/lib/accounts/actions'
+import { deleteAccount, clearAccountActivity } from '@/lib/accounts/actions'
 import { toast } from '@/hooks/use-toast'
 import type { Account, Visit, Insight, Task, Capture } from '@kosha/types'
 import type { AccountContact, AccountNote, AccountPhoto } from '@kosha/types'
@@ -103,6 +103,7 @@ interface AccountDetailProps {
   loading?: boolean
   onClose?: () => void
   onDeleted?: () => void
+  onRefresh?: () => void
 }
 
 export function AccountDetail({
@@ -117,9 +118,11 @@ export function AccountDetail({
   loading,
   onClose,
   onDeleted,
+  onRefresh,
 }: AccountDetailProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
 
   async function handleDelete() {
@@ -229,45 +232,45 @@ export function AccountDetail({
               </div>
             ) : (
               <>
-                {/* Insights */}
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-3">Insights</h3>
-                  {!insights || insights.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-2">
-                      No insights captured yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {insights.map((insight) => {
-                        const typeInfo = insightTypeConfig[insight.insight_type] || insightTypeConfig.demand
-                        return (
-                          <div key={insight.id} className="bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <Badge className={typeInfo.className}>{typeInfo.label}</Badge>
-                              <span className="text-xs text-muted-foreground ml-auto">
-                                {new Date(insight.created_at).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                })}
-                              </span>
-                            </div>
-                            <p className="text-sm">{insight.description}</p>
-                            {insight.suggested_action && (
-                              <p className="text-xs text-blue-600 mt-1.5 font-medium">
-                                {insight.suggested_action}
-                              </p>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
+                {/* Tasks */}
+                <TaskList tasks={tasks || []} />
 
                 <Separator />
 
-                {/* Tasks */}
-                <TaskList tasks={tasks || []} />
+                {/* Recent Notes — bullet points from latest captures */}
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">Recent Notes</h3>
+                  {!captures || captures.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">
+                      No notes captured yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {captures.slice(0, 2).map((capture) => (
+                        <div key={capture.id} className="bg-white rounded-xl p-3.5 border border-stone-100 shadow-sm">
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(capture.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </span>
+                          {capture.summary ? (
+                            <ul className="mt-1.5 space-y-1">
+                              {capture.summary.split(/\.\s+/).filter(Boolean).map((point, i) => (
+                                <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                                  <span className="text-stone-400 mt-0.5 shrink-0">&#8226;</span>
+                                  <span>{point.endsWith('.') ? point : `${point}.`}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground mt-1.5">No summary available.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -495,6 +498,26 @@ export function AccountDetail({
             onCancel={() => setEditOpen(false)}
           />
           <Separator />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+            disabled={clearing}
+            onClick={async () => {
+              setClearing(true)
+              const result = await clearAccountActivity(account.id)
+              setClearing(false)
+              if (result.error) {
+                toast({ title: 'Error', description: result.error, variant: 'destructive' })
+              } else {
+                toast({ title: 'Activity cleared' })
+                setEditOpen(false)
+                onRefresh?.()
+              }
+            }}
+          >
+            {clearing ? 'Clearing...' : 'Clear Activity'}
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-600 hover:bg-red-50">

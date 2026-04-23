@@ -331,3 +331,41 @@ export async function deleteAccountContact(
 
   return { success: true }
 }
+
+/**
+ * Clear all activity data for an account (captures, insights, tasks, notes).
+ * Keeps the account itself and its contacts intact.
+ */
+export async function clearAccountActivity(
+  accountId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const supabase = await createClient()
+
+  const orgId = await getOrganizationId()
+  if (!orgId) return { success: false, error: 'No organization found' }
+
+  const { createServiceClient } = await import('@kosha/supabase/service')
+  const serviceClient = createServiceClient()
+
+  const tables = ['captures', 'insights', 'tasks', 'account_notes']
+  for (const table of tables) {
+    const { error, count } = await serviceClient
+      .from(table)
+      .delete({ count: 'exact' })
+      .eq('account_id', accountId)
+      .eq('organization_id', orgId)
+    if (error) {
+      console.error(`Failed to clear ${table}:`, error)
+      return { success: false, error: `Failed to clear ${table}: ${error.message}` }
+    }
+    console.log(`Cleared ${count} rows from ${table}`)
+  }
+
+  revalidatePath('/capture')
+  revalidatePath('/territory')
+  revalidatePath('/next-steps')
+  return { success: true }
+}
